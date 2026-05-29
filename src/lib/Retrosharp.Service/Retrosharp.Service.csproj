@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CsvHelper" Version="33.1.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.8" />
+    <PackageReference Include="NServiceBus" Version="10.2.0" />
+    <PackageReference Include="NServiceBus.RabbitMQ" Version="11.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Retrosharp.Data\Retrosharp.Data.csproj" />
+    <ProjectReference Include="..\Retrosharp.Service.Interface\Retrosharp.Service.Interface.csproj" />
+    <ProjectReference Include="..\Retrosharp\Retrosharp.csproj" />
+  </ItemGroup>
+
+</Project>

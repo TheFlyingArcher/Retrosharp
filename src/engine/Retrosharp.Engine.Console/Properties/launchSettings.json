@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Retrosharp.Engine.Console": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
