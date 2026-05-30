@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 using Retrosharp.Data.Context;
 namespace Retrosharp.Data
@@ -7,7 +8,7 @@ namespace Retrosharp.Data
     {
         public static void Register(IServiceCollection services)
         {
-            services.AddTransient<IRetrosharpContext, RetrosharpContext>();
+            services.AddDbContext<RetrosharpContext>(b => b.UseSqlServer("Server=(localdb)\\mssqllocaldb;Database=Retrosharp;Trusted_Connection=true;"));
         }
     }
 }

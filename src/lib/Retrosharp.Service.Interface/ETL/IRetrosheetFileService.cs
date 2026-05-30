@@ -1,19 +1,20 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Text;
-
-using Retrosharp.Format;
+using System.Threading.Tasks;
 
 namespace Retrosharp.Service.Interface.ETL
 {
-    public interface IRetrosheetFileService<T>
-        where T: RetrosheetFile
+    /// <summary>
+    /// Defines the contract for Retrosheet file parsing services.
+    /// </summary>
+    /// <typeparam name="F">The type of Retrosheet file being parsed.</typeparam>
+    public interface IRetrosheetFileService<F>
     {
         /// <summary>
-        /// Parse a Retrosheet data file
+        /// Asynchronously parses a Retrosheet file and returns the parsed records.
         /// </summary>
-        /// <param name="retrosheetFilePath">Path to the Retrosheet file</param>
-        /// <returns>The completed parsed file</returns>
-        Task<IEnumerable<T>> ParseFileAsync(string retrosheetFilePath);
+        /// <param name="retrosheetFilePath">The path to the Retrosheet file to parse.</param>
+        /// <returns>A collection of parsed records of type F.</returns>
+        Task<IEnumerable<F>> ParseFileAsync(string retrosheetFilePath);
     }
 }

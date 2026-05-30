@@ -16,4 +16,10 @@
     <PackageReference Include="NServiceBus.RabbitMQ" Version="11.2.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\lib\Retrosharp.Service.Interface\Retrosharp.Service.Interface.csproj" />
+    <ProjectReference Include="..\..\lib\Retrosharp.Service\Retrosharp.Service.csproj" />
+    <ProjectReference Include="..\..\lib\Retrosharp\Retrosharp.csproj" />
+  </ItemGroup>
+
 </Project>
