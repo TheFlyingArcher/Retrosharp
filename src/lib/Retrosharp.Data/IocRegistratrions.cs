@@ -2,11 +2,12 @@
 using Microsoft.Extensions.DependencyInjection;
 
 using Retrosharp.Data.Context;
+using Retrosharp.DI;
 namespace Retrosharp.Data
 {
-    public class IocRegistratrions
+    public class IocRegistratrions : IRegister
     {
-        public static void Register(IServiceCollection services)
+        public async Task Register(IServiceCollection services)
         {
             services.AddDbContext<RetrosharpContext>(b => b.UseSqlServer("Server=(localdb)\\mssqllocaldb;Database=Retrosharp;Trusted_Connection=true;"));
 
