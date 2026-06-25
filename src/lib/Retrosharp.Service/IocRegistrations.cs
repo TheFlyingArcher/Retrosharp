@@ -10,6 +10,7 @@ using DI = Retrosharp.DI;
 
 using Retrosharp.Format;
 using Retrosharp.Service.ETL;
+using Retrosharp.Service.Interface;
 using Retrosharp.Service.Interface.ETL;
 
 namespace Retrosharp.Service
@@ -18,8 +19,15 @@ namespace Retrosharp.Service
     {
         public async Task Register(IServiceCollection services)
         {
+            // ETL file services
             services.AddTransient<IRetrosheetFileService<GameLog>, GameLogFileService>();
             services.AddTransient<IRetrosheetFileService<BioFile>, BioFileService>();
+
+            // Business logic services
+            services.AddTransient<IPersonService, PersonService>();
+            services.AddTransient<IGameService, GameService>();
+            services.AddTransient<IBattingService, BattingService>();
+            services.AddTransient<IPlayerStatisticsService, PlayerStatisticsService>();
         }
     }
 }

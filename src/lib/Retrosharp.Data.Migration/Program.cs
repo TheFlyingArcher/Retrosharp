@@ -6,12 +6,30 @@ using Retrosharp.Configuration;
 using Retrosharp.Data.Context;
 using Retrosharp.DI;
 
-var builder = Host.CreateApplicationBuilder(args);
-var config = RetrosharpConfiguration.Instance();
-builder.Services.AddMapster();
-builder.Services.AddDbContext<RetrosharpContext>(b => b.UseSqlServer(config.ConnectionString));
-await ContainerRegistration.RegisterContainer(builder.Services, typeof(Program).Assembly);
+namespace Retrosharp.Data.Migrator
+{
+    class Program
+    {
+        static async Task Main(string[] args)
+        {
+            var builder = Host.CreateApplicationBuilder(args);
+            var config = RetrosharpConfiguration.Instance();
+            builder.Services.AddMapster();
+            builder.Services.AddDbContext<RetrosharpContext>(b => b.UseSqlServer(config.ConnectionString,
+                options => options.MigrationsAssembly("Retrosharp.Data.Migration")));
+            await ContainerRegistration.RegisterContainer(builder.Services, typeof(Program).Assembly);
 
-Console.WriteLine("Hello, World!");
+            var host = builder.Build();
 
-await builder.Build().RunAsync();
+            // Apply migrations
+            using (var scope = host.Services.CreateScope())
+            {
+                var dbContext = scope.ServiceProvider.GetRequiredService<RetrosharpContext>();
+                await dbContext.Database.MigrateAsync();
+                Console.WriteLine("Database migrations applied successfully.");
+            }
+
+            await host.RunAsync();
+        }
+    }
+}

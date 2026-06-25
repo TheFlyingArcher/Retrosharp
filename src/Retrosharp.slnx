@@ -9,6 +9,9 @@
     <Project Path="lib/Retrosharp.Service/Retrosharp.Service.csproj" Id="e9b44e54-2367-40f7-98e0-7ecc82b2952f" />
     <Project Path="lib/Retrosharp/Retrosharp.csproj" Id="46752eab-ac2e-4fa9-b185-a250a6ee0ef7" />
   </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="../spec/project.md" />
+  </Folder>
   <Folder Name="/ui/">
     <Project Path="ui/Retrosharp.UI.Api/Retrosharp.UI.Api.csproj" Id="41176f60-6d01-4560-b756-23782baaf6da" />
   </Folder>
