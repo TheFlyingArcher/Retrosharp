@@ -3,6 +3,7 @@
     <Project Path="engine/Retrosharp.Engine.Console/Retrosharp.Engine.Console.csproj" />
   </Folder>
   <Folder Name="/lib/">
+    <Project Path="lib/Retrosharp.Data.Migration/Retrosharp.Data.Migration.csproj" Id="71b0dc3f-373e-4e55-ab60-a055da8d25ba" />
     <Project Path="lib/Retrosharp.Data/Retrosharp.Data.csproj" Id="a0afd9b5-a6c8-46d1-92a3-28d4b2c7916d" />
     <Project Path="lib/Retrosharp.Service.Interface/Retrosharp.Service.Interface.csproj" />
     <Project Path="lib/Retrosharp.Service/Retrosharp.Service.csproj" Id="e9b44e54-2367-40f7-98e0-7ecc82b2952f" />

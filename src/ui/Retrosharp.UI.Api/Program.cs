@@ -1,12 +1,14 @@
+using Mapster;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Identity.Web;
-
 using Retrosharp.DI;
 
 var builder = WebApplication.CreateBuilder(args);
 
 await ContainerRegistration.RegisterContainer(builder.Services, typeof(Program).Assembly);
+
+builder.Services.AddMapster();
 
 // Add services to the container.
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

@@ -33,9 +33,9 @@ namespace Retrosharp.Contract.Batting
         public short AtBats { get; set; }
 
         /// <summary>
-        /// Total hits.
+        /// Total singles
         /// </summary>
-        public short Hit { get; set; }
+        public short Hits { get; set; }
 
         /// <summary>
         /// Total doubles.

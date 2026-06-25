@@ -10,6 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Mapster" Version="10.0.7" />
+    <PackageReference Include="Mapster.DependencyInjection" Version="10.0.7" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" NoWarn="NU1605" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.8" NoWarn="NU1605" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
@@ -23,6 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\lib\Retrosharp.Data\Retrosharp.Data.csproj" />
     <ProjectReference Include="..\..\lib\Retrosharp.Service.Interface\Retrosharp.Service.Interface.csproj" />
     <ProjectReference Include="..\..\lib\Retrosharp.Service\Retrosharp.Service.csproj" />
     <ProjectReference Include="..\..\lib\Retrosharp\Retrosharp.csproj" />

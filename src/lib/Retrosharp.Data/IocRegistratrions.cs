@@ -9,8 +9,6 @@ namespace Retrosharp.Data
     {
         public async Task Register(IServiceCollection services)
         {
-            services.AddDbContext<RetrosharpContext>(b => b.UseSqlServer("Server=(localdb)\\mssqllocaldb;Database=Retrosharp;Trusted_Connection=true;"));
-
             services.AddTransient<IGameRepository, GameRepository>();
             services.AddTransient<IGameLineupRepository, GameLineupRepository>();
         }

@@ -10,6 +10,15 @@ namespace Retrosharp.Data.Context
 {
     public class RetrosharpContext : DbContext
     {
+        public RetrosharpContext()
+        {
+
+        }
+
+        public RetrosharpContext(DbContextOptions<RetrosharpContext> options) : base(options)
+        {
+        }
+
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
             base.OnConfiguring(optionsBuilder);

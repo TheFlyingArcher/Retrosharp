@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 
 using MapsterMapper;
+using Microsoft.EntityFrameworkCore;
 
 using Retrosharp.Contract.Game;
 using Retrosharp.Data.Context;
@@ -18,12 +19,20 @@ namespace Retrosharp.Data
 
         public async Task<IEnumerable<Game>> GetByHomeFranchiseIdAsync(int homeFranchiseId)
         {
-            throw new NotImplementedException();
+            var models = await Context.Set<GameModel>()
+                .Where(g => g.HomeFranchiseId == homeFranchiseId)
+                .ToListAsync();
+
+            return models.Select(m => Mapper.Map<Game>(m));
         }
 
         public async Task<IEnumerable<Game>> GetByVisitorFranchiseIdAsync(int visitorFranchiseId)
         {
-            throw new NotImplementedException();
+            var models = await Context.Set<GameModel>()
+                .Where(g => g.VisitorFranchiseId == visitorFranchiseId)
+                .ToListAsync();
+
+            return models.Select(m => Mapper.Map<Game>(m));
         }
     }
 }
