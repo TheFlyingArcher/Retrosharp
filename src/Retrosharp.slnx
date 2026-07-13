@@ -11,9 +11,12 @@
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path="../spec/project.md" />
+    <File Path="../spec/person.md" />
+    <File Path="../spec/game-event.md" />
+    <File Path="../spec/game-log.md" />
+    <File Path="../spec/seed-data.md" />
   </Folder>
   <Folder Name="/ui/">
     <Project Path="ui/Retrosharp.UI.Api/Retrosharp.UI.Api.csproj" Id="41176f60-6d01-4560-b756-23782baaf6da" />
   </Folder>
-
 </Solution>

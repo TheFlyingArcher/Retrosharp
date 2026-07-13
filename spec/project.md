@@ -20,17 +20,43 @@ The application provides a user-friendly interface for browsing and analyzing th
 
 ## Architecture
 
-Retrosharp is an n-tiered web application with standard data, service (business logic), and presentation layers with logical separations. Retrosharp is built with
-.NET 10 and C# 13.0, and it uses a SQL Server database for data storage. The application is designed to be modular and extensible,
-allowing for future enhancements and additional features. The Retrosharp ETL process is governed by a service bus using the NServiceBus library backed by RabbitMQ, so that processing
-Retrosheet datafiles is asynchronous, scalable, and provides detailed logging of the ETL process. The Retrosharp front end is an Angular 17 application that communicates with the backend via RESTful APIs.
-The application is designed to be responsive and accessible, ensuring a seamless user experience across different devices and screen sizes.
+Retrosharp is an n-tiered web application with standard data, service (business logic), and presentation layers with logical separations. Retrosharp is built with .NET 10 and C# 13.0, and it uses a SQL Server database for data storage. The application is designed to be modular and extensible, allowing for future enhancements and additional features. The Retrosharp ETL process is governed by a service bus using the NServiceBus library backed by RabbitMQ, so that processing Retrosheet datafiles is asynchronous, scalable, and provides detailed logging of the ETL process. The Retrosharp front end is an Angular 17 application that communicates with the backend via RESTful APIs. The application is designed to be responsive and accessible, ensuring a seamless user experience across different devices and screen sizes.
 
-## Acceptance Criteria
+### Data Layer
 
-### Initial
+The data layer is responsible for managing the database and providing data access to the service layer. The data layer uses Entity Framework Core as the Object Relational Mapping (ORM) framework to interact with the SQL Server database.The data layer defines the database schema, relationships, and constraints using a code-first approach, ensuring that the database is created and maintained based on the application's data model. The data layer uses the repository pattern so that the service layer can interact with the database through a set of well-defined interfaces, promoting separation of concerns and testability. This also allows abstraction of the underlying database technology, making it easier to switch to a different database provider in the future if needed.
 
-These criteria are to get the application to a minimum viable product (MVP) state, where it can be used for basic data exploration and analysis.
+### Data Import Pipeline
+
+Retrosheet data is imported through a series of ETL parsers, each responsible for a specific Retrosheet datafile and a specific set of database tables. These parsers must run in the following dependency order, though multiple files within the same stage may be processed concurrently with one another:
+
+1. **Seed Data** populates the `League`, `Franchise`, and `Ballpark` tables from static Retrosheet reference data. See [seed-data.md](./seed-data.md).
+1. **Person Parser** populates the `Person` table (players, managers, umpires, and coaches) from Retrosheet's biographical file (the "biofile"). See [person.md](./person.md).
+1. **Game Log Parser** populates the `Game`, `GameLineup`, `GameBattingStatistics`, `GamePitchingStatistics`, and `GameFieldingStatistics` tables from Retrosheet's season-wide Game Logs files, which contain one row of aggregate, team-level statistics per game across all teams. See [game-log.md](./game-log.md).
+1. **Game Event Parser** populates the `GameEvent` table, and derives the player-level `Batting`, `Pitching`, and `Fielding` tables, from Retrosheet's team-season play-by-play event files. See [game-event.md](./game-event.md).
+
+`Game` is populated exclusively by the Game Log Parser. The Game Event Parser requires a `Game` record to already exist before it can associate play-by-play events with it, and never creates `Game` records itself.
+
+## Deployable Components
+
+### Retrosharp.Engine.Console
+
+This is a console application which is intended to run in the background. This application receives incoming messages on a service bus. The main purpose of this application is to process each of the Retrosheet datafiles and populate the Retrosharp database. Each datafile is its own NServiceBus saga. The underlying service bus is RabbitMQ.
+
+### Retrosharp.UI.Api
+
+This is an ASP.NET Web API providing RESTful API endpoints for the Retrosharp front end. The API is responsible for handling requests from the front end, processing data, and returning responses in JSON format.
+The API also handles authentication and authorization, ensuring that only authorized users can access certain endpoints.
+
+### Retrosharp.UI.Web
+
+This is an Angular 17 application that serves as the front end for Retrosharp. The front end provides a user-friendly interface for browsing and analyzing baseball data and statistics.
+
+## Project Phases
+
+### Initial Phase
+
+This phase is to get a minimum viable product (MVP) of Retrosharp up and running. The MVP will include the following features:
 
 1. Database setup: The application should have a SQL Server database set up with the necessary tables and relationships to store Retrosheet data.
 	1. Use a code-first approach with Entity Framework Core to define the database schema and relationships.
@@ -43,7 +69,10 @@ These criteria are to get the application to a minimum viable product (MVP) stat
 1. ETL processes are initiated by receving messages on a service bus with the following information:
 	1. The Retrosheet datafile to be processed
 	1. The type of datafile, and the location of the datafile.
-	1. The ETL process should be asynchronous and scalable, allowing for multiple datafiles to be processed simultaneously.
+	1. The ETL process should be asynchronous and scalable, allowing for multiple datafiles to be processed simultaneously, subject to the data dependency order below.
+1. Retrosheet data has a dependency order that must be respected, as described in [Data Import Pipeline](#data-import-pipeline): seed data and `Person` must be populated before `Game` can be populated by the Game Log Parser; `Game` must be populated before its derivatives (`GameEvent`, `Batting`, `Pitching`, `Fielding`) can be populated by the Game Event Parser. ETL processes within the same stage of this order may run concurrently with one another.
+	1. If a process encounters a prerequisite that has not yet been satisfied (for example, a Game Event file referencing a game not yet present in `Game`), this is a retryable condition and should be handled using the standard retry/backoff policy rather than treated as a fatal error.
+	1. ETL processes that could write to the same underlying record concurrently (for example, two Game Event files that both contain the same shared game) must resolve this safely using atomic, database-enforced idempotency checks. File-level or global serialization should not be relied upon to prevent this, since it would limit the scalability of processing large volumes of historical data.
 1. ETL processes should provide detailed logging of the processing steps, including any errors or warnings encountered during the process.
 1. ETL processes should be idempotent, ensuring that processing the same datafile multiple times does not result in duplicate records or inconsistent data.
 1. ETL processes should be able to handle large datafiles efficiently, without running out of memory or crashing the application.
