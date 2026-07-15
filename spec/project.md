@@ -9,14 +9,15 @@ The application provides a user-friendly interface for browsing and analyzing th
 
 ## Features
 
-1. **Data Import**: Retrosharp can import Retrosheet data files, which include game logs, player statistics, and team information.
-1. **Player Search**: Users can search for players by name, team, or position to view their career statistics and game logs.
-1. **Advanced Statistics**: The application provides advanced statistical analysis, such as BABIP, FIP, ISO, and WAR, allowing users to gain deeper insights into player performance.
-1. **Player Export**: Users can export statistical data of players to CSV formats so that they may be used in other applications or for further analysis.
-1. **Game Logs**: Retrosharp allows users to search for specific games and view detailed game logs, including play-by-play data and box scores.
-1. **Team Analysis**: Users can analyze team performance over multiple seasons, comparing statistics and trends across different years.
-1. **Administrative**: The application includes administrative features for managing the database, such as adding new players, updating existing records, importing datasets, and maintaining data integrity.
-1. **Single Sign On**: Retrosharp supports single sign-on (SSO) authentication, allowing users to log in using their existing credentials from supported identity providers.
+1. **Data Import** *(Phase 1)*: Retrosharp can import Retrosheet data files, which include game logs, player statistics, and team information.
+1. **Player Search** *(Phase 1)*: Users can search for players by name, team, or position to view their career statistics and game logs.
+1. **Data Viewing** *(Phase 1)*: Users can view imported Retrosheet data in a concise format, including game summaries, individual play-by-play events within a game, and batting, pitching, and fielding statistics for individual players and teams.
+1. **Statistics** *(Phase 1)*: The application calculates statistics derivable directly from imported data, without requiring external reference data such as park factors or replacement-level baselines. This includes AVG, OBP, SLG, OPS, BABIP (for both batters and pitchers), WHIP, ERA, FIP, HR/FB, K/9, HR/9, BB/9, and FP, among others.
+1. **Advanced Statistics** *(Phase 2)*: Statistics requiring external reference data or more involved calculations, such as wRC+ and WAR, are deferred.
+1. **Player Export** *(Phase 2)*: Users can export statistical data of players to CSV formats so that they may be used in other applications or for further analysis.
+1. **Team Analysis** *(Phase 2)*: Users can analyze team performance over multiple seasons, comparing statistics and trends across different years. This is distinct from viewing a team's statistics for a single game or season, which is covered by Data Viewing above.
+1. **Administrative** *(Phase 2)*: The application includes administrative features for managing the database, such as adding new players, updating existing records, importing datasets, and maintaining data integrity.
+1. **Single Sign On** *(Phase 2)*: Retrosharp supports single sign-on (SSO) authentication, allowing users to log in using their existing credentials from supported identity providers.
 
 ## Architecture
 
@@ -62,9 +63,9 @@ This phase is to get a minimum viable product (MVP) of Retrosharp up and running
 	1. Use a code-first approach with Entity Framework Core to define the database schema and relationships.
 	1. Use third normal form (3NF) to ensure data integrity and minimize redundancy wherever possible.
 1. Retrosheet data import: The application should be able to import Retrosheet data files, including game logs, player statistics, and team information.
-1. Statistical calculations based on raw data: The application should be able to calculate basic statistics such as batting average, on-base percentage, slugging percentage, and earned run average based on the imported data.
-	1. Include hitting, pitching, and fielding
+1. Statistical calculations based on raw data: The application should be able to calculate statistics derivable directly from imported data, without requiring external reference data such as park factors or replacement-level baselines. This includes hitting, pitching, and fielding statistics such as AVG, OBP, SLG, OPS, BABIP (for both batters and pitchers), WHIP, ERA, FIP, HR/FB, K/9, HR/9, BB/9, and FP, among others. Statistics requiring external reference data or more involved calculations, such as wRC+ and WAR, are deferred to a later phase.
 1. Player search functionality: Users should be able to search for players by name, team, or position and view their career statistics and game logs.
+1. Data viewing functionality: Users should be able to view imported Retrosheet data in a concise format, including game summaries, individual play-by-play events within a game, and batting, pitching, and fielding statistics for individual players and teams.
 1. Retrosharp API and Retrosharp UI/UX are each independently deployable and can be deployed to a cloud provider of choice using containers.
 1. ETL processes are initiated by receving messages on a service bus with the following information:
 	1. The Retrosheet datafile to be processed
@@ -96,6 +97,9 @@ This is to be implemented after the initial MVP is complete and stable and in pr
 1. Administrative users can import new Retrosheet datasets and update existing data, ensuring that the application remains up-to-date with the latest baseball data.
 1. A dedicated section for Retrosheet's Negro Leagues highlighting historical Black baseball players.
 1. An activity feed of the ETL process detailing to administrator users each steps of the ETL process and reporting errors and warnings back to the user.
+1. Player export: Users can export statistical data of players to CSV formats so that they may be used in other applications or for further analysis.
+1. Advanced statistics requiring external reference data or more involved calculations, such as wRC+ and WAR.
+1. Team analysis: Users can analyze team performance over multiple seasons, comparing statistics and trends across different years, including a resolution for how franchise relocations and renames are grouped for this purpose.
 
 ## Relavent Information
 

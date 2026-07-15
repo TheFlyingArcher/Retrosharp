@@ -26,7 +26,16 @@ namespace Retrosharp.Data.Context
         public DbSet<FranchiseModel> Franchises { get; set; }
         public DbSet<GameModel> Games { get; set; }
         public DbSet<GameLineupModel> GameLineups { get; set; }
-        public DbSet<GameStatisticsModel> GameStatistics { get; set; }
+        public DbSet<GameBattingStatisticsModel> GameBattingStatistics { get; set; }
+        public DbSet<GamePitchingStatisticsModel> GamePitchingStatistics { get; set; }
+        public DbSet<GameFieldingStatisticsModel> GameFieldingStatistics { get; set; }
+        public DbSet<GameEventModel> GameEvents { get; set; }
+        public DbSet<GameEventRunnerModel> GameEventRunners { get; set; }
+        public DbSet<GameEventFieldingCreditModel> GameEventFieldingCredits { get; set; }
+        public DbSet<GameEventGameStatusModel> GameEventGameStatuses { get; set; }
+        public DbSet<GameSubstitutionModel> GameSubstitutions { get; set; }
+        public DbSet<GameAdjustmentModel> GameAdjustments { get; set; }
+        public DbSet<GameCommentModel> GameComments { get; set; }
         public DbSet<LeagueModel> Leagues { get; set; }
         public DbSet<PersonModel> People { get; set; }
         public DbSet<PitchingModel> Pitching { get; set; }
@@ -175,20 +184,176 @@ namespace Retrosharp.Data.Context
                     .OnDelete(DeleteBehavior.Restrict);
             });
 
-            // Configure GameStatistics entity
-            modelBuilder.Entity<GameStatisticsModel>(entity =>
+            // Configure GameBattingStatistics entity
+            modelBuilder.Entity<GameBattingStatisticsModel>(entity =>
             {
                 entity.HasIndex(e => new { e.GameId, e.FranchiseId, e.HomeVisitor });
 
                 entity.HasOne(gs => gs.Game)
-                    .WithMany(g => g.GameStatistics)
+                    .WithMany(g => g.GameBattingStatistics)
                     .HasForeignKey(gs => gs.GameId)
                     .OnDelete(DeleteBehavior.Cascade);
 
                 entity.HasOne(gs => gs.Franchise)
-                    .WithMany(f => f.GameStatistics)
+                    .WithMany(f => f.GameBattingStatistics)
                     .HasForeignKey(gs => gs.FranchiseId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure GamePitchingStatistics entity
+            modelBuilder.Entity<GamePitchingStatisticsModel>(entity =>
+            {
+                entity.HasIndex(e => new { e.GameId, e.FranchiseId, e.HomeVisitor });
+
+                entity.HasOne(gs => gs.Game)
+                    .WithMany(g => g.GamePitchingStatistics)
+                    .HasForeignKey(gs => gs.GameId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(gs => gs.Franchise)
+                    .WithMany(f => f.GamePitchingStatistics)
+                    .HasForeignKey(gs => gs.FranchiseId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure GameFieldingStatistics entity
+            modelBuilder.Entity<GameFieldingStatisticsModel>(entity =>
+            {
+                entity.HasIndex(e => new { e.GameId, e.FranchiseId, e.HomeVisitor });
+
+                entity.HasOne(gs => gs.Game)
+                    .WithMany(g => g.GameFieldingStatistics)
+                    .HasForeignKey(gs => gs.GameId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(gs => gs.Franchise)
+                    .WithMany(f => f.GameFieldingStatistics)
+                    .HasForeignKey(gs => gs.FranchiseId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure GameEvent entity
+            modelBuilder.Entity<GameEventModel>(entity =>
+            {
+                entity.HasIndex(e => new { e.GameId, e.Sequence });
+
+                entity.HasOne(ge => ge.Game)
+                    .WithMany(g => g.GameEvents)
+                    .HasForeignKey(ge => ge.GameId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(ge => ge.Batter)
+                    .WithMany()
+                    .HasForeignKey(ge => ge.BatterId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(ge => ge.Pitcher)
+                    .WithMany()
+                    .HasForeignKey(ge => ge.PitcherId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure GameEventRunner entity
+            // Note: relationships back to GameEvent are Restrict, not Cascade, to avoid a
+            // multiple-cascade-paths conflict with GameEventFieldingCredit (see below), which
+            // has foreign keys to both GameEvent and GameEventRunner.
+            modelBuilder.Entity<GameEventRunnerModel>(entity =>
+            {
+                entity.HasIndex(e => e.GameEventId);
+
+                entity.HasOne(ger => ger.GameEvent)
+                    .WithMany()
+                    .HasForeignKey(ger => ger.GameEventId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(ger => ger.Person)
+                    .WithMany()
+                    .HasForeignKey(ger => ger.PersonId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(ger => ger.ResponsiblePitcher)
+                    .WithMany()
+                    .HasForeignKey(ger => ger.ResponsiblePitcherId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure GameEventFieldingCredit entity
+            modelBuilder.Entity<GameEventFieldingCreditModel>(entity =>
+            {
+                entity.HasIndex(e => e.GameEventId);
+                entity.HasIndex(e => e.GameEventRunnerId);
+
+                entity.HasOne(gefc => gefc.GameEvent)
+                    .WithMany()
+                    .HasForeignKey(gefc => gefc.GameEventId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(gefc => gefc.GameEventRunner)
+                    .WithMany()
+                    .HasForeignKey(gefc => gefc.GameEventRunnerId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(gefc => gefc.Person)
+                    .WithMany()
+                    .HasForeignKey(gefc => gefc.PersonId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure GameEventGameStatus entity
+            // GameId is both the primary key and the foreign key to Game, making this a
+            // shared-primary-key one-to-one relationship. The atomic insert of this row is
+            // what claims a game for statistics application (see spec/game-event.md).
+            modelBuilder.Entity<GameEventGameStatusModel>(entity =>
+            {
+                entity.HasKey(e => e.GameId);
+
+                entity.HasOne(s => s.Game)
+                    .WithOne(g => g.GameEventGameStatus)
+                    .HasForeignKey<GameEventGameStatusModel>(s => s.GameId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure GameSubstitution entity
+            modelBuilder.Entity<GameSubstitutionModel>(entity =>
+            {
+                entity.HasIndex(e => new { e.GameId, e.Sequence });
+
+                entity.HasOne(gs => gs.Game)
+                    .WithMany(g => g.GameSubstitutions)
+                    .HasForeignKey(gs => gs.GameId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(gs => gs.Person)
+                    .WithMany()
+                    .HasForeignKey(gs => gs.PersonId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure GameAdjustment entity
+            modelBuilder.Entity<GameAdjustmentModel>(entity =>
+            {
+                entity.HasIndex(e => new { e.GameId, e.Sequence });
+
+                entity.HasOne(ga => ga.Game)
+                    .WithMany(g => g.GameAdjustments)
+                    .HasForeignKey(ga => ga.GameId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(ga => ga.Person)
+                    .WithMany()
+                    .HasForeignKey(ga => ga.PersonId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure GameComment entity
+            modelBuilder.Entity<GameCommentModel>(entity =>
+            {
+                entity.HasIndex(e => new { e.GameId, e.Sequence });
+
+                entity.HasOne(gc => gc.Game)
+                    .WithMany(g => g.GameComments)
+                    .HasForeignKey(gc => gc.GameId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
 
             // Configure Batting entity
@@ -226,7 +391,7 @@ namespace Retrosharp.Data.Context
             // Configure Fielding entity
             modelBuilder.Entity<FieldingModel>(entity =>
             {
-                entity.HasIndex(e => new { e.PersonId, e.FranchiseId, e.SeasonYear });
+                entity.HasIndex(e => new { e.PersonId, e.FranchiseId, e.SeasonYear, e.Position });
 
                 entity.HasOne(f => f.Person)
                     .WithMany()

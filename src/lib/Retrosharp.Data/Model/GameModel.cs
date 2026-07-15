@@ -285,8 +285,45 @@ namespace Retrosharp.Data.Model
         public ICollection<GameLineupModel> GameLineups { get; set; } = new List<GameLineupModel>();
 
         /// <summary>
-        /// Navigation property for game statistics.
+        /// Navigation property for team-level batting statistics.
         /// </summary>
-        public ICollection<GameStatisticsModel> GameStatistics { get; set; } = new List<GameStatisticsModel>();
+        public ICollection<GameBattingStatisticsModel> GameBattingStatistics { get; set; } = new List<GameBattingStatisticsModel>();
+
+        /// <summary>
+        /// Navigation property for team-level pitching statistics.
+        /// </summary>
+        public ICollection<GamePitchingStatisticsModel> GamePitchingStatistics { get; set; } = new List<GamePitchingStatisticsModel>();
+
+        /// <summary>
+        /// Navigation property for team-level fielding statistics.
+        /// </summary>
+        public ICollection<GameFieldingStatisticsModel> GameFieldingStatistics { get; set; } = new List<GameFieldingStatisticsModel>();
+
+        /// <summary>
+        /// Navigation property for play-by-play events. Populated exclusively by the Game
+        /// Event Parser.
+        /// </summary>
+        public ICollection<GameEventModel> GameEvents { get; set; } = new List<GameEventModel>();
+
+        /// <summary>
+        /// Navigation property for in-game substitutions.
+        /// </summary>
+        public ICollection<GameSubstitutionModel> GameSubstitutions { get; set; } = new List<GameSubstitutionModel>();
+
+        /// <summary>
+        /// Navigation property for handedness/lineup/responsibility adjustment records.
+        /// </summary>
+        public ICollection<GameAdjustmentModel> GameAdjustments { get; set; } = new List<GameAdjustmentModel>();
+
+        /// <summary>
+        /// Navigation property for free-text commentary records.
+        /// </summary>
+        public ICollection<GameCommentModel> GameComments { get; set; } = new List<GameCommentModel>();
+
+        /// <summary>
+        /// Navigation property for this game's Game Event processing status. Null until the
+        /// Game Event Parser has fully applied this game's statistics.
+        /// </summary>
+        public GameEventGameStatusModel GameEventGameStatus { get; set; }
     }
 }

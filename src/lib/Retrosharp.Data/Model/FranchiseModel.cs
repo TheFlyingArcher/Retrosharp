@@ -104,9 +104,19 @@ namespace Retrosharp.Data.Model
         public ICollection<GameModel> HomeGames { get; set; } = new List<GameModel>();
 
         /// <summary>
-        /// Navigation property for game statistics for this franchise.
+        /// Navigation property for team-level batting statistics for this franchise.
         /// </summary>
-        public ICollection<GameStatisticsModel> GameStatistics { get; set; } = new List<GameStatisticsModel>();
+        public ICollection<GameBattingStatisticsModel> GameBattingStatistics { get; set; } = new List<GameBattingStatisticsModel>();
+
+        /// <summary>
+        /// Navigation property for team-level pitching statistics for this franchise.
+        /// </summary>
+        public ICollection<GamePitchingStatisticsModel> GamePitchingStatistics { get; set; } = new List<GamePitchingStatisticsModel>();
+
+        /// <summary>
+        /// Navigation property for team-level fielding statistics for this franchise.
+        /// </summary>
+        public ICollection<GameFieldingStatisticsModel> GameFieldingStatistics { get; set; } = new List<GameFieldingStatisticsModel>();
 
         /// <summary>
         /// Navigation property for player batting records with this franchise.

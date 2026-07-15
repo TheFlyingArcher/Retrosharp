@@ -4,7 +4,7 @@
 
 The Game Event Parser is responsible for parsing out Retrosheet's play-by-play event files. These event files contain detailed information about each play that occurred during a baseball game, including the players involved, the type of play, and the outcome of the play. The Game Event Parser will extract this information and populate the `GameEvent` table in the Retrosharp database.
 
-## Play-by-Play Foramt
+## Play-by-Play Format
 
 Retrosheet's play-by-play format is a text-based format that uses a series of codes to represent different types of plays and events. The format can be [viewed](https://www.retrosheet.org/eventfile.htm) on Retrosheet. The Game Event Parser will need to interpret these codes and extract the relevant information for each play.
 
@@ -37,8 +37,13 @@ One row per play, in chronological order within the game.
 | `PitchSequence` | Raw Retrosheet pitch sequence string |
 | `RawEventText` | Raw Retrosheet play code string, preserved for traceability back to the source data |
 | `EventType` | Categorized event type (single, double, triple, home run, walk, intentional walk, hit by pitch, strikeout, ground out, fly out, error, fielder's choice, stolen base, caught stealing, wild pitch, passed ball, balk, pickoff, etc.) |
+| `BattedBallType` | The trajectory of a batted ball (ground ball, line drive, fly ball, pop up), populated from Retrosheet's trajectory modifier codes. Null when the play did not involve a batted ball in play, such as a walk or strikeout. |
 | `IsSacHit` | Whether the play was a sacrifice hit |
 | `IsSacFly` | Whether the play was a sacrifice fly |
+
+`BattedBallType` is tracked independently of `EventType`, since `EventType` alone conflates trajectory with outcome — a `FlyOut` implies a fly ball that was caught, but a `HomeRun` doesn't otherwise indicate whether it was a fly ball, line drive, or something else. This separation is what makes a statistic like HR/FB (home runs per fly ball allowed) possible: it requires knowing every fly ball a pitcher allowed, regardless of whether that particular one was caught, dropped, or hit for a home run.
+
+Retrosheet does not provide batted-ball contact quality (soft/medium/hard contact) — that is a Statcast-era concept from MLB's own tracking system, introduced in 2015, and is not part of Retrosheet's data for any era. No corresponding column is included in `GameEvent` for this reason.
 
 ### `GameEventRunner`
 
@@ -120,7 +125,7 @@ Substitutions, handedness/batting-order adjustments, and commentary are not play
 1. The `GameEvent` table and its supporting tables (`GameEventRunner`, `GameEventFieldingCredit`) should follow the [Data Model](#data-model) section below, normalizing player involvement rather than using a fixed set of columns, since a single play may involve a variable number of runners and fielders. `GameEvent` should include the raw Retrosheet play-by-play event string for each play, so that the original data can be referenced if needed.
 1. The `GameEvent` table should track plate appearance pitch counts using three simple aggregate columns: total balls, total strikes, and total foul balls. A "foul ball" for this purpose is a ball hit foul while the batter already has two strikes. Pitch-by-pitch detail (a separate row per individual pitch) is not required.
 1. Substitutions and other non-play context (handedness/batting-order adjustments, commentary) should be recorded using the context tables (`GameSubstitution`, `GameAdjustment`, `GameComment`) described in the [Data Model](#data-model) section, separate from `GameEvent`, since they do not represent plays and are not derived into `Batting`, `Pitching`, or `Fielding`.
-1. Data idempotency. See the [Considerations)(#considerations) section above for more information about duplicate games. The Game Event Parser should ensure that the same game event is not duplicated or inserted multiple times in the `GameEvent` table.
+1. Data idempotency. See the [Considerations](#considerations) section above for more information about duplicate games. The Game Event Parser should ensure that the same game event is not duplicated or inserted multiple times in the `GameEvent` table.
 1. Because of the complexity of the play-by-play event files, the Game Event Parser should be designed to handle errors gracefully, logging any issues encountered during processing and continuing to process the remaining events in the file.
 1. Game Event files may be processed concurrently with one another. Because the same physical game can appear in two different team files (see [Considerations](#considerations)), the Game Event Parser must guard against two sagas concurrently applying the same game's statistics. Before a saga applies a game's events to the `Batting`, `Pitching`, and `Fielding` tables, it must atomically claim the game by inserting a row into `GameEventGameStatus` (see [Data Model](#data-model)) within the same transaction as the stat updates. If that insert fails because the game has already been claimed by another saga, the saga should treat that game as complete and continue to the next game in the file without reapplying its statistics. `GameEventGameStatus` is owned entirely by the Game Event Parser and is never written to by the Game Log Parser, preserving `Game` as the exclusive domain of the Game Log Parser. File-level or global serialization must not be used as the mechanism for preventing this, as it would prevent multiple Game Event files from being processed simultaneously.
 1. If a parse is running, each queued message for the same event file should be ignored. This is to ensure that the same event file is not processed multiple times, which could lead to duplicate records in the `GameEvent` table.
@@ -129,15 +134,15 @@ Substitutions, handedness/batting-order adjustments, and commentary are not play
 1. When each game is finished within the parse, and only after the atomic idempotency check described above confirms the game has not already been applied, the tables `Batting`, `Pitching`, and `Fielding` should be updated with the latest statistics for each player based on the game events that were processed, before the next game is parsed. This ensures that the player statistics are always up-to-date and accurate without being double-counted.
 1. `Pitching.EarnedRuns` should be sourced from Retrosheet's `data` records for each game, which contain Retrosheet's official post-game earned-run total per pitcher, rather than computed solely from play-by-play error and unearned-run modifiers. The Game Event Parser should still compute earned runs independently from the play-by-play as a validation check; if the computed value disagrees with the corresponding `data` record value, this should be logged as a data-quality warning (game, pitcher, both values) without altering the stored value sourced from the `data` record.
 1. After processing the games in a team-season file, the Game Event Parser should compare its own derived team-level aggregate statistics (hits, runs, errors, and other totals covered by both datasets) against the corresponding `GameBattingStatistics`, `GamePitchingStatistics`, and `GameFieldingStatistics` records populated by the Game Log Parser. `Game*Statistics` values are authoritative — they were computed by the Game Log Parser and must never be overwritten by the Game Event Parser, even when the Game Event Parser's own derived totals disagree. Any discrepancy should be logged as a data-quality warning (game, team, stat, both values) for manual review.
-1. Each game is delineated by `id,TTTYYYYMMDDX` where `id` is a keyword, `TTT` is the three letter team abbreviation, `YYYYMMDD` is the date of the game, and `X` is a number indicating the game number for that day. For example, `id,SDN202507121` is the first game of the day on July 12, 2025 between the San Diego Padres and Philadelphia Phillies. `0` indicates a single game played, `1` indicates the first game of a doubleheader and `2` indicates the second game of a doubleheater. The `id` record starts the description of a game thus ending the description of the preceding game in the file. The Game Event Parser should use this information to correctly associate each game event with the appropriate game in the `Game` table.
+1. Each game is delineated by `id,TTTYYYYMMDDX` where `id` is a keyword, `TTT` is the three letter team abbreviation, `YYYYMMDD` is the date of the game, and `X` is a number indicating the game number for that day. For example, `id,SDN202507121` is the first game of the day on July 12, 2025 between the San Diego Padres and Philadelphia Phillies. `0` indicates a single game played, `1` indicates the first game of a doubleheader and `2` indicates the second game of a doubleheader. The `id` record starts the description of a game thus ending the description of the preceding game in the file. The Game Event Parser should use this information to correctly associate each game event with the appropriate game in the `Game` table.
 
-## Acceptance Critera
+## Acceptance Criteria
 
-1. A saga is create to process Retroshee's game event files and stores them in the `GameEvent` table in the Retrosharp database.
+1. A saga is created to process Retrosheet's game event files and stores them in the `GameEvent` table in the Retrosharp database.
 1. The saga is idempotent, ensuring that the same game event is not duplicated or inserted multiple times in the `GameEvent` table.
 1. The saga receives a message off the service bus and begins processing the game event file.
 1. The saga maintains atomicity of the parse. If an unrecoverable error occurs during processing, the database should not be left in an inconsistent state. No partial parses!
-1. The saga provides detailed logging of each step of the parse for data transparency, tracibility, and ease of debugging.
+1. The saga provides detailed logging of each step of the parse for data transparency, traceability, and ease of debugging.
 1. Retryable errors should be retried a configurable amount of time and initial retry wait period. There should be an exponential backoff with jitter for retries.
 	1. The Polly library might be of assistance
 1. Each datafile parse should be idempotent, meaning that if the same datafile is processed multiple times, it should not result in duplicate entries in the database.

@@ -27,6 +27,14 @@ namespace Retrosharp.Data.Model
         public short? SeasonYear { get; set; }
 
         /// <summary>
+        /// The fielding position (1-9) these statistics were accumulated at. Because baseball
+        /// positions are fluid, a player accumulates a separate Fielding row per position
+        /// actually played, rather than one row per season covering all positions combined.
+        /// </summary>
+        [Required]
+        public byte Position { get; set; }
+
+        /// <summary>
         /// Total putouts. This represents the number of times a player successfully made an out by catching a batted ball, tagging a runner, or being involved in a force out.
         /// </summary>
         public int? Putouts { get; set; }

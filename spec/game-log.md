@@ -14,9 +14,9 @@ Field(s)  Meaning
     2     Number of game:
              "0" -- a single game
              "1" -- the first game of a double (or triple) header
-                    including seperate admission doubleheaders
+                    including separate admission doubleheaders
              "2" -- the second game of a double (or triple) header
-                    including seperate admission doubleheaders
+                    including separate admission doubleheaders
              "3" -- the third game of a triple-header
              "A" -- the first game of a double-header involving 3 teams
              "B" -- the second game of a double-header involving 3 teams
@@ -159,8 +159,8 @@ Missing fields will be NULL.
 	1. `Game` - this table contains game information such as the teams played, stadium, weather conditions, umpires, and other relevant metadata.
 	1. `GameLineup` - this table contains the starting lineup for each team, including player positions and batting order.
 	1. `GameBattingStatistics` - this table contains the total statistics for each game, and each team that played in the game, including runs scored, hits, errors, and other relevant statistics.
-    1. `GamePitchingStatistics` - this table contains the total pitching statistics for each game, and each team that played in the game, including innings pitched, strikeouts, walks, and other relevant statistics.
-    1. `GameFieldingStatistics` - this table contains the total fielding statistics for each game, and each team that played in the game, including putouts, assists, errors, and other relevant statistics.
+	1. `GamePitchingStatistics` - this table contains the total pitching statistics for each game, and each team that played in the game, including innings pitched, strikeouts, walks, and other relevant statistics.
+	1. `GameFieldingStatistics` - this table contains the total fielding statistics for each game, and each team that played in the game, including putouts, assists, errors, and other relevant statistics.
 1. The Game Log Parser should be able to handle large volumes of data and process multiple game logs in a batch mode.
 1. The file format is `glYYYY.TXT` where `YYYY` is the year of the game logs. The Game Log Parser should be able to process multiple files in a batch mode, allowing for efficient processing of large volumes of data. Despite having a `.txt` extension, the file is actually CSV formatted.
 1. An API endpoint exists to place a message on the service bus to initiate the processing of a game log file. This allows for external systems or users to trigger the processing of game log files as needed.
@@ -172,5 +172,5 @@ Missing fields will be NULL.
 1. Retryable errors should be retried a configurable amount of time and initial retry wait period. There should be an exponential backoff with jitter for retries.
 	1. The Polly library might be of assistance
 1. Each datafile parse should be idempotent, meaning that if the same datafile is processed multiple times, it should not result in duplicate entries in the database.
-1. Each datafile parse should be atomic, meaning that if unrecoverable error(s) occurs during processing, the database should not be left in an inconsistent state. No partial parses!f
+1. Each datafile parse should be atomic, meaning that if unrecoverable error(s) occurs during processing, the database should not be left in an inconsistent state. No partial parses!
 1. Follow the [Format](#format) section of this document to ensure that the data is extracted and stored in the correct format in the database.
