@@ -7,7 +7,7 @@ namespace Retrosharp.Data.Model
     /// <summary>
     /// Represents season pitching statistics for a player on a franchise.
     /// </summary>
-    [Table("PitchingModel")]
+    [Table("Pitching")]
     public class PitchingModel : DbModel
     {
         /// <summary>
