@@ -32,10 +32,10 @@ namespace Retrosharp.Data.Model
         public string FranchiseCode { get; set; }
 
         /// <summary>
-        /// Division code (e.g., "AL", "NL").
+        /// Division code (e.g., "AL", "NL"). Not populated for eras before divisional play.
         /// </summary>
         [StringLength(2)]
-        public string DivisionCode { get; set; }
+        public string? DivisionCode { get; set; }
 
         /// <summary>
         /// Geographic location of the franchise.
@@ -55,7 +55,7 @@ namespace Retrosharp.Data.Model
         /// Alternative team nickname if applicable.
         /// </summary>
         [StringLength(64)]
-        public string AlternateNickname { get; set; }
+        public string? AlternateNickname { get; set; }
 
         /// <summary>
         /// Date when the franchise was established.

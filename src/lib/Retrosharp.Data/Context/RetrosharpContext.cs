@@ -51,13 +51,31 @@ namespace Retrosharp.Data.Context
             modelBuilder.Entity<LeagueModel>(entity =>
             {
                 entity.HasIndex(e => e.LeagueCode).IsUnique();
+
+                // Seed data: leagues are a small, effectively permanent list, so they are
+                // baked directly into a migration rather than imported at runtime.
+                // See spec/seed-data.md.
+                entity.HasData(
+                    new LeagueModel { Id = 1, LeagueCode = "AA", LeagueName = "American Association" },
+                    new LeagueModel { Id = 2, LeagueCode = "AL", LeagueName = "American League" },
+                    new LeagueModel { Id = 3, LeagueCode = "FL", LeagueName = "Federal League" },
+                    new LeagueModel { Id = 4, LeagueCode = "NA", LeagueName = "National Association" },
+                    new LeagueModel { Id = 5, LeagueCode = "NL", LeagueName = "National League" },
+                    new LeagueModel { Id = 6, LeagueCode = "PL", LeagueName = "Players League" },
+                    new LeagueModel { Id = 7, LeagueCode = "UA", LeagueName = "Union Association" }
+                );
             });
 
             // Configure Franchise entity
             modelBuilder.Entity<FranchiseModel>(entity =>
             {
-                entity.HasIndex(e => e.FranchiseCode).IsUnique();
+                // FranchiseCode is not unique on its own: Retrosheet reuses the same code
+                // across consecutive eras of the same franchise (for example, the Brooklyn
+                // Atlantics/Grays both used "BR3"). The natural key is the combination of the
+                // franchise's stable identifier and the effective start date of that era.
+                entity.HasIndex(e => e.FranchiseCode);
                 entity.HasIndex(e => e.FranchiseIdentifier);
+                entity.HasIndex(e => new { e.FranchiseIdentifier, e.FranchiseStart }).IsUnique();
 
                 entity.HasOne(f => f.League)
                     .WithMany(l => l.Franchises)

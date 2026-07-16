@@ -94,7 +94,7 @@ Step 1: Schema Alignment
 
 ## Step 2: Seed Data Automation
 
-**Status**: Not Started
+**Status**: Complete
 
 **Governing spec**: [seed-data.md](./seed-data.md)
 
@@ -108,6 +108,35 @@ Step 1: Schema Alignment
 - Verification that the same command works unmodified as a manual invocation, a GitHub Actions step, and a Docker container initialization step.
 
 **Definition of done**: matches [seed-data.md](./seed-data.md)'s Acceptance Criteria — a fresh database is fully seeded by one run, and repeated runs produce no duplicates or unwanted changes.
+
+### Progress Log
+
+**What was found (starting state)**: no seeding mechanism existed; `League`/`Franchise`/`Ballpark` were entirely unpopulated. Checking the real seed CSVs against the existing schema (rather than assuming they'd just fit) surfaced three real bugs that would have made seeding impossible or silently wrong:
+- `Franchise.FranchiseCode` had a **unique** index, but Retrosheet's real data reuses the same code across consecutive eras of one franchise — confirmed empirically (`BSN` and `CLE` each appear 7 times, `SLN`/`CHN`/`BRO` 6 times, etc.). The actual natural key is the combination of the franchise's stable identifier and that era's start date.
+- `Ballpark.FirstGame` was a required non-nullable `DateTime`, but 395 of 656 real ballpark rows (60%) have no recorded first-game date.
+- A broader, more consequential discovery: EF Core's nullable-reference-type convention silently forces **every** non-`?`-annotated string property to `NOT NULL` in the database, regardless of whether `[Required]` is present. This affects dozens of fields across the whole schema that were clearly meant to be optional (`Person`'s birth/death/cemetery fields, `Game.GameNotes`, etc.) — not something introduced this session, but not previously exercised against real data either. Fixed only the fields Step 2 actually populates with blanks (`Franchise.DivisionCode`, `Franchise.AlternateNickname`, `Ballpark.ParkName`, `Ballpark.StateProvinceCountry`); the rest is flagged below as a priority item before Step 3, since `person.md` explicitly requires tolerating incomplete biographical data on exactly this kind of field.
+
+**What was built**:
+- Migration `SeedDataSchemaFixesAndLeagueSeed`: the nullability fixes above, `Franchise`'s corrected natural-key index (composite unique on `FranchiseIdentifier`+`FranchiseStart`, `FranchiseCode` demoted to non-unique), and `League`'s 7 rows via `HasData`.
+- `FranchiseSeedRow`/`FranchiseSeedRowMapping` and `BallparkSeedRow`/`BallparkSeedRowMapping` in `Retrosharp.Format`, mirroring the existing `BioFileMapping` convention exactly (CsvHelper `ClassMap`, index-based column mapping, explicit blank-to-null conversion for optional fields).
+- `SeedDataService` (`Retrosharp.Service`, behind `ISeedDataService`): loads existing `Franchise`/`Ballpark` rows into memory once per run, then upserts by natural key, logging added/skipped counts — mirrors the existing "check before insert" idempotency pattern already used for `Person`.
+- CSV files wired into `Retrosharp.Data.Migration.csproj` via a `Link`-ed `CopyToOutputDirectory` reference to the single canonical `docs/csv/` location (no duplication of the actual data), resolved at runtime via `AppContext.BaseDirectory` so the routine works regardless of working directory — local run, CI, or inside a Docker container.
+- `Program.cs` now runs seeding immediately after `MigrateAsync()`, logging a summary line.
+
+**Discrepancies and decisions made during implementation**:
+- The three schema issues above.
+- **Fixed a real bug in shared DI infrastructure**, not specific to this step: `Retrosharp/DI/ContainerRegistration.cs`'s auto-discovery of `IRegister` implementations walked only `Assembly.GetReferencedAssemblies()`, which reflects assemblies whose *types* are directly touched by the referencing assembly's compiled IL — not every assembly listed as a project reference. Since `Program.cs` only used `ISeedDataService` (from `Retrosharp.Service.Interface`) and never directly referenced a type from `Retrosharp.Service` (the implementation project, where `SeedDataService` and its `IocRegistrations` actually live), that assembly was never discovered, so `SeedDataService` silently failed to register. Fixed by also scanning the calling assembly's own output directory for `Retrosharp*.dll` files. This wasn't unique to my change — any future service in the same situation (interface referenced directly, implementation only reached through DI) would hit the identical failure in `Retrosharp.UI.Api` or `Retrosharp.Engine.Console`.
+
+**Errors encountered** (troubleshooting along the way, not final state):
+- LocalDB detached the `Retrosharp` database between sessions — the `.mdf`/`.ldf` files existed on disk but weren't attached to the running instance. An environment quirk, not a migration problem; resolved by removing the orphaned files and letting `dotnet ef database update` rebuild cleanly from all three migrations in sequence.
+- `ISeedDataService` resolution failed at runtime (`InvalidOperationException: No service ... registered`) before the `ContainerRegistration` fix above.
+- Noted, not fixed: EF Core logs a benign warning about savepoints being disabled (`MultipleActiveResultSets=true` combined with `BaseRepository.CreateAsync`'s per-row-transaction pattern). Pre-existing behavior, functioned correctly, out of scope here.
+
+**Verification performed**:
+- Solution-wide build: 0 errors beyond the same 4 pre-existing `Retrosharp.Engine.Console` errors already identified and confirmed unrelated in Step 1.
+- Ran the full pipeline against a fresh database: **125 franchises added, 656 ballparks added** — both match the source CSVs' actual row counts exactly.
+- Ran it again immediately after: **0 added**, all 125/656 correctly reported as already present — idempotency verified by observed behavior, not just code inspection.
+- Verified via `sqlcmd` that `League` has exactly the 7 expected rows with correct codes and names, and that the nullability fixes landed as `is_nullable = 1` in the live database schema.
 
 ---
 

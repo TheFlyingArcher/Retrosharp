@@ -78,6 +78,32 @@ namespace Retrosharp.DI
                 }
             }
 
+            // GetReferencedAssemblies() only reflects assemblies whose types are directly
+            // touched by the referencing assembly's compiled IL. An assembly that is only
+            // needed for its IRegister implementation — discovered purely via reflection,
+            // with no other type from it used anywhere in the dependency chain's code — can
+            // be a project reference (present on disk, listed in .deps.json) without ever
+            // appearing in that walk. Supplement it by also loading every Retrosharp*.dll
+            // physically present alongside the calling assembly, which is where every host
+            // app's actual dependencies land at build/publish time regardless of whether the
+            // compiler happened to bake in a direct reference.
+            var directory = Path.GetDirectoryName(callingAssembly.Location);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                foreach (var dllPath in Directory.GetFiles(directory, "Retrosharp*.dll"))
+                {
+                    try
+                    {
+                        var assembly = Assembly.LoadFrom(dllPath);
+                        loadedAssemblies.Add(assembly);
+                    }
+                    catch (Exception)
+                    {
+                        // Silently skip assemblies that cannot be loaded
+                    }
+                }
+            }
+
             return loadedAssemblies;
         }
     }

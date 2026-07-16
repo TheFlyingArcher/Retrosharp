@@ -25,7 +25,18 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Retrosharp.Data\Retrosharp.Data.csproj" />
+    <ProjectReference Include="..\Retrosharp.Service\Retrosharp.Service.csproj" />
+    <ProjectReference Include="..\Retrosharp.Service.Interface\Retrosharp.Service.Interface.csproj" />
     <ProjectReference Include="..\Retrosharp\Retrosharp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- docs/csv is the single source of truth for seed data (see spec/seed-data.md); these
+         are copied (not duplicated) into the build output so the seeding routine can read
+         them via AppContext.BaseDirectory regardless of working directory or deployment
+         context (local run, CI, or a Docker container). -->
+    <None Include="..\..\..\docs\csv\franchises.csv" Link="SeedData\franchises.csv" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\docs\csv\ballparks.csv" Link="SeedData\ballparks.csv" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

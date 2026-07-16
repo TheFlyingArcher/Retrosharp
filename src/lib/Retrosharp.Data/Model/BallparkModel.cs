@@ -19,10 +19,10 @@ namespace Retrosharp.Data.Model
         public string SiteCode { get; set; }
 
         /// <summary>
-        /// Official name of the ballpark.
+        /// Official name of the ballpark. Not always known for older, minor sites.
         /// </summary>
         [StringLength(64)]
-        public string ParkName { get; set; }
+        public string? ParkName { get; set; }
 
         /// <summary>
         /// City where the ballpark is located.
@@ -35,13 +35,13 @@ namespace Retrosharp.Data.Model
         /// State, province, or country where the ballpark is located.
         /// </summary>
         [StringLength(32)]
-        public string StateProvinceCountry { get; set; }
+        public string? StateProvinceCountry { get; set; }
 
         /// <summary>
-        /// Date of the first game played at this ballpark.
+        /// Date of the first game played at this ballpark. Not always known — Retrosheet's
+        /// ballpark data leaves this blank for many sites, particularly older or minor ones.
         /// </summary>
-        [Required]
-        public DateTime FirstGame { get; set; }
+        public DateTime? FirstGame { get; set; }
 
         /// <summary>
         /// Date of the last game played at this ballpark (if no longer in use).

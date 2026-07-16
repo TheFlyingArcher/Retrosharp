@@ -23,9 +23,9 @@ namespace Retrosharp.Contract.Franchise
         public string FranchiseCode { get; set; }
 
         /// <summary>
-        /// Division code (e.g., "AL", "NL").
+        /// Division code (e.g., "AL", "NL"). Not populated for eras before divisional play.
         /// </summary>
-        public string DivisionCode { get; set; }
+        public string? DivisionCode { get; set; }
 
         /// <summary>
         /// Geographic location of the franchise.
@@ -40,7 +40,7 @@ namespace Retrosharp.Contract.Franchise
         /// <summary>
         /// Alternative team nickname if applicable.
         /// </summary>
-        public string AlternateNickname { get; set; }
+        public string? AlternateNickname { get; set; }
 
         /// <summary>
         /// Date when the franchise was established.
