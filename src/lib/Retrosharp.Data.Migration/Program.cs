@@ -38,8 +38,6 @@ namespace Retrosharp.Data.Migrator
                     $"Seed data applied: {seedResult.FranchisesAdded} franchises added ({seedResult.FranchisesSkipped} already present), " +
                     $"{seedResult.BallparksAdded} ballparks added ({seedResult.BallparksSkipped} already present).");
             }
-
-            await host.RunAsync();
         }
     }
 }
