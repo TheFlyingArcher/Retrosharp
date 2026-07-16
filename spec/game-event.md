@@ -139,13 +139,12 @@ Substitutions, handedness/batting-order adjustments, and commentary are not play
 ## Acceptance Criteria
 
 1. A saga is created to process Retrosheet's game event files and stores them in the `GameEvent` table in the Retrosharp database.
-1. The saga is idempotent, ensuring that the same game event is not duplicated or inserted multiple times in the `GameEvent` table.
+1. The saga is idempotent, ensuring that the same game event is not duplicated or inserted multiple times in the `GameEvent` table. This is distinct from file-level idempotency (below) — this concerns record-level dedup within a single parse.
 1. The saga receives a message off the service bus and begins processing the game event file.
 1. The saga maintains atomicity of the parse. If an unrecoverable error occurs during processing, the database should not be left in an inconsistent state. No partial parses!
 1. The saga provides detailed logging of each step of the parse for data transparency, traceability, and ease of debugging.
-1. Retryable errors should be retried a configurable amount of time and initial retry wait period. There should be an exponential backoff with jitter for retries.
-	1. The Polly library might be of assistance
-1. Each datafile parse should be idempotent, meaning that if the same datafile is processed multiple times, it should not result in duplicate entries in the database.
+1. Retry/backoff behavior, file-level idempotency (reprocessing the same datafile does not create duplicate entries), and end-of-parse added/updated record logging follow the shared base requirements in [parser.md](parser.md).
 1. Multiple Game Event files can be processed concurrently, including two files that both contain the same shared game, without double-counting that game's statistics in the `Batting`, `Pitching`, or `Fielding` tables. This is enforced via an atomic claim on `GameEventGameStatus`, not file-level serialization, and `Game` is never written to by the Game Event Parser.
 1. `Pitching.EarnedRuns` is sourced from Retrosheet's `data` records, with a logged warning whenever the parser's independently computed earned-run value disagrees with the `data` record value.
 1. Team-level aggregate statistics derived from play-by-play are compared against the corresponding `Game*Statistics` records from the Game Log Parser at the end of processing a team-season file, with any discrepancy logged as a warning and no values in `Game*Statistics` overwritten.
+1. The parser is a NServiceBus saga that processes the datafile in a background task. Review the [NServiceBus documentation](https://docs.particular.net/nservicebus/sagas/) for more information on how to implement a saga. Further review [parser](parser.md) for more information on how to implement a parser and acceptance criteria.

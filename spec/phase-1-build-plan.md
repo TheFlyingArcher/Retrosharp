@@ -6,7 +6,7 @@ This document breaks Phase 1 into discrete, dependency-ordered build steps, each
 
 Each step lists the spec(s) that govern it. Refer back to those specs for the authoritative detail — this document only sequences the work and states what "done" means for each step; it does not restate requirements already written elsewhere.
 
-Steps within the same numbered stage that don't depend on each other (for example, Step 2 and Step 3) may be built in either order, or in parallel. Sub-steps (6a, 6b, ...) are meant to be built in order, since each depends on the previous.
+Steps within the same numbered stage that don't depend on each other (for example, Step 2 and Step 4) may be built in either order, or in parallel. Sub-steps (6a, 6b, ...) are meant to be built in order, since each depends on the previous.
 
 Update the **Status** line under each step as work progresses (`Not Started`, `In Progress`, `Complete`) so this document stays a reliable picture of where Phase 1 actually stands.
 
@@ -17,10 +17,10 @@ Step 1: Schema Alignment
         │
         ├──► Step 2: Seed Data Automation ──┐
         │                                     │
-        └──► Step 3: Person Parser ──────────┤
-                                              │
-                                              ▼
-                                   Step 4: ETL Messaging Infrastructure
+        └──► Step 4: ETL Messaging Infrastructure
+                      │
+                      ▼
+             Step 3: Person Parser ──────────┤
                                               │
                                               ▼
                                    Step 5: Game Log Parser
@@ -146,7 +146,7 @@ Step 1: Schema Alignment
 
 **Governing spec**: [person.md](./person.md)
 
-**Depends on**: Step 1 only. Does not depend on Step 2 — `Person` and seed data are independent of each other and can be built in either order.
+**Depends on**: Step 1 and Step 4 — `Person` runs as a saga per [person.md](./person.md) and [parser.md](./parser.md), so the messaging infrastructure must exist first. Does not depend on Step 2 — `Person` and seed data are independent of each other and can be built in either order.
 
 **Objective**: Parse Retrosheet's biofile and populate `Person`.
 
@@ -155,10 +155,11 @@ Step 1: Schema Alignment
 - Date-field normalization (day `00` → `01`, month `00` → `01`, missing year → `NULL`).
 - `HOF` boolean derived from the "HOF" field value.
 - Idempotent insert/update logic keyed on Retrosheet ID.
-- Atomicity: an unrecoverable error leaves no partial data committed.
+- Idempotent, atomic saga per file, per [parser.md](./parser.md).
 - End-of-parse logging of records added vs. updated.
+- API endpoint to initiate processing of a biofile.
 
-**Definition of done**: matches [person.md](./person.md)'s Acceptance Criteria in full. This can be validated in isolation — it does not require the messaging infrastructure from Step 4 to be tested, since it can run as a plain console invocation before being wired into a saga.
+**Definition of done**: matches [person.md](./person.md)'s Acceptance Criteria in full, including running as an NServiceBus saga triggered by a message placed on the service bus via its API endpoint, per [parser.md](./parser.md).
 
 ---
 
@@ -166,11 +167,11 @@ Step 1: Schema Alignment
 
 **Status**: Not Started
 
-**Governing spec**: [project.md](./project.md) (ETL requirements), [game-log.md](./game-log.md) and [game-event.md](./game-event.md) (saga requirements)
+**Governing spec**: [project.md](./project.md) (ETL requirements), [parser.md](./parser.md) (base saga requirements shared by every parser), [person.md](./person.md), [game-log.md](./game-log.md), and [game-event.md](./game-event.md) (parser-specific saga requirements)
 
-**Depends on**: Step 1. Logically independent of Steps 2 and 3, but there's little reason to build it before at least one of them exists to test against.
+**Depends on**: Step 1 only. Logically independent of Step 2, so these two can be built in either order or in parallel. Unlike the original plan, this step is no longer something to defer until a parser exists to test against — it is now foundational: Step 3 (Person) cannot begin until this step is complete, since Person runs as a saga per [person.md](./person.md) and [parser.md](./parser.md). Person doesn't need Step 2's seed data, so it's the first parser that will exist to test this infrastructure against, once this step is done.
 
-**Objective**: Stand up the shared NServiceBus/RabbitMQ plumbing that both the Game Log Parser and Game Event Parser sagas will run on top of. This is infrastructure shared by Steps 5 and 6, not specific to either parser.
+**Objective**: Stand up the shared NServiceBus/RabbitMQ plumbing that the Person, Game Log, and Game Event Parser sagas will all run on top of. This is infrastructure shared by Steps 3, 5, and 6, not specific to any one parser.
 
 **Deliverables**:
 - `Retrosharp.Engine.Console` configured as an NServiceBus endpoint over RabbitMQ, with saga persistence.

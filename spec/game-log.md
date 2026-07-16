@@ -168,9 +168,6 @@ Missing fields will be NULL.
 ## Acceptance Criteria
 
 1. The Game Log Parser should be able to successfully read and process Retrosheet's game log, extracting relevant information and populating the Retrosharp database.
-1. Error handling in the Game Log Parser should be robust, with clear error messages and logging to facilitate debugging and troubleshooting.
-1. Retryable errors should be retried a configurable amount of time and initial retry wait period. There should be an exponential backoff with jitter for retries.
-	1. The Polly library might be of assistance
-1. Each datafile parse should be idempotent, meaning that if the same datafile is processed multiple times, it should not result in duplicate entries in the database.
-1. Each datafile parse should be atomic, meaning that if unrecoverable error(s) occurs during processing, the database should not be left in an inconsistent state. No partial parses!
 1. Follow the [Format](#format) section of this document to ensure that the data is extracted and stored in the correct format in the database.
+1. Error handling, retry/backoff behavior, idempotency, atomicity, and end-of-parse added/updated record logging follow the shared base requirements in [parser.md](parser.md).
+1. The parser is a NServiceBus saga that processes the datafile in a background task. Review the [NServiceBus documentation](https://docs.particular.net/nservicebus/sagas/) for more information on how to implement a saga. Further review [parser](parser.md) for more information on how to implement a parser and acceptance criteria.
