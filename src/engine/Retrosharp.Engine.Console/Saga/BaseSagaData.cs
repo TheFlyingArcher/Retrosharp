@@ -1,13 +1,7 @@
-﻿using NServiceBus;
-using System;
-using System.Collections.Generic;
-using System.Text;
+using NServiceBus;
 
-namespace Retrosharp.Data.Saga
+namespace Retrosharp.Engine.Console.Saga
 {
-    /// <summary>
-    /// 
-    /// </summary>
     public abstract class BaseSagaData : ContainSagaData
     {
         /// <summary>

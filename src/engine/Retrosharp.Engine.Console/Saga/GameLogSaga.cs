@@ -1,6 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
 using NServiceBus;
-using Retrosharp.Data.Saga.GameLog;
 using Retrosharp.Message.GameLog;
 using Retrosharp.Service.Interface;
 

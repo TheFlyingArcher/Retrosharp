@@ -1,7 +1,10 @@
 ﻿using Mapster;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using NServiceBus;
+using NServiceBus.Persistence.Sql;
 using Retrosharp.Configuration;
 using Retrosharp.Data.Context;
 using Retrosharp.DI;
@@ -38,6 +41,42 @@ namespace Retrosharp.Data.Migrator
                     $"Seed data applied: {seedResult.FranchisesAdded} franchises added ({seedResult.FranchisesSkipped} already present), " +
                     $"{seedResult.BallparksAdded} ballparks added ({seedResult.BallparksSkipped} already present).");
             }
+
+            await ApplyMessagingSchemaAsync(config);
+        }
+
+        /// <summary>
+        /// Applies the NServiceBus.Persistence.Sql schema (outbox, subscription, timeout, and
+        /// per-saga tables) generated at build time by Retrosharp.Engine.Console, via the
+        /// scripts copied into NServiceBusScripts (see the .csproj). The scripts are idempotent
+        /// (guarded with "if not exists" checks), so this is safe to run on every startup
+        /// alongside the EF Core migrations and seeding above. See spec/phase-1-build-plan.md
+        /// Step 4. Not run through NServiceBus's own installers to avoid two mechanisms
+        /// competing to create the same tables.
+        /// </summary>
+        private static async Task ApplyMessagingSchemaAsync(RetrosharpConfiguration config)
+        {
+            var messagingConfig = MessagingConfiguration.Instance();
+            var scriptDirectory = Path.Combine(AppContext.BaseDirectory, "NServiceBusScripts");
+            if (!Directory.Exists(scriptDirectory))
+            {
+                Console.WriteLine($"No NServiceBus persistence scripts found at '{scriptDirectory}'; skipping.");
+                return;
+            }
+
+            var dialect = new SqlDialect.MsSqlServer();
+
+            await ScriptRunner.Install(
+                dialect,
+                messagingConfig.SqlPersistenceTablePrefix,
+                () => new SqlConnection(config.ConnectionString),
+                scriptDirectory,
+                true,
+                true,
+                true,
+                CancellationToken.None);
+
+            Console.WriteLine("NServiceBus persistence schema applied successfully.");
         }
     }
 }

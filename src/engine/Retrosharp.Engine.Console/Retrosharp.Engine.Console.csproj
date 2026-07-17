@@ -20,7 +20,7 @@
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
     <PackageReference Include="NServiceBus" Version="10.2.0" />
     <PackageReference Include="NServiceBus.Extensions.Hosting" Version="3.1.0" />
-    <PackageReference Include="NServiceBus.Persistence.Sql" Version="8.3.0" />
+    <PackageReference Include="NServiceBus.Persistence.Sql" Version="9.0.2" />
     <PackageReference Include="NServiceBus.RabbitMQ" Version="11.2.1" />
   </ItemGroup>
 
@@ -29,6 +29,10 @@
     <ProjectReference Include="..\..\lib\Retrosharp.Service.Interface\Retrosharp.Service.Interface.csproj" />
     <ProjectReference Include="..\..\lib\Retrosharp.Service\Retrosharp.Service.csproj" />
     <ProjectReference Include="..\..\lib\Retrosharp\Retrosharp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
