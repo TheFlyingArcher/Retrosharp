@@ -10,7 +10,9 @@
     <Project Path="lib/Retrosharp/Retrosharp.csproj" Id="46752eab-ac2e-4fa9-b185-a250a6ee0ef7" />
   </Folder>
   <Folder Name="/Solution Items/">
+    <File Path="../spec/phase-1-build-plan.md" />
     <File Path="../spec/project.md" />
+    <File Path="../spec/parser.md" />
     <File Path="../spec/person.md" />
     <File Path="../spec/game-event.md" />
     <File Path="../spec/game-log.md" />
