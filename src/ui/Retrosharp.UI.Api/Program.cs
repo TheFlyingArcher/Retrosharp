@@ -6,6 +6,7 @@ using NServiceBus;
 using Retrosharp.Configuration;
 using Retrosharp.DI;
 using Retrosharp.Message.Diagnostics;
+using Retrosharp.Message.Person;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,6 +26,7 @@ var transport = new RabbitMQTransport(
 var routing = endpointConfiguration.UseTransport(transport);
 routing.RouteToEndpoint(typeof(PingMessage), messagingConfig.EndpointName);
 routing.RouteToEndpoint(typeof(FailingPingMessage), messagingConfig.EndpointName);
+routing.RouteToEndpoint(typeof(PersonStart), messagingConfig.EndpointName);
 
 builder.UseNServiceBus(endpointConfiguration);
 

@@ -53,5 +53,61 @@ namespace Retrosharp.Data
 
             return people;
         }
+
+        public async Task<(int Added, int Updated)> BulkUpsertAsync(IEnumerable<Person> people)
+        {
+            const int saveChangesBatchSize = 1000;
+
+            var existingByRetrosheetId = await Context.People
+                .ToDictionaryAsync(p => p.RetroSheetId);
+
+            var added = 0;
+            var updated = 0;
+            var pendingChanges = 0;
+
+            try
+            {
+                await Context.Database.BeginTransactionAsync();
+
+                foreach (var person in people)
+                {
+                    if (existingByRetrosheetId.TryGetValue(person.RetroSheetId, out var existingModel))
+                    {
+                        // The incoming Person never carries a real Id (it's parsed from a file,
+                        // not loaded from the database), so mapping onto the tracked model would
+                        // otherwise overwrite its primary key with 0 -- EF Core's change tracker
+                        // rejects any modification to a key property, tracked or not.
+                        var existingId = existingModel.Id;
+                        Mapper.Map(person, existingModel);
+                        existingModel.Id = existingId;
+                        updated++;
+                    }
+                    else
+                    {
+                        var model = Mapper.Map<PersonModel>(person);
+                        Set.Add(model);
+                        added++;
+                    }
+
+                    pendingChanges++;
+                    if (pendingChanges >= saveChangesBatchSize)
+                    {
+                        await Context.SaveChangesAsync();
+                        pendingChanges = 0;
+                    }
+                }
+
+                if (pendingChanges > 0)
+                    await Context.SaveChangesAsync();
+
+                await Context.Database.CommitTransactionAsync();
+                return (added, updated);
+            }
+            catch
+            {
+                await Context.Database.RollbackTransactionAsync();
+                throw;
+            }
+        }
     }
 }

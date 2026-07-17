@@ -83,7 +83,31 @@ namespace Retrosharp.Data
 
         public async Task<TC> UpdateAsync(TC entity)
         {
-            throw new NotImplementedException();
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
+
+            try
+            {
+                await Context.Database.BeginTransactionAsync();
+                var model = await Set.FirstOrDefaultAsync(m => m.Id == entity.Id);
+                if (model == null)
+                    throw new InvalidOperationException($"No {typeof(TM).Name} found with Id {entity.Id}.");
+
+                // Mapster's Map(source, destination) copies every matching property, including
+                // Id -- restore it explicitly afterward so a caller-supplied entity can never
+                // touch the tracked model's primary key, regardless of what it happens to carry.
+                var modelId = model.Id;
+                Mapper.Map(entity, model);
+                model.Id = modelId;
+                await Context.SaveChangesAsync();
+                await Context.Database.CommitTransactionAsync();
+                return entity;
+            }
+            catch
+            {
+                await Context.Database.RollbackTransactionAsync();
+                throw;
+            }
         }
 
         protected RetrosharpContext Context { get; }

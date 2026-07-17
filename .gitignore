@@ -58,3 +58,7 @@ nunit-*.xml
 
 # Visual Studio
 **/.vs
+
+# Retrosheet source data downloaded locally for ETL testing (referenced by file path
+# at runtime, not a build-embedded resource -- see spec/person.md, spec/game-log.md)
+biodata/

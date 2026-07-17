@@ -15,17 +15,17 @@ namespace Retrosharp.Contract.Person
         /// <summary>
         /// Person's surname.
         /// </summary>
-        public string Surname { get; set; }
+        public string? Surname { get; set; }
 
         /// <summary>
         /// Name commonly used (typically first name or nickname).
         /// </summary>
-        public string UseName { get; set; }
+        public string? UseName { get; set; }
 
         /// <summary>
         /// Person's full name.
         /// </summary>
-        public string FullName { get; set; }
+        public string? FullName { get; set; }
 
         /// <summary>
         /// Date of birth.
@@ -35,17 +35,17 @@ namespace Retrosharp.Contract.Person
         /// <summary>
         /// City where the person was born.
         /// </summary>
-        public string BirthCity { get; set; }
+        public string? BirthCity { get; set; }
 
         /// <summary>
         /// State, province, or region where the person was born.
         /// </summary>
-        public string BirthStateProvince { get; set; }
+        public string? BirthStateProvince { get; set; }
 
         /// <summary>
         /// Country where the person was born.
         /// </summary>
-        public string BirthCountry { get; set; }
+        public string? BirthCountry { get; set; }
 
         /// <summary>
         /// Date of death.
@@ -55,52 +55,52 @@ namespace Retrosharp.Contract.Person
         /// <summary>
         /// City where the person died.
         /// </summary>
-        public string DeathCity { get; set; }
+        public string? DeathCity { get; set; }
 
         /// <summary>
         /// State, province, or region where the person died.
         /// </summary>
-        public string DeathStateProvince { get; set; }
+        public string? DeathStateProvince { get; set; }
 
         /// <summary>
         /// Country where the person died.
         /// </summary>
-        public string DeathCountry { get; set; }
+        public string? DeathCountry { get; set; }
 
         /// <summary>
         /// Name of the cemetery where the person is buried.
         /// </summary>
-        public string Cemetery { get; set; }
+        public string? Cemetery { get; set; }
 
         /// <summary>
         /// City of the cemetery.
         /// </summary>
-        public string CemeteryCity { get; set; }
+        public string? CemeteryCity { get; set; }
 
         /// <summary>
         /// State, province, or region of the cemetery.
         /// </summary>
-        public string CemeteryStateProv { get; set; }
+        public string? CemeteryStateProv { get; set; }
 
         /// <summary>
         /// Country of the cemetery.
         /// </summary>
-        public string CemeteryCountry { get; set; }
+        public string? CemeteryCountry { get; set; }
 
         /// <summary>
         /// Additional notes about the cemetery.
         /// </summary>
-        public string CemeteryNote { get; set; }
+        public string? CemeteryNote { get; set; }
 
         /// <summary>
         /// Birth name if different from current name.
         /// </summary>
-        public string BirthName { get; set; }
+        public string? BirthName { get; set; }
 
         /// <summary>
         /// Alternate name for the person.
         /// </summary>
-        public string AlternateName { get; set; }
+        public string? AlternateName { get; set; }
 
         /// <summary>
         /// Date of first player appearance.
@@ -145,12 +145,12 @@ namespace Retrosharp.Contract.Person
         /// <summary>
         /// Batting stance (e.g., "R" for right, "L" for left, "B" for both).
         /// </summary>
-        public string Bats { get; set; }
+        public string? Bats { get; set; }
 
         /// <summary>
         /// Throwing hand (e.g., "R" for right, "L" for left).
         /// </summary>
-        public string Throws { get; set; }
+        public string? Throws { get; set; }
 
         /// <summary>
         /// Height in inches.

@@ -22,19 +22,19 @@ namespace Retrosharp.Data.Model
         /// Person's surname.
         /// </summary>
         [StringLength(32)]
-        public string Surname { get; set; }
+        public string? Surname { get; set; }
 
         /// <summary>
         /// Name commonly used (typically first name or nickname).
         /// </summary>
         [StringLength(32)]
-        public string UseName { get; set; }
+        public string? UseName { get; set; }
 
         /// <summary>
         /// Person's full name.
         /// </summary>
         [StringLength(128)]
-        public string FullName { get; set; }
+        public string? FullName { get; set; }
 
         /// <summary>
         /// Date of birth.
@@ -45,19 +45,19 @@ namespace Retrosharp.Data.Model
         /// City where the person was born.
         /// </summary>
         [StringLength(32)]
-        public string BirthCity { get; set; }
+        public string? BirthCity { get; set; }
 
         /// <summary>
         /// State, province, or region where the person was born.
         /// </summary>
         [StringLength(32)]
-        public string BirthStateProvince { get; set; }
+        public string? BirthStateProvince { get; set; }
 
         /// <summary>
         /// Country where the person was born.
         /// </summary>
         [StringLength(32)]
-        public string BirthCountry { get; set; }
+        public string? BirthCountry { get; set; }
 
         /// <summary>
         /// Date of death.
@@ -68,61 +68,61 @@ namespace Retrosharp.Data.Model
         /// City where the person died.
         /// </summary>
         [StringLength(512)]
-        public string DeathCity { get; set; }
+        public string? DeathCity { get; set; }
 
         /// <summary>
         /// State, province, or region where the person died.
         /// </summary>
         [StringLength(32)]
-        public string DeathStateProvince { get; set; }
+        public string? DeathStateProvince { get; set; }
 
         /// <summary>
         /// Country where the person died.
         /// </summary>
         [StringLength(32)]
-        public string DeathCountry { get; set; }
+        public string? DeathCountry { get; set; }
 
         /// <summary>
         /// Name of the cemetery where the person is buried.
         /// </summary>
         [StringLength(72)]
-        public string Cemetery { get; set; }
+        public string? Cemetery { get; set; }
 
         /// <summary>
         /// City of the cemetery.
         /// </summary>
         [StringLength(32)]
-        public string CemeteryCity { get; set; }
+        public string? CemeteryCity { get; set; }
 
         /// <summary>
         /// State, province, or region of the cemetery.
         /// </summary>
         [StringLength(32)]
-        public string CemeteryStateProv { get; set; }
+        public string? CemeteryStateProv { get; set; }
 
         /// <summary>
         /// Country of the cemetery.
         /// </summary>
         [StringLength(32)]
-        public string CemeteryCountry { get; set; }
+        public string? CemeteryCountry { get; set; }
 
         /// <summary>
         /// Additional notes about the cemetery.
         /// </summary>
         [StringLength(1024)]
-        public string CemeteryNote { get; set; }
+        public string? CemeteryNote { get; set; }
 
         /// <summary>
         /// Birth name if different from current name.
         /// </summary>
         [StringLength(128)]
-        public string BirthName { get; set; }
+        public string? BirthName { get; set; }
 
         /// <summary>
         /// Alternate name for the person.
         /// </summary>
         [StringLength(128)]
-        public string AlternateName { get; set; }
+        public string? AlternateName { get; set; }
 
         /// <summary>
         /// Date of first player appearance.
@@ -168,13 +168,13 @@ namespace Retrosharp.Data.Model
         /// Batting stance (e.g., "R" for right, "L" for left, "B" for both).
         /// </summary>
         [StringLength(2)]
-        public string Bats { get; set; }
+        public string? Bats { get; set; }
 
         /// <summary>
         /// Throwing hand (e.g., "R" for right, "L" for left).
         /// </summary>
         [StringLength(2)]
-        public string Throws { get; set; }
+        public string? Throws { get; set; }
 
         /// <summary>
         /// Height in inches.

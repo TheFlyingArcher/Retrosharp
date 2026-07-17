@@ -30,5 +30,14 @@ namespace Retrosharp.Data
         /// <param name="searchTerm">The search term to match against name fields.</param>
         /// <returns>A collection of people matching the search criteria.</returns>
         Task<IEnumerable<Person>> SearchByNameAsync(string searchTerm);
+
+        /// <summary>
+        /// Inserts or updates the given people, matched by Retrosheet ID, as a single atomic
+        /// transaction covering the entire batch. Used by the Person parser, where an
+        /// unrecoverable error must leave no partial data committed.
+        /// </summary>
+        /// <param name="people">The people to insert or update.</param>
+        /// <returns>The number of people added and the number updated.</returns>
+        Task<(int Added, int Updated)> BulkUpsertAsync(IEnumerable<Person> people);
     }
 }
