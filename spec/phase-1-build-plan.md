@@ -142,7 +142,7 @@ Step 1: Schema Alignment
 
 ## Step 3: Person Parser
 
-**Status**: Not Started
+**Status**: Complete
 
 **Governing spec**: [person.md](./person.md)
 
@@ -161,11 +161,43 @@ Step 1: Schema Alignment
 
 **Definition of done**: matches [person.md](./person.md)'s Acceptance Criteria in full, including running as an NServiceBus saga triggered by a message placed on the service bus via its API endpoint, per [parser.md](./parser.md).
 
+### Progress Log
+
+**What was found (starting state)**:
+- `BioFileMapping.cs` targeted the wrong (legacy) 31-column layout: missing `usename` entirely (shifting every subsequent field by one column), and a copy-paste bug reading `FinalUmpireGame` from `Row[35]` (out of bounds) instead of `Row[25]`. Date parsing used generic `DateTime.TryParse`, implementing none of the spec's 00-day/00-month/missing-year normalization rules.
+- `BaseRepository.UpdateAsync` threw `NotImplementedException` — fine for Franchise/Ballpark seeding (skip-only), not fine for Person, which must update existing records.
+- No test project existed anywhere in the solution.
+- Verified `biodata/biofile0.csv` (downloaded directly from Retrosheet) against the real newer-format column layout before writing any code: 32 columns confirmed exactly, `YYYYMMDD` dates confirmed, and every date-normalization edge case the spec calls out confirmed present in the real data (month-and-day-both-`00`, day-only-`00`, fully blank dates). ~26,961 data rows.
+
+**What was built**:
+- `RetrosheetDateParser`: a single shared static method implementing the three normalization rules, replacing the copy-pasted `DateTime.TryParse` lambdas that had caused the `FinalUmpireGame` bug in the first place.
+- `BioFileMapping` rewritten for the confirmed real 32-column layout, all 10 date fields routed through `RetrosheetDateParser`, `HOF` fixed to an exact `"HOF"` match.
+- `BaseRepository.UpdateAsync` implemented for real (single-entity transaction pattern, mirroring `CreateAsync`).
+- `PersonRepository.BulkUpsertAsync`: whole-file atomicity via one transaction spanning the entire batch, existing rows loaded into a dictionary once, periodic `SaveChangesAsync` every 1000 rows to bound EF Core's change-tracker overhead without breaking atomicity.
+- `PersonImportService`, `PersonStart`/`PersonComplete`/`PersonCancel` messages, and a real `PersonSaga` (mirroring `GameLogSaga`'s Start/Complete/Cancel shape, but with actual working logic rather than stubs) in `Retrosharp.Engine.Console`.
+- A UI.Api endpoint (`POST /api/person/import`) to trigger real imports.
+- `Retrosharp.Format.Tests`: the solution's first xUnit test project, covering `RetrosheetDateParser` and `BioFileMapping` against real edge-case values pulled directly from `biofile0.csv`, including a regression test specifically targeting the class of bug that caused the original `FinalUmpireGame` column mismatch.
+
+**Discrepancies and decisions made during implementation**:
+- `biodata/` (the downloaded Retrosheet source files) was deliberately left out of the repository and added to `.gitignore` — the biofile is architecturally an external ETL input referenced by file path at runtime (like Game Log files will be in Step 5), not a build-embedded resource like the seed-data CSVs from Step 2, and most of the files in that directory (`coaches0.csv`, `managers0.csv`, etc.) aren't even used by this parser.
+
+**Errors encountered** (real bugs found via live verification against the full real file, not caught by unit tests against a small fixture):
+- `PersonModel` forced several string columns `NOT NULL` via EF Core's nullable-reference-type convention, but real biofile data legitimately leaves many of them blank (`Bats`, `Throws`, `UseName`, and most death/cemetery fields for anyone still alive or with incomplete records) — exactly the gap flagged as priority technical debt in Step 2's progress log. Fixed via a new migration making 18 fields nullable across both `PersonModel` and the `Person` contract.
+- Mapster's `Map(source, destination)` overload was overwriting the tracked `PersonModel`'s primary key with the incoming `Person`'s default `Id` (0) during in-place updates, since a freshly-parsed `Person` never carries a real database `Id` — EF Core's change tracker correctly rejected the resulting key modification. Fixed by explicitly restoring the key after mapping, in both `BulkUpsertAsync` and the newly-implemented `BaseRepository.UpdateAsync`.
+- Both bugs were caught only because verification ran the entire real ~27,000-row file rather than stopping at a small hand-crafted fixture; the fixture-based unit tests didn't (and structurally couldn't) exercise either failure mode, since the fixture data happened not to include enough blank-field variety and the update path was never being exercised until the idempotency re-run.
+
+**Verification performed**:
+- 12 unit tests (date normalization edge cases + column-mapping regression tests): all passing.
+- Full solution build: 0 errors.
+- Live first import against the real `biofile0.csv` (routed through the same UI.Api → RabbitMQ → Engine.Console path proven in Step 4): 26,961 people added, exactly matching the file's row count.
+- Spot-checked directly via `sqlcmd`: Hank Aaron's row (`IsHof=1`, `BirthDate=1934-02-05`, `DeathDate=2021-01-22`) and all three date-normalization edge cases (`19010000`→`1901-01-01`, `18420200`→`1842-02-01`, blank→`NULL`) correct in the live database.
+- Live idempotency re-run: 0 added, 26,961 updated, row count unchanged — confirmed after fixing the Mapster key-overwrite bug above. The failed run in between (before that fix) rolled back cleanly with zero partial data committed, confirming atomicity held even under a real, deterministic failure.
+
 ---
 
 ## Step 4: ETL Messaging Infrastructure
 
-**Status**: Not Started
+**Status**: Complete
 
 **Governing spec**: [project.md](./project.md) (ETL requirements), [parser.md](./parser.md) (base saga requirements shared by every parser), [person.md](./person.md), [game-log.md](./game-log.md), and [game-event.md](./game-event.md) (parser-specific saga requirements)
 
@@ -181,6 +213,39 @@ Step 1: Schema Alignment
 - Structured logging for all NServiceBus operations.
 
 **Definition of done**: a trivial test message can be sent from the API endpoint, received by the Engine, and successfully processed end-to-end, with a deliberately-failing test message demonstrating the retry/backoff/dead-letter path.
+
+### Progress Log
+
+**What was found (starting state)**:
+- `Retrosharp.Engine.Console/Program.cs` was literally `Console.WriteLine("Hello, World!");` — no host, no NServiceBus configuration at all, despite the `.csproj` already referencing `NServiceBus`, `NServiceBus.Extensions.Hosting`, `NServiceBus.Persistence.Sql`, and `NServiceBus.RabbitMQ`.
+- `GameLogSaga.cs` already existed as a scaffold (all three handlers `throw new NotImplementedException()`), but was breaking the solution build: `GameLogSagaData` lived in the shared `Retrosharp` library, not `Retrosharp.Engine.Console`, and NServiceBus.Persistence.Sql's `SqlPersistenceTask` MSBuild task requires a saga's *entire type hierarchy* — not just its concrete `SagaData` type — to live in the same assembly as the saga class. This was the exact cause of the 4 known build errors flagged in Step 1's progress log.
+- `Retrosharp.UI.Api/Program.cs` was a stock ASP.NET Web API template with NServiceBus packages referenced but zero configuration.
+- `NServiceBus.Persistence.Sql` was pinned to 8.3.0, which predates the already-referenced `NServiceBus` 10.2.0 core's persistence extensibility API (`UsePersistence<T>()` now requires `T : IPersistenceDefinitionFactory<T>`, which 8.3.0's `SqlPersistence` type doesn't implement). The correct minimum compatible version is 9.0.2.
+
+**What was built**:
+- Relocated `GameLogSagaData` *and* `BaseSagaData` (not just the concrete type — the script generator needs the whole hierarchy) into `Retrosharp.Engine.Console/Saga/`, out of the shared `Retrosharp` library.
+- `Retrosharp.Engine.Console/Program.cs` rewritten as a full NServiceBus host: RabbitMQ transport, SQL persistence (`NServiceBus.Persistence.Sql` 9.0.2), explicit error/audit queue names, and a custom exponential-backoff-with-jitter recoverability policy (NServiceBus's built-in delayed retries only support a linear `TimeIncrease`, not true exponential backoff or jitter).
+- `Retrosharp.UI.Api/Program.cs` configured as a send-only endpoint with explicit message routing.
+- New `MessagingConfiguration` class (`Retrosharp.Configuration`) for RabbitMQ connection string, endpoint name, queue names, and recoverability settings — kept separate from the existing SQL-focused `RetrosharpConfiguration`.
+- `Retrosharp.Data.Migration` now applies the NServiceBus persistence schema via the official `NServiceBus.Persistence.Sql.ScriptRunner.Install()` API (found mid-implementation, more robust than hand-rolled SQL execution), copying the scripts generated at Engine.Console's build time via a build-order-only `ProjectReference`.
+- A throwaway `PingMessage`/`FailingPingMessage` diagnostic pair (UI.Api controller + Engine.Console handlers), used only to prove the pipeline end-to-end per this step's Definition of Done — not tied to any real parser.
+- Removed `EnableInstallers()` from Engine.Console after discovering it was the sole cause of NServiceBus.Persistence.Sql re-running its schema installer at every endpoint startup, duplicating what Data.Migration already applies; RabbitMQ's own queue/exchange creation happens unconditionally regardless of installer settings, so nothing was lost by removing it.
+
+**Discrepancies and decisions made during implementation**:
+- `ScriptRunner.Install()`'s actual parameter order (`dialect, tablePrefix, connectionBuilder, scriptDirectory, shouldInstallOutbox, shouldInstallSagas, shouldInstallSubscriptions, cancellationToken`) doesn't match what a first reading of its signature suggests (`scriptDirectory` and `tablePrefix` are easy to transpose, both being adjacent string parameters) — confirmed via reflection against the actual compiled assembly rather than guesswork.
+- No corresponding boolean exists for the Timeout script category; only Outbox, Sagas, and Subscriptions are gated, and `TimeoutData` was not created as a result. Left as-is since it's plausible modern NServiceBus versions no longer need a SQL-backed timeout store when using a transport (RabbitMQ) capable of native delayed delivery; not confirmed definitively, flagged for future attention if timeout-dependent functionality is ever needed.
+- Chose to test cross-machine connectivity empirically (Parallels shared-network host address, `10.211.55.2`) rather than assume `localhost` would work from within the Windows VM, since RabbitMQ runs in Docker on the Mac host, not inside the guest.
+
+**Errors encountered**:
+- `NServiceBus.Persistence.Sql` 8.3.0/`NServiceBus` 10.2.0 version mismatch (see above) — resolved by upgrading to 9.0.2.
+- `ScriptRunner.Install()` parameter order mismatch — resolved via reflection against the compiled assembly.
+- Killing a hung background `dotnet run` process also killed the underlying LocalDB engine, losing (empty, no real data) database files mid-session; recreated cleanly.
+
+**Verification performed**:
+- Full solution build: 0 errors, confirming the `SagaData`/`BaseSagaData` relocation fixed the previously-known build failure.
+- Live end-to-end test against a real RabbitMQ instance (Docker on the Mac host, reached from this Windows VM via Parallels' shared-network host address): a trivial `PingMessage` sent from UI.Api was received and processed by Engine.Console, RequestIds matching exactly.
+- A deliberately-failing `FailingPingMessage` exercised the full retry/backoff/dead-letter path: 3 immediate retries, then 5 delayed retries at ~2.3s/4.2s/8.3s/16.2s/32.3s (confirmed exponential, each roughly doubling, with jitter), ending with the message correctly routed to the configured error queue.
+- After removing `EnableInstallers()`, re-verified live: RabbitMQ queue creation and message flow still work correctly, and the duplicate "Executing saga creation scripts" log line no longer appears.
 
 ---
 
