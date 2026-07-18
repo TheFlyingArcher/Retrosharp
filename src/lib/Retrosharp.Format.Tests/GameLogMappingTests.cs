@@ -108,6 +108,31 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public async Task Parse_RealSavingPitcherId_MapsToTheCorrectValue()
+        {
+            // Regression test: SavingPitcherId's .Convert() previously read c.Value.SavingPitcherId,
+            // which resolves to CsvHelper's *write*-side overload (never invoked while reading),
+            // so this always came back as an empty string regardless of the real CSV content.
+            var records = await ParseFixtureAsync();
+            var game = Find(records, "LAN", "CHN", new DateTime(2025, 3, 18));
+
+            Assert.Equal("scott003", game.SavingPitcherId);
+            // The same game's GameWinningPlayerId is genuinely blank in the raw file.
+            Assert.Null(game.GameWinningPlayerId);
+        }
+
+        [Fact]
+        public async Task Parse_RealGameWinningPlayerId_MapsToTheCorrectValue()
+        {
+            var records = await ParseFixtureAsync();
+            var game = Find(records, "NYN", "MIN", new DateTime(2025, 4, 16));
+
+            Assert.Equal("frant002", game.GameWinningPlayerId);
+            // The same game's SavingPitcherId is genuinely "(none)" in the raw file.
+            Assert.Null(game.SavingPitcherId);
+        }
+
+        [Fact]
         public async Task Parse_BlankGameAttendance_MapsToNull()
         {
             // A real suspended-and-completed-later game with no recorded attendance figure.

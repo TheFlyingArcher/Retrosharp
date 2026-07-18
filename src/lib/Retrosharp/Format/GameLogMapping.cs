@@ -367,18 +367,21 @@ namespace Retrosharp.Format
                 .Index(85)
                 .Convert(c =>
                 {
-                    return c.Value.UmpireLeftId == "(none)" || string.IsNullOrEmpty(c.Value.UmpireLeftId)
-                        ? null
-                        : c.Value.UmpireLeftId;
+                    // NOTE: must read the raw field via c.Row, not c.Value.<Member> -- the
+                    // latter resolves to CsvHelper's *write*-side Convert(ConvertToString<TClass>)
+                    // overload instead of the read-side one, since TClass has a same-named
+                    // property. That overload is never invoked while reading, so the member
+                    // silently comes back as an empty string regardless of the real CSV content.
+                    var raw = c.Row.GetField(85);
+                    return raw == "(none)" || string.IsNullOrEmpty(raw) ? null : raw;
                 });
             Map(m => m.UmpireLeftName).Index(86);
             Map(m => m.UmpireRightId)
                 .Index(87)
                 .Convert(c =>
                 {
-                    return c.Value.UmpireRightId == "(none)" || string.IsNullOrEmpty(c.Value.UmpireRightId)
-                        ? null
-                        : c.Value.UmpireRightId;
+                    var raw = c.Row.GetField(87);
+                    return raw == "(none)" || string.IsNullOrEmpty(raw) ? null : raw;
                 });
             Map(m => m.UmpireRightName).Index(88);
 
@@ -394,18 +397,16 @@ namespace Retrosharp.Format
                 .Index(97)
                 .Convert(c =>
                 {
-                    return c.Value.SavingPitcherId == "(none)" || string.IsNullOrEmpty(c.Value.SavingPitcherId)
-                        ? null
-                        : c.Value.SavingPitcherId;
+                    var raw = c.Row.GetField(97);
+                    return raw == "(none)" || string.IsNullOrEmpty(raw) ? null : raw;
                 });
             Map(m => m.SavingPitcherName).Index(98);
             Map(m => m.GameWinningPlayerId)
                 .Index(99)
                 .Convert(c =>
                 {
-                    return c.Value.GameWinningPlayerId == "(none)" || string.IsNullOrEmpty(c.Value.GameWinningPlayerId)
-                        ? null
-                        : c.Value.GameWinningPlayerId;
+                    var raw = c.Row.GetField(99);
+                    return raw == "(none)" || string.IsNullOrEmpty(raw) ? null : raw;
                 });
             Map(m => m.GameWinningPlayerName).Index(100);
             Map(m => m.VisitorStartingPitcherId).Index(101);

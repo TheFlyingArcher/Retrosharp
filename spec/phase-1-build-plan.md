@@ -291,7 +291,7 @@ The actual DB-persistence path for Game Log had never been built: `GameLogSaga` 
 - Real `GameLogSaga`/`GameLogSagaData`, brought to parity with `PersonSaga` (constructor now stores its dependencies, `GameLogCancel` added to `ConfigureHowToFindSaga`, `FilePath` added to the saga data, real handler bodies). `GameLogComplete` now carries `GamesAdded`/`GamesSkipped` instead of a single vague `RecordsProcessed`.
 - `GameLogController` (`POST /api/gamelog/import`), mirroring `PersonController`, plus the missing `routing.RouteToEndpoint(typeof(GameLogStart), ...)` line in `UI.Api/Program.cs`.
 - Removed the dead `GameService.ProcessGameLogsAsync`/`IGameService.ProcessGameLogsAsync` stub, fully superseded by `GameLogImportService`; trimmed `GameService`'s now-unused `IFranchiseRepository`/`IPersonRepository`/`IBallparkRepository` constructor dependencies.
-- 7 new unit tests in `Retrosharp.Format.Tests` covering all five mapping/parsing bugs (including a home-lineup regression test and the blank-attendance case), using real rows pulled directly from `gl2025.txt`.
+- 7 new unit tests in `Retrosharp.Format.Tests` covering all five mapping/parsing bugs (including a home-lineup regression test and the blank-attendance case), using real rows pulled directly from `gl2025.txt`. (2 more added post-completion — see below.)
 - `.gitignore`: added `docs/csv/gl*.txt` and `docs/csv/biofile*.csv` alongside the existing `biodata/` entry — both are downloaded ETL test inputs, not build resources.
 
 **Discrepancies and decisions made during implementation**:
@@ -315,6 +315,16 @@ The actual DB-persistence path for Game Log had never been built: `GameLogSaga` 
 - Spot-checked the Tokyo season-opener (LAN @ CHN, 2025-03-18) directly against the raw file: home lineup batters, positions, and final score (4-1) all correct — confirming the home-lineup off-by-one fix.
 - Spot-checked one of the file's 14 real doubleheaders (CLE @ MIN, 2025-09-20): both games (6-0 and 8-0) present as distinct `Game` rows, confirming the natural-key fix.
 - Re-ran the same file: **0 added, 2,430 skipped** every time, with `Game`/`GameLineup`/stats row counts unchanged — idempotency verified by observed behavior, including across a scenario where the import was triggered more than twice.
+
+### Post-completion fix: `SavingPitcherId`/`GameWinningBatterId` always `NULL`
+
+Reported after this step was marked complete: every imported game had `SavingPitcherId` and `GameWinningBatterId` set to `NULL`, even for games with real saves and walk-off RBIs in the source data.
+
+**Root cause**: `GameLogMapping.cs`'s `.Convert()` calls for `UmpireLeftId`, `UmpireRightId`, `SavingPitcherId`, and `GameWinningPlayerId` (all four using the same pattern, pre-existing before this step) read the raw field via `c.Value.<PropertyName>` instead of `c.Row.GetField(index)`. `MemberMap.Convert()` is overloaded for both directions — `Convert(ConvertFromString<TMember>)` for reading (parameter exposes only `.Row`, no `.Value`) and `Convert(ConvertToString<TClass>)` for writing (parameter exposes `.Value` as the whole source object). Since `ConvertFromStringArgs` has no `.Value` member, `c.Value.SavingPitcherId` only type-checks against the *write*-side overload, so the compiler silently bound all four `.Convert()` calls to the wrong overload. That overload is never invoked while reading a file, so CsvHelper fell back to producing an empty string for the member regardless of the real CSV content — confirmed empirically with an isolated CsvHelper repro reproducing the exact pattern. This predated Step 5 (existing scaffolding) and wasn't caught by verification because the Step 5 spot-checks covered lineups, scores, and doubleheaders, but not these four specific columns.
+
+**Fix**: rewrote all four `.Convert()` callbacks to read via `c.Row.GetField(index)`. Verified against real data: `SavingPitcherId` now has exactly 1,201 non-null values and `GameWinningBatterId` exactly 2,332, matching the raw file's real (non-`"(none)"`, non-blank) counts precisely. `UmpireLeftId`/`UmpireRightId` remain `NULL` for all 2,430 games — confirmed correct, since the 2025 regular-season file genuinely never populates those two fields (field umpires are historical/postseason-only).
+
+**Verification**: added 2 new regression tests (`Parse_RealSavingPitcherId_MapsToTheCorrectValue`, `Parse_RealGameWinningPlayerId_MapsToTheCorrectValue`) using real rows already in the fixture — 21/21 tests passing. Cleared and re-imported all 2,430 games live; spot-checked the Tokyo opener's saving pitcher resolves correctly to Tanner Scott (`scott003`); re-confirmed idempotency (0 added, 2,430 skipped) still holds post-fix.
 
 ---
 
