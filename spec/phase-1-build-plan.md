@@ -193,6 +193,16 @@ Step 1: Schema Alignment
 - Spot-checked directly via `sqlcmd`: Hank Aaron's row (`IsHof=1`, `BirthDate=1934-02-05`, `DeathDate=2021-01-22`) and all three date-normalization edge cases (`19010000`→`1901-01-01`, `18420200`→`1842-02-01`, blank→`NULL`) correct in the live database.
 - Live idempotency re-run: 0 added, 26,961 updated, row count unchanged — confirmed after fixing the Mapster key-overwrite bug above. The failed run in between (before that fix) rolled back cleanly with zero partial data committed, confirming atomicity held even under a real, deterministic failure.
 
+### Post-completion fix: optional string fields stored as `""` instead of `NULL`
+
+Reported after this step was marked complete: a quick examination of the live `Person` table showed `BirthCity`, `BirthCountry`, `DeathCity`, `Cemetery`, and similar fields holding empty strings rather than `NULL` wherever the biofile left them blank — wasting space and muddying any future indexing/filtering on "no value recorded."
+
+**Root cause**: `BioFileMapping.cs` mapped these 14 optional string fields (`UseName`, `BirthCity`, `BirthState`, `BirthCountry`, `DeathCity`, `DeathState`, `DeathCountry`, `CemetaryName`, `CemetaryCity`, `CemetaryState`, `CemetaryCountry`, `CemetaryNote`, `BirthName`, `AlternateName`) with plain `.Index(n)`, no `.Convert(...)`. CsvHelper's default converter for a blank field behaves differently by target type: for a nullable *value* type (`DateTime?`, `char?` — used by `Bats`/`Throws`/every date field), a blank field converts to `null`; for `string`, it converts to `string.Empty`. Since `Person`/`PersonModel` already declared these fields nullable (`string?`, fixed by Step 2/3's own nullable-reference-type migration), the schema was ready for `NULL` — but nothing in the parsing path ever actually produced one for a blank string field.
+
+**Fix**: added a shared `NullIfBlank` helper in `BioFileMapping.cs` and applied `.Convert(c => NullIfBlank(c.Row[n]))` to all 14 fields (mirroring the existing `RetrosheetDateParser`-based pattern already used for dates). `BioFile.cs`'s corresponding properties changed from `string` to `string?` to match. `RetrosheetId`, `LastName`, and `FullName` were left untouched — confirmed 0 blank occurrences for all three across the full real file, so they don't need the same treatment.
+
+**Verification**: 2 new/updated unit tests in `Retrosharp.Format.Tests` using real fixture rows (22/22 passing). Re-ran the live biofile import through `PersonRepository.BulkUpsertAsync`'s existing update path (no new tooling needed — Mapster's `Map(source, destination)` overwrites the tracked entity's fields including nulls): every previously-empty-string count moved to the exact same count of `NULL` (`UseName` 1,126; `BirthCity` 2,881; `DeathCity` 14,746; `Cemetery` 16,182; `AlternateName` 26,944 — all now zero empty strings), with row count unchanged (26,961) and a repeat run confirming stability.
+
 ---
 
 ## Step 4: ETL Messaging Infrastructure

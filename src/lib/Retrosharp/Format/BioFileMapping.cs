@@ -20,23 +20,23 @@ namespace Retrosharp.Format
         {
             Map(m => m.RetrosheetId).Index(0);
             Map(m => m.LastName).Index(1);
-            Map(m => m.UseName).Index(2);
+            Map(m => m.UseName).Index(2).Convert(c => NullIfBlank(c.Row[2]));
             Map(m => m.FullName).Index(3);
             Map(m => m.BirthDate).Index(4).Convert(c => RetrosheetDateParser.Parse(c.Row[4]));
-            Map(m => m.BirthCity).Index(5);
-            Map(m => m.BirthState).Index(6);
-            Map(m => m.BirthCountry).Index(7);
+            Map(m => m.BirthCity).Index(5).Convert(c => NullIfBlank(c.Row[5]));
+            Map(m => m.BirthState).Index(6).Convert(c => NullIfBlank(c.Row[6]));
+            Map(m => m.BirthCountry).Index(7).Convert(c => NullIfBlank(c.Row[7]));
             Map(m => m.DeathDate).Index(8).Convert(c => RetrosheetDateParser.Parse(c.Row[8]));
-            Map(m => m.DeathCity).Index(9);
-            Map(m => m.DeathState).Index(10);
-            Map(m => m.DeathCountry).Index(11);
-            Map(m => m.CemetaryName).Index(12);
-            Map(m => m.CemetaryCity).Index(13);
-            Map(m => m.CemetaryState).Index(14);
-            Map(m => m.CemetaryCountry).Index(15);
-            Map(m => m.CemetaryNote).Index(16);
-            Map(m => m.BirthName).Index(17);
-            Map(m => m.AlternateName).Index(18);
+            Map(m => m.DeathCity).Index(9).Convert(c => NullIfBlank(c.Row[9]));
+            Map(m => m.DeathState).Index(10).Convert(c => NullIfBlank(c.Row[10]));
+            Map(m => m.DeathCountry).Index(11).Convert(c => NullIfBlank(c.Row[11]));
+            Map(m => m.CemetaryName).Index(12).Convert(c => NullIfBlank(c.Row[12]));
+            Map(m => m.CemetaryCity).Index(13).Convert(c => NullIfBlank(c.Row[13]));
+            Map(m => m.CemetaryState).Index(14).Convert(c => NullIfBlank(c.Row[14]));
+            Map(m => m.CemetaryCountry).Index(15).Convert(c => NullIfBlank(c.Row[15]));
+            Map(m => m.CemetaryNote).Index(16).Convert(c => NullIfBlank(c.Row[16]));
+            Map(m => m.BirthName).Index(17).Convert(c => NullIfBlank(c.Row[17]));
+            Map(m => m.AlternateName).Index(18).Convert(c => NullIfBlank(c.Row[18]));
             Map(m => m.PlayerDebut).Index(19).Convert(c => RetrosheetDateParser.Parse(c.Row[19]));
             Map(m => m.PlayerFinalGame).Index(20).Convert(c => RetrosheetDateParser.Parse(c.Row[20]));
             Map(m => m.CoachDebut).Index(21).Convert(c => RetrosheetDateParser.Parse(c.Row[21]));
@@ -51,5 +51,13 @@ namespace Retrosharp.Format
             Map(m => m.Weight).Index(30);
             Map(m => m.InHallOfFame).Index(31).Convert(c => c.Row[31] == "HOF");
         }
+
+        /// <summary>
+        /// A blank optional field means no value was recorded, not a value of "" -- prefer null
+        /// so the database stores NULL rather than wasting space (and muddying indexes/queries)
+        /// with empty strings for the large fraction of biographical fields that are routinely
+        /// unpopulated (most people have no death or cemetery info, most have no alternate name).
+        /// </summary>
+        private static string? NullIfBlank(string? raw) => string.IsNullOrEmpty(raw) ? null : raw;
     }
 }

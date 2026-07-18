@@ -78,13 +78,32 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
-        public async Task Parse_BlankUseNameAndBirthdate_MapsToEmptyStringAndNull()
+        public async Task Parse_BlankUseNameAndBirthdate_MapsToNull()
         {
+            // A blank optional field means no value was recorded, not a value of "" -- prefer
+            // null so the database doesn't waste space with empty strings for the large
+            // fraction of biographical fields that are routinely unpopulated.
             var records = await ParseFixtureAsync();
             var aberdino = records.Single(r => r.RetrosheetId == "aberu101");
 
-            Assert.Equal(string.Empty, aberdino.UseName);
+            Assert.Null(aberdino.UseName);
             Assert.Null(aberdino.BirthDate);
+            Assert.Null(aberdino.BirthCity);
+        }
+
+        [Fact]
+        public async Task Parse_BlankDeathAndCemeteryFields_MapToNull()
+        {
+            // Eufemio Abreu has no recorded death, so every death/cemetery field is blank.
+            var records = await ParseFixtureAsync();
+            var abreu = records.Single(r => r.RetrosheetId == "abree101");
+
+            Assert.Null(abreu.DeathCity);
+            Assert.Null(abreu.DeathState);
+            Assert.Null(abreu.DeathCountry);
+            Assert.Null(abreu.CemetaryName);
+            Assert.Null(abreu.BirthName);
+            Assert.Null(abreu.AlternateName);
         }
     }
 }
