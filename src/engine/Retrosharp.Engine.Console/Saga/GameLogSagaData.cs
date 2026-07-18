@@ -5,9 +5,8 @@ namespace Retrosharp.Engine.Console.Saga
         public int SeasonYear { get; set; }
 
         /// <summary>
-        /// Number of records processed so far.
-        /// This is used to track progress and determine when the saga is complete.
+        /// The game log file path being processed, kept for logging when the saga completes.
         /// </summary>
-        public int RecordsProcessed { get; set; }
+        public string FilePath { get; set; }
     }
 }

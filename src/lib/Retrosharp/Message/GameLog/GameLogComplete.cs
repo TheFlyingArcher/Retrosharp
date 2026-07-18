@@ -14,9 +14,13 @@ namespace Retrosharp.Message.GameLog
         public int SeasonYear { get; set; }
 
         /// <summary>
-        /// Number of records processed in the game log.
-        /// This can be used for logging, auditing, or triggering subsequent actions based on the volume of data processed.
+        /// Number of games added to the database.
         /// </summary>
-        public int RecordsProcessed { get; set; }
+        public int GamesAdded { get; set; }
+
+        /// <summary>
+        /// Number of games skipped because they were already present, matched by natural key.
+        /// </summary>
+        public int GamesSkipped { get; set; }
     }
 }

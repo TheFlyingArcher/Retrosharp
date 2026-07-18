@@ -251,7 +251,7 @@ Step 1: Schema Alignment
 
 ## Step 5: Game Log Parser
 
-**Status**: Not Started
+**Status**: Complete
 
 **Governing spec**: [game-log.md](./game-log.md)
 
@@ -267,6 +267,54 @@ Step 1: Schema Alignment
 - API endpoint to initiate processing of a Game Log file.
 
 **Definition of done**: matches [game-log.md](./game-log.md)'s Acceptance Criteria. At this point, a full season's worth of games, lineups, and team-level aggregate statistics should be queryable directly from the database, even though no player-level stats or play-by-play exist yet.
+
+### Progress Log
+
+**What was found (starting state)**: CSV parsing infrastructure (`GameLogFileService`, `GameLogMapping`) already existed and looked complete, but validating it against a real reference file (`docs/csv/gl2025.txt`, the full 2025 season, 2,430 games — 30 teams × 162 ÷ 2, confirmed) before writing any new code surfaced five real, previously-undetected bugs:
+- **`GameLogMapping`'s entire Home Lineup block was off by one CSV field** (indices 133-159 instead of 132-158). Every home lineup ever parsed by the existing code had its batter ID/name/position scrambled by one field per batter; the ninth batter's "position" was actually reading the (usually blank) `AdditionalInformation` field. The Visitor Lineup mapping was correct.
+- **`GameLog.GameDate` had no date-parsing `.Convert(...)`**, unlike every date field in the Person parser's `BioFileMapping`.
+- **Fields 159/160 (`AdditionalInformation`/`AcquisitionInfo`) were never mapped at all.**
+- **`GameLogFileService` never set `HasHeaderRecord = false`.** Game log files have no header row (unlike the biofile, which does), so CsvHelper's default would have silently discarded the first game of every real file.
+- **`GameLog.GameAttendance` was a non-nullable `int`**, but the real file has exactly one row (a suspended-and-completed-later game) with a blank attendance figure, matching the format spec's own "Missing fields will be NULL" note — this threw a `TypeConverterException` on live import until fixed.
+
+Separately, `GameModel`'s only natural-key index (`GameDate`, `HomeFranchiseId`, `VisitorFranchiseId`) didn't include `GameNumber`. The real file has 14 genuine doubleheaders (28 rows each of `GameNumber` "1" and "2"), so any idempotency check keyed without `GameNumber` would have treated a doubleheader's second game as a duplicate of the first and silently dropped it.
+
+The actual DB-persistence path for Game Log had never been built: `GameLogSaga` was a `NotImplementedException` stub, and `GameService.ProcessGameLogsAsync` built a partial `Game` object but never called a repository and completely ignored `GameLineup`/`Game*Statistics`.
+
+**What was built**:
+- Fixed all five bugs above in `GameLogMapping.cs`, `GameLog.cs`, and `GameLogFileService.cs`.
+- `IFranchiseRepository.GetByFranchiseCodeAndDateAsync(code, asOfDate)`: resolves a franchise by code *and* date, since `FranchiseCode` isn't unique across a franchise's eras (Step 2 finding) and Game Log rows only carry a code plus a game date.
+- Migration `GameNaturalKey`: extended `Game`'s natural-key index to `(GameDate, GameNumber, HomeFranchiseId, VisitorFranchiseId)` and made it unique.
+- `GameLogRecord` (`Retrosharp.Contract.Game`): a bundling DTO grouping one game's full graph (`Game` + lineups + three stats collections) so it can move from the service layer to the repository layer as one unit.
+- `GameRepository.BulkInsertAsync`: whole-file-atomicity, batched (`SaveChangesAsync` every 200 games), **skip-only** idempotency (not upsert) — a completed historical game's recorded stats don't change the way a person's biographical data can, unlike Person's upsert pattern from Step 3.
+- `GameLogImportService` (mirroring `PersonImportService`'s shape): resolves every FK per game (franchise by code+date, ballpark by site code, person by Retrosheet ID for managers/umpires/pitchers/batters), flattens the two 9-batter lineups into 18 `GameLineup` rows, derives `PlateAppearances` (not directly supplied by Retrosheet) and pulls team `Runs` from the game score rather than the hitting-stats sub-block, and maps `AdditionalInformation` into the existing `Game.GameNotes` free-text field.
+- Real `GameLogSaga`/`GameLogSagaData`, brought to parity with `PersonSaga` (constructor now stores its dependencies, `GameLogCancel` added to `ConfigureHowToFindSaga`, `FilePath` added to the saga data, real handler bodies). `GameLogComplete` now carries `GamesAdded`/`GamesSkipped` instead of a single vague `RecordsProcessed`.
+- `GameLogController` (`POST /api/gamelog/import`), mirroring `PersonController`, plus the missing `routing.RouteToEndpoint(typeof(GameLogStart), ...)` line in `UI.Api/Program.cs`.
+- Removed the dead `GameService.ProcessGameLogsAsync`/`IGameService.ProcessGameLogsAsync` stub, fully superseded by `GameLogImportService`; trimmed `GameService`'s now-unused `IFranchiseRepository`/`IPersonRepository`/`IBallparkRepository` constructor dependencies.
+- 7 new unit tests in `Retrosharp.Format.Tests` covering all five mapping/parsing bugs (including a home-lineup regression test and the blank-attendance case), using real rows pulled directly from `gl2025.txt`.
+- `.gitignore`: added `docs/csv/gl*.txt` and `docs/csv/biofile*.csv` alongside the existing `biodata/` entry — both are downloaded ETL test inputs, not build resources.
+
+**Discrepancies and decisions made during implementation**:
+- **Skip-only idempotency for `Game`**, not upsert. A completed historical game's stats are a fixed historical record; re-parsing the same file should never touch existing rows. Contrasts deliberately with Person's upsert pattern.
+- **`AcquisitionInfo` is parsed (bug fixed) but not persisted anywhere.** It has no natural destination column and isn't required by any spec acceptance criterion; adding a dedicated column for Retrosheet's own data-completeness metadata (as opposed to baseball data) felt like scope creep. Flagging here rather than silently dropping it without a record.
+- **`GameModel.GameNumber` (byte) can't represent "A"/"B" three-team-doubleheader codes.** Predates this step, not present in any modern season (confirmed absent from the 2025 file), so `GameLogImportService.ParseGameNumber` throws `NotSupportedException` rather than silently mis-parsing, deferring an actual fix to whenever a file containing one is encountered.
+- **The optional-identifier "(none)"/blank normalization was moved into the service layer**, applied uniformly to all six optional identifiers (four umpire positions, saving pitcher, game-winning batter) rather than relying on `GameLogMapping`'s existing partial handling, which only guarded two of the six even though the format spec says any umpire position can be unfilled.
+- **A confirmed operational gap in Step 4's infrastructure, found while standing up a fresh environment for this step's verification**: `EnableInstallers()` was removed from `Engine.Console` in Step 4 on the reasoning that "RabbitMQ's own queue/exchange creation happens unconditionally regardless of installer settings." Against a genuinely fresh RabbitMQ broker (no residual queues from prior testing), this did not hold — `Engine.Console` failed to start with `Cannot validate the delivery limit of the 'Retrosharp.Engine' queue because it does not exist`, and the queue/exchange had to be declared by hand via the RabbitMQ management API before the endpoint could start. Not fixed as part of this step (it's Step 4's infrastructure decision to revisit), but flagged here since it will block anyone else standing up this project against a fresh broker — worth resolving before Step 8 (Containerized Deployment) or Step 9 (End-to-End Validation), where a clean environment is exactly the scenario that needs to work.
+
+**Errors encountered**:
+- The five bugs above, each caught only by running the real, complete reference file rather than a small hand-crafted fixture — consistent with the pattern already seen in Steps 2 and 3.
+- Fresh desktop environment had no RabbitMQ at all and `Person` was empty (the biofile is gitignored, laptop-only); resolved by starting a local RabbitMQ container and having the genuine biofile (`docs/csv/biofile0.csv`) supplied and imported first.
+- A freshly-migrated database (via `dotnet ef database update` alone) does not have NServiceBus's saga/outbox schema — that only gets installed by actually running `Retrosharp.Data.Migration`'s `Program.cs` (which also calls `ScriptRunner.Install()`), not by the EF CLI directly. Resolved by running the migration project's actual entry point.
+- Sending two Person-import requests in quick succession (while working around the above) raced two concurrent saga instances against an empty `Person` table, producing transient `Cannot insert duplicate key row` errors on one side — expected and self-healed via NServiceBus's existing retry policy; not a Step 5 concern, but confirms the retry/backoff infrastructure from Step 4 behaves correctly under a real collision.
+
+**Verification performed**:
+- Solution-wide build: 0 errors.
+- 19 unit tests in `Retrosharp.Format.Tests` (12 pre-existing Person tests + 7 new Game Log tests): all passing.
+- Live import of the real biofile (26,961 people) to populate prerequisites, then live end-to-end import of the real, complete 2025 season file (`gl2025.txt`) through the full `UI.Api` → RabbitMQ → `Engine.Console` pipeline: **2,430 games added, 0 errors**, exactly matching the file's row count.
+- `sqlcmd` verification: `GameLineup` = 43,740 rows (2,430 × 18 exactly), each of `GameBattingStatistics`/`GamePitchingStatistics`/`GameFieldingStatistics` = 4,860 rows (2,430 × 2 exactly).
+- Spot-checked the Tokyo season-opener (LAN @ CHN, 2025-03-18) directly against the raw file: home lineup batters, positions, and final score (4-1) all correct — confirming the home-lineup off-by-one fix.
+- Spot-checked one of the file's 14 real doubleheaders (CLE @ MIN, 2025-09-20): both games (6-0 and 8-0) present as distinct `Game` rows, confirming the natural-key fix.
+- Re-ran the same file: **0 added, 2,430 skipped** every time, with `Game`/`GameLineup`/stats row counts unchanged — idempotency verified by observed behavior, including across a scenario where the import was triggered more than twice.
 
 ---
 

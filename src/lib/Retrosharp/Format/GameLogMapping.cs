@@ -216,9 +216,9 @@ namespace Retrosharp.Format
     {
         public HomeGameLineupLeadoffBatterMap()
         {
-            Map(m => m.PlayerId).Index(133);
-            Map(m => m.PlayerName).Index(134);
-            Map(m => m.PlayerPosition).Index(135);
+            Map(m => m.PlayerId).Index(132);
+            Map(m => m.PlayerName).Index(133);
+            Map(m => m.PlayerPosition).Index(134);
         }
     }
 
@@ -226,9 +226,9 @@ namespace Retrosharp.Format
     {
         public HomeGameLineupSecondBatterMap()
         {
-            Map(m => m.PlayerId).Index(136);
-            Map(m => m.PlayerName).Index(137);
-            Map(m => m.PlayerPosition).Index(138);
+            Map(m => m.PlayerId).Index(135);
+            Map(m => m.PlayerName).Index(136);
+            Map(m => m.PlayerPosition).Index(137);
         }
     }
 
@@ -236,9 +236,9 @@ namespace Retrosharp.Format
     {
         public HomeGameLineupThirdBatterMap()
         {
-            Map(m => m.PlayerId).Index(139);
-            Map(m => m.PlayerName).Index(140);
-            Map(m => m.PlayerPosition).Index(141);
+            Map(m => m.PlayerId).Index(138);
+            Map(m => m.PlayerName).Index(139);
+            Map(m => m.PlayerPosition).Index(140);
         }
     }
 
@@ -246,9 +246,9 @@ namespace Retrosharp.Format
     {
         public HomeGameLineupCleanupBatterMap()
         {
-            Map(m => m.PlayerId).Index(142);
-            Map(m => m.PlayerName).Index(143);
-            Map(m => m.PlayerPosition).Index(144);
+            Map(m => m.PlayerId).Index(141);
+            Map(m => m.PlayerName).Index(142);
+            Map(m => m.PlayerPosition).Index(143);
         }
     }
 
@@ -256,9 +256,9 @@ namespace Retrosharp.Format
     {
         public HomeGameLineupFifthBatterMap()
         {
-            Map(m => m.PlayerId).Index(145);
-            Map(m => m.PlayerName).Index(146);
-            Map(m => m.PlayerPosition).Index(147);
+            Map(m => m.PlayerId).Index(144);
+            Map(m => m.PlayerName).Index(145);
+            Map(m => m.PlayerPosition).Index(146);
         }
     }
 
@@ -266,9 +266,9 @@ namespace Retrosharp.Format
     {
         public HomeGameLineupSixthBatterMap()
         {
-            Map(m => m.PlayerId).Index(148);
-            Map(m => m.PlayerName).Index(149);
-            Map(m => m.PlayerPosition).Index(150);
+            Map(m => m.PlayerId).Index(147);
+            Map(m => m.PlayerName).Index(148);
+            Map(m => m.PlayerPosition).Index(149);
         }
     }
 
@@ -276,9 +276,9 @@ namespace Retrosharp.Format
     {
         public HomeGameLineupSeventhBatterMap()
         {
-            Map(m => m.PlayerId).Index(151);
-            Map(m => m.PlayerName).Index(152);
-            Map(m => m.PlayerPosition).Index(153);
+            Map(m => m.PlayerId).Index(150);
+            Map(m => m.PlayerName).Index(151);
+            Map(m => m.PlayerPosition).Index(152);
         }
     }
 
@@ -286,9 +286,9 @@ namespace Retrosharp.Format
     {
         public HomeGameLineupEighthBatterMap()
         {
-            Map(m => m.PlayerId).Index(154);
-            Map(m => m.PlayerName).Index(155);
-            Map(m => m.PlayerPosition).Index(156);
+            Map(m => m.PlayerId).Index(153);
+            Map(m => m.PlayerName).Index(154);
+            Map(m => m.PlayerPosition).Index(155);
         }
     }
 
@@ -296,9 +296,9 @@ namespace Retrosharp.Format
     {
         public HomeGameLineupNinthBatterMap()
         {
-            Map(m => m.PlayerId).Index(157);
-            Map(m => m.PlayerName).Index(158);
-            Map(m => m.PlayerPosition).Index(159);
+            Map(m => m.PlayerId).Index(156);
+            Map(m => m.PlayerName).Index(157);
+            Map(m => m.PlayerPosition).Index(158);
         }
     }
 
@@ -323,7 +323,10 @@ namespace Retrosharp.Format
     {
         public GameLogMap()
         {
-            Map(m => m.GameDate).Index(0);
+            Map(m => m.GameDate)
+                .Index(0)
+                .Convert(c => RetrosheetDateParser.Parse(c.Row[0])
+                    ?? throw new FormatException($"Game log record has an unparseable or missing GameDate: '{c.Row[0]}'."));
             Map(m => m.GameNumber).Index(1);
             Map(m => m.DayOfWeek).Index(2);
             Map(m => m.VisitorTeamCode).Index(3);
@@ -340,7 +343,9 @@ namespace Retrosharp.Format
             Map(m => m.ForfeitInfo).Index(14);
             Map(m => m.ProtestInfo).Index(15);
             Map(m => m.ParkCode).Index(16);
-            Map(m => m.GameAttendance).Index(17);
+            Map(m => m.GameAttendance)
+                .Index(17)
+                .Convert(c => string.IsNullOrWhiteSpace(c.Row[17]) ? (int?)null : int.Parse(c.Row[17]));
             Map(m => m.GameLengthMinutes).Index(18);
             Map(m => m.VisitorScoreLine).Index(19);
             Map(m => m.HomeScoreLine).Index(20);
@@ -409,6 +414,8 @@ namespace Retrosharp.Format
             Map(m => m.HomeStartingPitcherName).Index(104);
             References<VisitorGameLineupMap>(r => r.VisitorStartingLineup);
             References<HomeGameLineupMap>(r => r.HomeStartingLineup);
+            Map(m => m.AdditionalInformation).Index(159);
+            Map(m => m.AcquisitionInfo).Index(160);
         }
     }
 }

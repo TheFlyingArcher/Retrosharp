@@ -23,6 +23,18 @@ namespace Retrosharp.Data
             return franchise;
         }
 
+        public async Task<Franchise> GetByFranchiseCodeAndDateAsync(string franchiseCode, DateTime asOfDate)
+        {
+            var franchise = await Context.Franchises
+                .Where(f => f.FranchiseCode == franchiseCode
+                    && f.FranchiseStart <= asOfDate
+                    && (f.FranchiseEnd == null || f.FranchiseEnd >= asOfDate))
+                .ProjectToType<Franchise>()
+                .FirstOrDefaultAsync();
+
+            return franchise;
+        }
+
         public async Task<IEnumerable<Franchise>> GetByLeagueIdAsync(int leagueId)
         {
             var franchises = await Context.Franchises

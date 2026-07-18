@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 
 using CsvHelper;
+using CsvHelper.Configuration;
 using Retrosharp.Format;
 using Retrosharp.Service.Interface.ETL;
 
@@ -18,7 +19,15 @@ namespace Retrosharp.Service.ETL
             try
             {
                 using var reader = new StreamReader(retrosheetFilePath);
-                using var csv = new CsvReader(reader, System.Globalization.CultureInfo.InvariantCulture);
+
+                // Unlike the biofile (which ships with a header row), Retrosheet's game log
+                // files have no header at all -- CsvHelper's default HasHeaderRecord=true would
+                // otherwise silently discard the first game of every file as a "header".
+                var config = new CsvConfiguration(System.Globalization.CultureInfo.InvariantCulture)
+                {
+                    HasHeaderRecord = false
+                };
+                using var csv = new CsvReader(reader, config);
 
                 csv.Context.RegisterClassMap<GameLogMap>();
                 var record = await csv.GetRecordsAsync<GameLog>().ToListAsync();

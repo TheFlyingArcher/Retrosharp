@@ -117,7 +117,11 @@ namespace Retrosharp.Format
 
         public string ParkCode { get; set; }
 
-        public int GameAttendance { get; set; }
+        /// <summary>
+        /// Attendance. Occasionally missing for real games (for example, a suspended game
+        /// completed at a later date with no recorded attendance figure).
+        /// </summary>
+        public int? GameAttendance { get; set; }
 
         public int GameLengthMinutes { get; set; }
 

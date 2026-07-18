@@ -29,5 +29,16 @@ namespace Retrosharp.Data
         /// <returns>A Task that represents the asynchronous operation. The task result contains an IEnumerable<Game> of games
         /// where the specified franchise is the home.</returns>
         Task<IEnumerable<Game>> GetByHomeFranchiseIdAsync(int homeFranchiseId);
+
+        /// <summary>
+        /// Inserts a batch of parsed game log records -- each with its full lineup and
+        /// statistics graph -- as a single atomic transaction. Records whose natural key
+        /// (GameDate, GameNumber, HomeFranchiseId, VisitorFranchiseId) already exists are
+        /// skipped rather than updated, since a completed historical game's recorded stats
+        /// don't change the way a person's biographical data can.
+        /// </summary>
+        /// <param name="records">The parsed game log records to insert.</param>
+        /// <returns>The number of games added and the number skipped as already present.</returns>
+        Task<(int Added, int Skipped)> BulkInsertAsync(IEnumerable<GameLogRecord> records);
     }
 }

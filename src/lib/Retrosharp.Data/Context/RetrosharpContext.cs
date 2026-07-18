@@ -101,7 +101,13 @@ namespace Retrosharp.Data.Context
             modelBuilder.Entity<GameModel>(entity =>
             {
                 entity.HasIndex(e => e.GameDate);
-                entity.HasIndex(e => new { e.GameDate, e.HomeFranchiseId, e.VisitorFranchiseId });
+
+                // The natural key for a game is date + game-number + matchup, not just date +
+                // matchup: doubleheaders share the same date and franchises but differ only by
+                // GameNumber (see spec/game-log.md, Format field 2). Enforced unique so the Game
+                // Log Parser's idempotency check is guaranteed by the database, not just by
+                // application-level logic.
+                entity.HasIndex(e => new { e.GameDate, e.GameNumber, e.HomeFranchiseId, e.VisitorFranchiseId }).IsUnique();
 
                 // Visitor Franchise relationship
                 entity.HasOne(g => g.VisitorFranchise)
