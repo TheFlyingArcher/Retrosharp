@@ -80,8 +80,8 @@ Step 1: Schema Alignment
 **Errors encountered**:
 - The full solution build (`dotnet build Retrosharp.slnx`) reports 4 errors, all pre-existing and unrelated to this step's changes: NServiceBus's `SqlPersistenceTask` fails on `Retrosharp.Engine.Console.Saga.GameLogSaga` because its `GameLogSagaData` type lives in a different assembly (`Retrosharp`) than the saga itself. This is Step 4/5 territory (ETL Messaging Infrastructure / Game Log Parser), not Step 1. Confirmed the three projects actually in scope for this step (`Retrosharp`, `Retrosharp.Data`, `Retrosharp.Data.Migration`) build independently with 0 warnings beyond the pre-existing nullable-reference-type warning pattern already present throughout the codebase, and 0 errors.
 
-**Unrelated discrepancy noticed (not fixed, out of scope for this step)**:
-- `PitchingModel` is mapped to a database table literally named `PitchingModel` (`[Table("PitchingModel")]`), inconsistent with every other table's naming convention (`Person`, `Batting`, `Fielding`, `Game`, etc. are all named after the entity, not the model class). Predates this step's changes. Flagging for a future cleanup pass rather than renaming unilaterally, since it wasn't part of today's spec decisions and a table rename has broader ripple effects worth a deliberate decision.
+**Unrelated discrepancy noticed, since resolved**:
+- `PitchingModel` was mapped to a database table literally named `PitchingModel`, inconsistent with every other table's naming convention (`Person`, `Batting`, `Fielding`, `Game`, etc. are all named after the entity, not the model class). Predated this step's changes and was flagged here as out of scope. Fixed in a follow-up commit (`1fad1c1`, "Fix bad table name") via `[Table("Pitching")]`, with the resulting `RenameTable` migration folded into Step 2's `SeedDataSchemaFixesAndLeagueSeed` migration. Confirmed against the live database: the table is `Pitching`, no `PitchingModel` remains.
 
 **Verification performed**:
 - `dotnet build` on the migration project (which transitively builds `Retrosharp` and `Retrosharp.Data`): 0 errors.
