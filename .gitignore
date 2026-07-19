@@ -64,3 +64,6 @@ nunit-*.xml
 biodata/
 docs/csv/gl*.txt
 docs/csv/biofile*.csv
+docs/csv/*.EVN
+docs/csv/*.EVA
+docs/csv/*.ROS

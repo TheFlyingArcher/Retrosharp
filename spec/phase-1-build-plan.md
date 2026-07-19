@@ -348,13 +348,41 @@ This is the largest and highest-risk step, and the one place where the plan inte
 
 ### Step 6a: Play-code grammar parser (no database dependency)
 
-**Status**: Not Started
+**Status**: Complete
 
 **Objective**: Build and unit-test the raw parsing logic — turning a Retrosheet play-code string (for example, `S8.1-3;2-H`) into an in-memory structured representation (event type, batted ball type, runner advances, fielding sequence, RBI/error/unearned-run annotations) — entirely independent of the database or saga infrastructure.
 
 **Deliverables**: a pure parsing library, tested against a broad set of real play codes pulled from actual Retrosheet files, covering hits, outs, strikeouts, walks, stolen bases, double/triple plays, and rundowns.
 
 **Definition of done**: the parser correctly decomposes a representative sample of real play codes into structured objects, verified by unit tests, with no I/O of any kind.
+
+### Progress Log
+
+**What was found (starting state)**: no Game Event parsing code existed yet, but the `GameEvent`-family schema, contracts, and enums (`GameEventType`, `BattedBallType`, `BaseState`, `FieldingCreditType`, `GameAdjustmentType`) were already built in Step 1, ahead of need. The user supplied two real, complete reference files — `docs/csv/2025SDN.EVN` and `docs/csv/2025SEA.EVA` (81 games each, 14,256 total plays) — which were inventoried for every distinct play code (1,986 unique) before writing any parsing code, the same "read the real data first" discipline used in Steps 2, 3, and 5.
+
+**What was built**:
+- Two new `GameEventType` enum members, `DefensiveIndifference` and `OtherAdvance`, for the `DI`/`OA` primary codes found in the real data (no migration needed — plain `int`-backed enum column).
+- `Retrosharp.Format.PlayByPlay` namespace: `ParsedPlay`, `ParsedRunnerAdvance`, `ParsedFieldingCredit` (plain POCOs mirroring `GameEvent`/`GameEventRunner`/`GameEventFieldingCredit` but carrying no `PersonId` — only base numbers and fielder numbers, since resolving those to actual `Person` rows needs lineup/substitution state that's Step 6b's job) and `PlayCodeParseException`.
+- `PlayCodeParser.Parse(rawEventText, countField, pitchSequence)`: splits the code into primary/modifiers/advances (paren-aware, so a `/` or `;` inside an annotation like `(E1/TH)` isn't mistaken for a segment separator), dispatches the primary code across every category in the real data (hits, fielded outs including multi-runner double/triple plays, walks/intentional walks, strikeouts, hit-by-pitch, errors — both a bare `E<n>` and an error embedded mid-fielding-sequence like `4E3` — fielder's choice, stolen base/caught stealing/pickoff-caught-stealing, wild pitch/passed ball/balk, defensive indifference/other-advance/no-play, and the `K+`/`W+` bundled-event combinator), parses modifiers for trajectory (`BattedBallType`) and `SH`/`SF`, and parses each advance segment for base movement, outs-on-the-bases with fielding credits, and the RBI/earned-run default-then-override rule confirmed empirically against the real data (a scored run is an RBI and earned unless annotated `(NR)`/`(NORBI)` or `(UR)`/`(TUR)` — `(RBI)` itself never appears in modern data). `FoulBallsWithTwoStrikes` is derived separately by scanning the pitch-sequence string, since it's a cleaner and more reliable source than trying to infer it from the play code; `Balls`/`Strikes` come directly from the count field.
+- 33 new unit tests in `Retrosharp.Format.Tests`, every one using a real play code (with its real count/pitch-sequence fields) pulled directly from the two reference files — including the spec's 6-4-3 double play example matched against a real play, a real relay-throw-out analog of the 8-6-2 example, and a real rundown-style chain where one fielder is credited twice. Two tests (`WP`/`PB` with no accompanying baserunner) are the only synthetic ones, clearly marked, since neither file happens to contain a standalone occurrence of either.
+
+**Discrepancies and decisions made during implementation**:
+- **`EventType` for a fielded out can't be resolved until modifiers are parsed.** `GroundOut` vs `FlyOut` depends on the trajectory modifier (ground ball vs anything caught in the air), which comes after the primary code in the string. Handled by having the primary-code parser return a "pending trajectory" placeholder for digit-leading codes, resolved once modifiers are read. Confirmed via the real data that every genuine fielded out carries a trajectory modifier — a fielded-out code with none throws rather than guessing.
+- **A digit-leading code can still turn out to be an `Error`, not an out**, when it contains a mid-sequence `E<n>` (`4E3` = fielder 4 assists, fielder 3 is charged the error, batter reaches safely). This isn't obvious from the leading digit alone; the parser tracks whether any group within the sequence resolved as an error and overrides the `EventType` accordingly.
+- **`FLE<n>` (a foul ball dropped for an error) produces zero runners**, unlike a bare `E<n>`. A dropped foul doesn't put the batter on base or end the plate appearance — nothing about base-occupancy state actually changed, so there's nothing to record as a `GameEventRunner`, even though the error itself is still captured via `EventType.Error`.
+- **`(TUR)` (team unearned run) is treated identically to `(UR)`.** The schema's `IsEarnedRun` is a single boolean with no team-vs-individual distinction, so collapsing them is a deliberate simplification, not an oversight.
+- **Every out from a primary-code digit/parenthetical group is modeled as a force at the next base up** (`StartBase + 1`), matching every real example and the spec's own worked examples. This doesn't yet cover a tag play recorded via that same mechanism where the runner is out at a base other than the next one up — not observed in either reference file, flagged here in case a broader historical dataset surfaces one later.
+- **`PO<base>` (pickoff without a caught-stealing attempt) is implemented per Retrosheet's documented convention but was never exercised against real data** — zero occurrences in either file (only `POCS` appears). Same treatment for `C` (catcher's interference).
+
+**Errors encountered** (found only by validating against the complete real files, not by hand-picked samples):
+- The initial implementation passed all hand-written unit tests but failed on 17 of the 14,256 real plays when run against the full files. All 17 traced to four real grammar gaps: (1) `/` appearing inside a parenthesized annotation (`PO2(E1/TH)`) was being split as a modifier separator; (2) the mid-sequence error pattern (`3E1`, `4E3`, `5E3`) wasn't recognized at all; (3) `FLE<n>` (dropped foul error) wasn't recognized as its own pattern; (4) the `(TUR)` annotation wasn't recognized. All four were fixed and the full 14,256-play validation was re-run clean (0 failures) before writing the final unit test suite.
+- A follow-up semantic spot-check (not just "doesn't throw") caught a fifth bug: `4E3`-style codes were still returning `EventType.GroundOut` instead of `EventType.Error`, since the digit-leading dispatch didn't distinguish "resolved as an out" from "resolved as an error" when deciding the pending-trajectory placeholder. Fixed by having the fielded-out parser report whether it encountered an error group.
+- A sixth bug, caught only by the formal unit test suite: `WP` (wild pitch) was being matched by the generic `W` (walk) prefix check before ever reaching the dedicated `WP` branch, so every wild pitch was misparsed as a walk. Fixed by reordering the dispatch so exact-match codes are checked before single-letter prefix fallbacks.
+
+**Verification performed**:
+- 55 unit tests in `Retrosharp.Format.Tests` (22 pre-existing + 33 new): all passing.
+- Full solution build: 0 errors.
+- A throwaway validation harness (not committed) ran `PlayCodeParser.Parse` against all 14,256 real plays across both complete reference files: 0 failures, both before finalizing the grammar (which caught the six bugs above) and after (confirming the fixes held).
 
 ### Step 6b: `GameEvent`, `GameEventRunner`, `GameEventFieldingCredit` persistence
 

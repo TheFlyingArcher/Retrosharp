@@ -28,6 +28,16 @@ namespace Retrosharp.Contract.GameEvent
         Pickoff,
         PickoffCaughtStealing,
         CatcherInterference,
-        NoPlay
+        NoPlay,
+
+        /// <summary>
+        /// DI -- the defense makes no attempt to retire a runner taking an extra base.
+        /// </summary>
+        DefensiveIndifference,
+
+        /// <summary>
+        /// OA -- a baserunning advance not otherwise classified by one of the other event types.
+        /// </summary>
+        OtherAdvance
     }
 }
