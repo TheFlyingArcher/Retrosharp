@@ -75,6 +75,19 @@ namespace Retrosharp.Data
                         _context.Set<GameEventModel>().Add(eventModel);
                     }
 
+                    // Substitutions, adjustments, and comments are direct children of Game
+                    // with GameId already known -- unlike the GameEvent graph above, there's no
+                    // generated-key fixup or shared-ancestor FK to worry about, so each model
+                    // is simply mapped and added directly.
+                    foreach (var substitution in record.Substitutions)
+                        _context.Set<GameSubstitutionModel>().Add(_mapper.Map<GameSubstitutionModel>(substitution));
+
+                    foreach (var adjustment in record.Adjustments)
+                        _context.Set<GameAdjustmentModel>().Add(_mapper.Map<GameAdjustmentModel>(adjustment));
+
+                    foreach (var comment in record.Comments)
+                        _context.Set<GameCommentModel>().Add(_mapper.Map<GameCommentModel>(comment));
+
                     existingGameIds.Add(record.GameId);
                     gamesInserted++;
 

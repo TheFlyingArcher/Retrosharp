@@ -10,8 +10,9 @@ namespace Retrosharp.Service
 {
     /// <summary>
     /// Parses a Retrosheet play-by-play event file and populates GameEvent, GameEventRunner,
-    /// and GameEventFieldingCredit for every game in it, as a single atomic batch. See
-    /// spec/game-event.md and spec/phase-1-build-plan.md Step 6b.
+    /// GameEventFieldingCredit, GameSubstitution, GameAdjustment, and GameComment for every
+    /// game in it, as a single atomic batch. See spec/game-event.md and
+    /// spec/phase-1-build-plan.md Steps 6b/6c.
     /// </summary>
     public class GameEventImportService : IGameEventImportService
     {
@@ -78,8 +79,16 @@ namespace Retrosharp.Service
             var personIds = await ResolvePersonIdsAsync(game);
 
             var plays = GameEventResolver.Resolve(resolvedGame.Id, game, personIds);
+            var (substitutions, adjustments, comments) = GameContextResolver.Resolve(resolvedGame.Id, game, personIds);
 
-            return new GameEventRecord { GameId = resolvedGame.Id, Plays = plays };
+            return new GameEventRecord
+            {
+                GameId = resolvedGame.Id,
+                Plays = plays,
+                Substitutions = substitutions,
+                Adjustments = adjustments,
+                Comments = comments
+            };
         }
 
         private async Task<IReadOnlyDictionary<string, int>> ResolvePersonIdsAsync(EventFileGame game)
@@ -89,7 +98,7 @@ namespace Retrosharp.Service
                 {
                     LineupRecord lineup => new[] { lineup.RetrosheetId },
                     PlayRecord play => new[] { play.RetrosheetId },
-                    AdjustmentRecord { AdjustmentTypeCode: "radj" } radj => new[] { radj.RetrosheetId },
+                    AdjustmentRecord adjustment => new[] { adjustment.RetrosheetId },
                     _ => Array.Empty<string>()
                 })
                 .Distinct();

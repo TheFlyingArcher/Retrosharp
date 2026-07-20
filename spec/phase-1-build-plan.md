@@ -429,11 +429,35 @@ This is the largest and highest-risk step, and the one place where the plan inte
 
 ### Step 6c: Context records
 
-**Status**: Not Started
+**Status**: Complete
 
 **Objective**: Parse and persist `GameSubstitution`, `GameAdjustment`, and `GameComment` records.
 
 **Definition of done**: substitutions, handedness/batting-order adjustments, and commentary from a game are captured without being conflated into `GameEvent`.
+
+### Progress Log
+
+**What was found (starting state)**: `GameSubstitutionModel`/`GameAdjustmentModel`/`GameCommentModel` (built in Step 1) and `EventFileReader` (built in Step 6b, already parsing `sub`/`*adj`/`com` records in strict file order) were both already in place and completely unused for persistence -- 6b only *interpreted* `sub`/`radj` for its own in-memory lineup/baserunner tracking. All three tables turned out to be direct children of `Game` with a plain `Cascade` FK and no shared-ancestor double-FK complication like `GameEventFieldingCredit` had, and `GameModel` already carried the `GameSubstitutions`/`GameAdjustments`/`GameComments` navigation collections (built ahead of need, like `GameEvents` was) -- meaning this step needed no new grammar, no new state tracking, and no schema changes at all, just mapping already-parsed records to already-existing Contract classes.
+
+**What was built**:
+- `GameContextResolver` (`Retrosharp.Format.EventFile`, pure logic, no I/O, sibling to `GameEventResolver`): walks an `EventFileGame`'s records once, mapping every `SubRecord` → `GameSubstitution`, every `AdjustmentRecord` (all five types) → `GameAdjustment` (with `AdjustmentTypeCode` mapped to the existing `GameAdjustmentType` enum), and every `ComRecord` → `GameComment`. `StartRecord`s are deliberately excluded from `GameSubstitution` output (they're the starting lineup, not a substitution). Each of the three output lists gets its own independent 1-based `Sequence` counter, kept consistent with `GameEvent.Sequence`'s already-persisted meaning (counting only plays) rather than introducing a shared/interleaved counter across all four tables.
+- `GameEventRecord` (Contract) extended with `Substitutions`/`Adjustments`/`Comments`.
+- `GameEventImportService.ResolvePersonIdsAsync` broadened to collect Retrosheet IDs from every `AdjustmentRecord` type, not just `radj` (needed since `badj`/`padj`/`ladj`/`presadj` all carry a `PersonId` too).
+- `GameEventImportService.MapToGameEventRecordAsync` now also calls `GameContextResolver.Resolve` and includes the result in the returned `GameEventRecord`.
+- `GameEventRepository.BulkInsertAsync` extended to map and insert the three context tables per game, inside the same per-game transaction and the same game-level "already has any `GameEvent` rows" skip check built in 6b -- no new idempotency mechanism needed, since these rows never exist independently of a game's `GameEvent` rows.
+- 10 new unit tests in `Retrosharp.Format.Tests` (`GameContextResolverTests.cs`), using real `sub`/`com`/`badj`/`radj` lines plus synthetic coverage for `padj`/`ladj`/`presadj` (absent from both real reference files), including a `StartRecord`-is-excluded check and an unresolvable-`PersonId` throw check.
+
+**Discrepancies and decisions made during implementation**: none beyond what the plan already flagged and confirmed -- independent per-table `Sequence` counters (not a global one shared with `GameEvent`), and folding the three new lists directly into the existing `GameEventRecord` DTO rather than introducing a separate wrapper type, since both are produced together for the same game.
+
+**Errors encountered**: none -- unlike Steps 6a/6b, no new bugs surfaced against the real reference files, consistent with this step reusing already-validated infrastructure (the file reader, the Retrosheet ID → PersonId resolution path) rather than adding new parsing logic.
+
+**Verification performed**:
+- 87 unit tests in `Retrosharp.Format.Tests` (77 pre-existing + 10 new): all passing.
+- Full solution build: 0 errors.
+- Cleared all `GameEvent`-family and context tables and re-imported both complete real reference files end-to-end via the same throwaway DI harness used in 6b: **81 games inserted for each file, 0 errors**, with `GameEvent` back to its expected 14,256 rows.
+- `sqlcmd`-verified exact row counts against the files' own real line counts: `GameSubstitution` 1,833 (916 + 917 real `sub` lines), `GameAdjustment` 65 (18 + 47 real `*adj` lines across all five types), `GameComment` 155 (74 + 81 real `com` lines) -- zero rows with an unresolved (`0`) `PersonId` anywhere. `GameAdjustment`'s type breakdown (1 `BattingHandedness`, 64 `RunnerPlacement`) confirmed only `badj`/`radj` occur in either real file, matching Step 6b's own findings.
+- Spot-checked `GameComment`/`GameSubstitution` rows directly against the source file's first game (`SDN202503270`, `Game.Id` 2437): comment text and substitution sequence/team/position values match the raw lines exactly.
+- Re-ran both files: **0 games inserted, 81 skipped** each, confirming idempotency now covers the three new tables along with everything else.
 
 ### Step 6d: `Batting`/`Pitching`/`Fielding` derivation and `GameEventGameStatus`
 
