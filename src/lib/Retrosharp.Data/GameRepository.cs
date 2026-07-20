@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
+using Mapster;
 using MapsterMapper;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,6 +34,19 @@ namespace Retrosharp.Data
                 .ToListAsync();
 
             return models.Select(m => Mapper.Map<Game>(m));
+        }
+
+        public async Task<Game> GetByNaturalKeyAsync(DateTime gameDate, byte gameNumber, int homeFranchiseId, int visitorFranchiseId)
+        {
+            var game = await Context.Set<GameModel>()
+                .Where(g => g.GameDate == gameDate
+                    && g.GameNumber == gameNumber
+                    && g.HomeFranchiseId == homeFranchiseId
+                    && g.VisitorFranchiseId == visitorFranchiseId)
+                .ProjectToType<Game>()
+                .FirstOrDefaultAsync();
+
+            return game;
         }
 
         public async Task<(int Added, int Skipped)> BulkInsertAsync(IEnumerable<GameLogRecord> records)

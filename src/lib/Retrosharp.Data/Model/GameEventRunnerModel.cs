@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -83,5 +84,15 @@ namespace Retrosharp.Data.Model
         /// Navigation property for the responsible pitcher.
         /// </summary>
         public PersonModel ResponsiblePitcher { get; set; }
+
+        /// <summary>
+        /// Navigation collection for this runner's fielding credits. Required for EF Core to
+        /// fix up <see cref="GameEventFieldingCreditModel.GameEventRunnerId"/> when saving a
+        /// whole play graph in a single SaveChangesAsync (see
+        /// GameEventRepository.BulkInsertAsync). Note: a credit's *other* required FK,
+        /// GameEventId, is a separate relationship this collection does not fix up -- see the
+        /// explicit assignment in GameEventRepository.BulkInsertAsync.
+        /// </summary>
+        public ICollection<GameEventFieldingCreditModel> FieldingCredits { get; set; } = new List<GameEventFieldingCreditModel>();
     }
 }

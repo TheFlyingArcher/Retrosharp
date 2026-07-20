@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -125,5 +126,12 @@ namespace Retrosharp.Data.Model
         /// Navigation property for the pitcher.
         /// </summary>
         public PersonModel Pitcher { get; set; }
+
+        /// <summary>
+        /// Navigation collection for this play's runners. Required for EF Core to fix up
+        /// <see cref="GameEventRunnerModel.GameEventId"/> when saving a whole play graph in a
+        /// single SaveChangesAsync (see GameEventRepository.BulkInsertAsync).
+        /// </summary>
+        public ICollection<GameEventRunnerModel> Runners { get; set; } = new List<GameEventRunnerModel>();
     }
 }

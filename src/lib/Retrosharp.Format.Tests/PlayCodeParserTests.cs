@@ -107,6 +107,70 @@ namespace Retrosharp.Format.Tests
                 runner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
         }
 
+        [Fact]
+        public void Parse_PickoffWithThrowingError_RunnerSafeAndAdvancesExtraBase()
+        {
+            // play,6,1,sheeg001,20,B*B2,PO2(E1/TH).2-3 -- a real pickoff attempt at second with
+            // a throwing error by the pitcher (fielder 1); the runner is safe (not out) and
+            // advances an extra base to third on the misplay. Regression test: PO<base>'s
+            // parenthetical was being parsed as if it were always a fielder-putout chain
+            // (like a fielded out's "(<fielders>)"), so "E1/TH" -- an error annotation, a
+            // different grammar -- was read character-by-character as fielder digits,
+            // producing garbage Position values from non-digit characters (confirmed against
+            // this real play: 'E'-'0'=21, '/'-'0' wraps to 255, 'T'-'0'=36, 'H'-'0'=24).
+            var result = PlayCodeParser.Parse("PO2(E1/TH).2-3", "20", "B*B2");
+
+            Assert.Equal(GameEventType.Pickoff, result.EventType);
+            var runner = Assert.Single(result.Runners);
+            Assert.Equal(BaseState.Second, runner.StartBase);
+            Assert.Equal(BaseState.Third, runner.EndBase);
+            Assert.False(runner.IsOut);
+            Assert.Equal(
+                new[] { (1, FieldingCreditType.Error, 1) },
+                runner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_RunnerOutAdvanceWithEmbeddedError_SafeOnErrorNotPutOut()
+        {
+            // play,5,1,sheeg001,22,BCFBX,FC4/G34.2-3;1X2(4E6);B-1 -- a real fielder's choice.
+            // "1X2(4E6)" reads as an out (fielder 4 assists, fielder 6 completes it at second),
+            // but the trailing credit is an Error, not a Putout -- the throw that would have
+            // completed the force was itself muffed, so the runner is actually safe at second.
+            // Regression test, two bugs found chasing the same play: (1) the runner-out branch
+            // called the same raw fielder-chain parser used for plain putout chains, which
+            // didn't recognize "4E6"'s embedded error and read 'E' itself as a digit,
+            // producing a garbage Position (69 - 48 = 21); (2) once the embedded error parsed
+            // correctly, the runner was still marked out despite the trailing credit being an
+            // Error rather than a Putout -- confirmed wrong by an outs-count check against the
+            // full real half-inning: treating this as the inning's 2nd out would make the
+            // following strikeout the 3rd, yet the real file still has another batter (and
+            // another play) after that in the same half-inning -- an impossible 4th out.
+            var result = PlayCodeParser.Parse("FC4/G34.2-3;1X2(4E6);B-1", "22", "BCFBX");
+
+            var runner = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
+            Assert.Equal(BaseState.Second, runner.EndBase);
+            Assert.False(runner.IsOut);
+            Assert.Equal(
+                new[] { (4, FieldingCreditType.Assist, 1), (6, FieldingCreditType.Error, 2) },
+                runner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_DoubleSteal_BothRunnersAdvance()
+        {
+            // play,7,1,merrj002,00,>B,SB3;SB2 -- a real double steal. Regression test: the
+            // semicolon-joined-primary-codes branch previously used "result ??= ParseSingleCode(...)",
+            // whose "??=" short-circuits and skips *calling* ParseSingleCode entirely once
+            // "result" is non-null -- silently dropping every steal after the first.
+            var result = PlayCodeParser.Parse("SB3;SB2", "00", ">B");
+
+            Assert.Equal(GameEventType.StolenBase, result.EventType);
+            Assert.Equal(2, result.Runners.Count);
+            Assert.Single(result.Runners, r => r.StartBase == BaseState.Second && r.EndBase == BaseState.Third);
+            Assert.Single(result.Runners, r => r.StartBase == BaseState.First && r.EndBase == BaseState.Second);
+        }
+
         [Theory]
         [InlineData("S1/G1S", BaseState.First)] // play,...,S1/G1S -- generic single shape
         [InlineData("D34/G3.1-3", BaseState.Second)]

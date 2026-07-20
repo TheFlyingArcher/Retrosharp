@@ -25,6 +25,7 @@
   <ItemGroup>
     <None Include="Fixtures\biofile_sample.csv" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\gamelog_sample.csv" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\eventfile_sample.EVN" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

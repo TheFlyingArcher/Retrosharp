@@ -286,7 +286,7 @@ namespace Retrosharp.Data.Context
                 entity.HasIndex(e => e.GameEventId);
 
                 entity.HasOne(ger => ger.GameEvent)
-                    .WithMany()
+                    .WithMany(ge => ge.Runners)
                     .HasForeignKey(ger => ger.GameEventId)
                     .OnDelete(DeleteBehavior.Restrict);
 
@@ -313,7 +313,7 @@ namespace Retrosharp.Data.Context
                     .OnDelete(DeleteBehavior.Restrict);
 
                 entity.HasOne(gefc => gefc.GameEventRunner)
-                    .WithMany()
+                    .WithMany(ger => ger.FieldingCredits)
                     .HasForeignKey(gefc => gefc.GameEventRunnerId)
                     .OnDelete(DeleteBehavior.Restrict);
 

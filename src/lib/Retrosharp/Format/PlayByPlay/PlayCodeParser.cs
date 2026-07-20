@@ -199,17 +199,46 @@ namespace Retrosharp.Format.PlayByPlay
             _ => throw new ArgumentOutOfRangeException(nameof(startBase))
         };
 
-        private static List<ParsedFieldingCredit> ParseFielderChain(string digits)
+        /// <summary>
+        /// Parses a fielder-credit chain such as "643" (assist, assist, putout) or "4E6" (an
+        /// embedded error -- "&lt;digit&gt;E&lt;digit&gt;" -- charging that fielder with an error
+        /// instead of a putout/assist, the same convention as the primary code's mid-sequence
+        /// "4E3" errors, but usable wherever a fielder chain appears: a runner-out advance
+        /// annotation like "1X2(4E6)", a fielded-out group, or a PO/POCS/CS credit list.
+        /// Confirmed necessary against a real play ("FC4/G34.2-3;1X2(4E6);B-1") where treating
+        /// "4E6" as three raw digit characters produced a garbage Position from 'E' itself.
+        /// </summary>
+        private static List<ParsedFieldingCredit> ParseFielderChain(string chain, string rawEventText)
         {
-            var credits = new List<ParsedFieldingCredit>(digits.Length);
-            for (var i = 0; i < digits.Length; i++)
+            var tokens = new List<(byte Position, bool IsError)>();
+            var i = 0;
+            while (i < chain.Length)
             {
-                credits.Add(new ParsedFieldingCredit
+                if (chain[i] == 'E' && i + 1 < chain.Length && char.IsDigit(chain[i + 1]))
                 {
-                    Position = (byte)(digits[i] - '0'),
-                    CreditType = i == digits.Length - 1 ? FieldingCreditType.Putout : FieldingCreditType.Assist,
-                    Sequence = i + 1
-                });
+                    tokens.Add(((byte)(chain[i + 1] - '0'), true));
+                    i += 2;
+                }
+                else if (char.IsDigit(chain[i]))
+                {
+                    tokens.Add(((byte)(chain[i] - '0'), false));
+                    i++;
+                }
+                else
+                {
+                    throw new PlayCodeParseException(rawEventText, $"Unexpected character '{chain[i]}' in fielder chain '{chain}'.");
+                }
+            }
+
+            var credits = new List<ParsedFieldingCredit>(tokens.Count);
+            for (var index = 0; index < tokens.Count; index++)
+            {
+                var (position, isError) = tokens[index];
+                var creditType = isError
+                    ? FieldingCreditType.Error
+                    : index == tokens.Count - 1 ? FieldingCreditType.Putout : FieldingCreditType.Assist;
+
+                credits.Add(new ParsedFieldingCredit { Position = position, CreditType = creditType, Sequence = index + 1 });
             }
 
             return credits;
@@ -268,7 +297,16 @@ namespace Retrosharp.Format.PlayByPlay
             {
                 (GameEventType EventType, bool IsFieldedOutPendingTrajectory)? result = null;
                 foreach (var subCode in primaryCode.Split(';'))
-                    result ??= ParseSingleCode(subCode, rawEventText, runners);
+                {
+                    // Every sub-code must actually run -- each contributes its own runner(s) to
+                    // "runners" as a side effect. Using "??=" directly on the call would
+                    // short-circuit and skip calling ParseSingleCode entirely for every
+                    // sub-code after the first, silently dropping the rest of a multi-runner
+                    // steal (confirmed against a real double steal, "SB3;SB2", in
+                    // docs/csv/2025SDN.EVN).
+                    var subResult = ParseSingleCode(subCode, rawEventText, runners);
+                    result ??= subResult;
+                }
 
                 return result!.Value;
             }
@@ -395,17 +433,46 @@ namespace Retrosharp.Format.PlayByPlay
             if (code.StartsWith("PO", StringComparison.Ordinal))
             {
                 // Picked off while holding the base (not attempting to advance) -- out "at"
-                // the same base they started on.
+                // the same base they started on, unless the parenthetical is an error
+                // annotation ("E<n>", for example "PO2(E1/TH)" -- a throwing error on the
+                // pickoff attempt), in which case the runner is safe, not out. This is a
+                // different parenthetical grammar than a fielded-out's "(<fielders>)" chain --
+                // treating "E1/TH" as a raw fielder-digit chain (as opposed to a structured
+                // error annotation) produced garbage Position values from non-digit
+                // characters ('E', '/', 'T', 'H'), confirmed against a real occurrence in
+                // docs/csv/2025SDN.EVN; PO<base> was flagged in Step 6a's own notes as
+                // implemented but never exercised against real data.
                 var baseChar = code[2];
                 var startBase = ParseBaseToken(baseChar, rawEventText);
                 var runner = GetOrAddRunner(runners, startBase);
-                runner.EndBase = startBase;
-                runner.IsOut = true;
                 var parenStart = code.IndexOf('(');
                 if (parenStart >= 0)
                 {
                     var parenEnd = code.IndexOf(')', parenStart);
-                    runner.FieldingCredits.AddRange(ParseFielderChain(code[(parenStart + 1)..parenEnd]));
+                    var annotation = code[(parenStart + 1)..parenEnd];
+
+                    if (annotation.Length >= 2 && annotation[0] == 'E' && char.IsDigit(annotation[1]))
+                    {
+                        runner.EndBase = startBase;
+                        runner.IsOut = false;
+                        runner.FieldingCredits.Add(new ParsedFieldingCredit
+                        {
+                            Position = (byte)(annotation[1] - '0'),
+                            CreditType = FieldingCreditType.Error,
+                            Sequence = 1
+                        });
+                    }
+                    else
+                    {
+                        runner.EndBase = startBase;
+                        runner.IsOut = true;
+                        runner.FieldingCredits.AddRange(ParseFielderChain(annotation, rawEventText));
+                    }
+                }
+                else
+                {
+                    runner.EndBase = startBase;
+                    runner.IsOut = true;
                 }
 
                 return (GameEventType.Pickoff, false);
@@ -483,7 +550,7 @@ namespace Retrosharp.Format.PlayByPlay
                 throw new PlayCodeParseException(rawEventText, $"Caught-stealing code '{code}' is missing its fielder chain.");
 
             var parenEnd = rest.IndexOf(')', parenStart);
-            runner.FieldingCredits.AddRange(ParseFielderChain(rest[(parenStart + 1)..parenEnd]));
+            runner.FieldingCredits.AddRange(ParseFielderChain(rest[(parenStart + 1)..parenEnd], rawEventText));
         }
 
         /// <summary>
@@ -565,7 +632,7 @@ namespace Retrosharp.Format.PlayByPlay
             var runner = GetOrAddRunner(runners, startBase);
             runner.EndBase = NextBase(startBase);
             runner.IsOut = true;
-            runner.FieldingCredits.AddRange(ParseFielderChain(digits));
+            runner.FieldingCredits.AddRange(ParseFielderChain(digits, rawEventText));
         }
 
         private static void AssignFieldedOutErrorGroup(IDictionary<BaseState, MutableRunner> runners, string assistDigits, char errorFielderDigit, string rawEventText)
@@ -633,7 +700,18 @@ namespace Retrosharp.Format.PlayByPlay
                     throw new PlayCodeParseException(rawEventText, $"Out advance '{segment}' is missing its fielder chain.");
 
                 runner.FieldingCredits.Clear();
-                runner.FieldingCredits.AddRange(ParseFielderChain(fielderGroup));
+                runner.FieldingCredits.AddRange(ParseFielderChain(fielderGroup, rawEventText));
+
+                // "1X2(4E6)" -- an "X" advance whose fielder chain's last credit is an error
+                // rather than a putout means the throw that would have completed the out was
+                // itself misplayed, so the runner is actually safe. Confirmed against a real
+                // play ("FC4/G34.2-3;1X2(4E6);B-1"): treating this runner as out would leave
+                // the half-inning with a 3rd out mid-sequence, yet the same real file's next
+                // play in that same half-inning has the following batter still coming to the
+                // plate -- an impossible fourth out. The base itself ("2") is still correct;
+                // only whether they're out changes.
+                if (runner.FieldingCredits.Count > 0 && runner.FieldingCredits[^1].CreditType == FieldingCreditType.Error)
+                    runner.IsOut = false;
             }
             else if (endBase == BaseState.Home)
             {

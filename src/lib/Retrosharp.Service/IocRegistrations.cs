@@ -27,6 +27,7 @@ namespace Retrosharp.Service
             services.AddTransient<IPersonService, PersonService>();
             services.AddTransient<IPersonImportService, PersonImportService>();
             services.AddTransient<IGameLogImportService, GameLogImportService>();
+            services.AddTransient<IGameEventImportService, GameEventImportService>();
             services.AddTransient<IGameService, GameService>();
             services.AddTransient<IBattingService, BattingService>();
             services.AddTransient<IPlayerStatisticsService, PlayerStatisticsService>();

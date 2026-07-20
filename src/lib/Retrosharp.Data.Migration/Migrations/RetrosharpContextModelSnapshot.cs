@@ -59,7 +59,7 @@ namespace Retrosharp.Data.Migrator.Migrations
                     b.HasIndex("SiteCode")
                         .IsUnique();
 
-                    b.ToTable("Ballpark");
+                    b.ToTable("Ballpark", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.BattingModel", b =>
@@ -136,7 +136,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("PersonId", "FranchiseId", "SeasonYear");
 
-                    b.ToTable("Batting");
+                    b.ToTable("Batting", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.FieldingModel", b =>
@@ -183,7 +183,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("PersonId", "FranchiseId", "SeasonYear", "Position");
 
-                    b.ToTable("Fielding");
+                    b.ToTable("Fielding", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.FranchiseModel", b =>
@@ -255,7 +255,7 @@ namespace Retrosharp.Data.Migrator.Migrations
                     b.HasIndex("FranchiseIdentifier", "FranchiseStart")
                         .IsUnique();
 
-                    b.ToTable("Franchise");
+                    b.ToTable("Franchise", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameAdjustmentModel", b =>
@@ -289,7 +289,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("GameId", "Sequence");
 
-                    b.ToTable("GameAdjustment");
+                    b.ToTable("GameAdjustment", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameBattingStatisticsModel", b =>
@@ -368,7 +368,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("GameId", "FranchiseId", "HomeVisitor");
 
-                    b.ToTable("GameBattingStatistics");
+                    b.ToTable("GameBattingStatistics", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameCommentModel", b =>
@@ -394,7 +394,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("GameId", "Sequence");
 
-                    b.ToTable("GameComment");
+                    b.ToTable("GameComment", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameEventFieldingCreditModel", b =>
@@ -431,7 +431,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("PersonId");
 
-                    b.ToTable("GameEventFieldingCredit");
+                    b.ToTable("GameEventFieldingCredit", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameEventGameStatusModel", b =>
@@ -444,7 +444,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasKey("GameId");
 
-                    b.ToTable("GameEventGameStatus");
+                    b.ToTable("GameEventGameStatus", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameEventModel", b =>
@@ -514,7 +514,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("GameId", "Sequence");
 
-                    b.ToTable("GameEvent");
+                    b.ToTable("GameEvent", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameEventRunnerModel", b =>
@@ -557,7 +557,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("ResponsiblePitcherId");
 
-                    b.ToTable("GameEventRunner");
+                    b.ToTable("GameEventRunner", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameFieldingStatisticsModel", b =>
@@ -603,7 +603,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("GameId", "FranchiseId", "HomeVisitor");
 
-                    b.ToTable("GameFieldingStatistics");
+                    b.ToTable("GameFieldingStatistics", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameLineupModel", b =>
@@ -639,7 +639,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("GameId", "BatterId");
 
-                    b.ToTable("GameLineup");
+                    b.ToTable("GameLineup", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameModel", b =>
@@ -793,7 +793,7 @@ namespace Retrosharp.Data.Migrator.Migrations
                     b.HasIndex("GameDate", "GameNumber", "HomeFranchiseId", "VisitorFranchiseId")
                         .IsUnique();
 
-                    b.ToTable("Game");
+                    b.ToTable("Game", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GamePitchingStatisticsModel", b =>
@@ -836,7 +836,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("GameId", "FranchiseId", "HomeVisitor");
 
-                    b.ToTable("GamePitchingStatistics");
+                    b.ToTable("GamePitchingStatistics", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameSubstitutionModel", b =>
@@ -873,7 +873,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("GameId", "Sequence");
 
-                    b.ToTable("GameSubstitution");
+                    b.ToTable("GameSubstitution", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.LeagueModel", b =>
@@ -899,7 +899,7 @@ namespace Retrosharp.Data.Migrator.Migrations
                     b.HasIndex("LeagueCode")
                         .IsUnique();
 
-                    b.ToTable("League");
+                    b.ToTable("League", (string)null);
 
                     b.HasData(
                         new
@@ -1079,7 +1079,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("UseName");
 
-                    b.ToTable("Person");
+                    b.ToTable("Person", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.PitchingModel", b =>
@@ -1158,7 +1158,7 @@ namespace Retrosharp.Data.Migrator.Migrations
 
                     b.HasIndex("PersonId", "FranchiseId", "SeasonYear");
 
-                    b.ToTable("Pitching");
+                    b.ToTable("Pitching", (string)null);
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.BattingModel", b =>

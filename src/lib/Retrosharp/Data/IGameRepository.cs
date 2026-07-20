@@ -40,5 +40,17 @@ namespace Retrosharp.Data
         /// <param name="records">The parsed game log records to insert.</param>
         /// <returns>The number of games added and the number skipped as already present.</returns>
         Task<(int Added, int Skipped)> BulkInsertAsync(IEnumerable<GameLogRecord> records);
+
+        /// <summary>
+        /// Resolves a game by its natural key -- the same key used for Game Log idempotency
+        /// and required by the Game Event Parser to map a play-by-play file's "id" record
+        /// (team code + date + game number) to an existing Game row.
+        /// </summary>
+        /// <param name="gameDate">The game's date.</param>
+        /// <param name="gameNumber">The game number (0 for a single game, 1/2 for a doubleheader).</param>
+        /// <param name="homeFranchiseId">The home franchise's Id.</param>
+        /// <param name="visitorFranchiseId">The visiting franchise's Id.</param>
+        /// <returns>The matching Game, or null if no such game exists yet.</returns>
+        Task<Game> GetByNaturalKeyAsync(DateTime gameDate, byte gameNumber, int homeFranchiseId, int visitorFranchiseId);
     }
 }
