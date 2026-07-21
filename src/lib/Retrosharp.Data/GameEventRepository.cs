@@ -14,14 +14,16 @@ namespace Retrosharp.Data
     {
         private readonly RetrosharpContext _context;
         private readonly IMapper _mapper;
+        private readonly IGameStatisticsRepository _gameStatisticsRepository;
 
-        public GameEventRepository(RetrosharpContext context, IMapper mapper)
+        public GameEventRepository(RetrosharpContext context, IMapper mapper, IGameStatisticsRepository gameStatisticsRepository)
         {
             _context = context;
             _mapper = mapper;
+            _gameStatisticsRepository = gameStatisticsRepository;
         }
 
-        public async Task<(int GamesInserted, int GamesSkipped)> BulkInsertAsync(IEnumerable<GameEventRecord> records)
+        public async Task<(int GamesInserted, int GamesSkipped, int StatisticsApplied, int StatisticsSkipped)> BulkInsertAsync(IEnumerable<GameEventRecord> records)
         {
             var existingGameIds = (await _context.Set<GameEventModel>()
                     .Select(e => e.GameId)
@@ -31,81 +33,98 @@ namespace Retrosharp.Data
 
             var gamesInserted = 0;
             var gamesSkipped = 0;
+            var statisticsApplied = 0;
+            var statisticsSkipped = 0;
 
-            try
+            foreach (var record in records)
             {
-                await _context.Database.BeginTransactionAsync();
-
-                foreach (var record in records)
+                // Per-game, not per-file: the statistics claim below (Step 6d) needs its own
+                // transaction on this same DbContext, and EF Core doesn't support a nested
+                // transaction on one connection. Committing each game's GameEvent-family graph
+                // before moving to its statistics also means a crash mid-file leaves only
+                // fully-completed games behind, not partially-inserted ones -- every already-
+                // committed game is either fully done (event data + statistics) or untouched,
+                // and a re-run resumes correctly via the existing per-game idempotency checks.
+                if (!existingGameIds.Contains(record.GameId))
                 {
-                    if (existingGameIds.Contains(record.GameId))
+                    try
                     {
-                        gamesSkipped++;
-                        continue;
-                    }
+                        await _context.Database.BeginTransactionAsync();
 
-                    foreach (var play in record.Plays)
-                    {
-                        var eventModel = _mapper.Map<GameEventModel>(play.Event);
-
-                        foreach (var runnerRecord in play.Runners)
+                        foreach (var play in record.Plays)
                         {
-                            var runnerModel = _mapper.Map<GameEventRunnerModel>(runnerRecord.Runner);
+                            var eventModel = _mapper.Map<GameEventModel>(play.Event);
 
-                            foreach (var credit in runnerRecord.FieldingCredits)
+                            foreach (var runnerRecord in play.Runners)
                             {
-                                var creditModel = _mapper.Map<GameEventFieldingCreditModel>(credit);
+                                var runnerModel = _mapper.Map<GameEventRunnerModel>(runnerRecord.Runner);
 
-                                // GameEventFieldingCreditModel has two independent required FKs
-                                // into the same ancestor tree: GameEventId (direct) and
-                                // GameEventRunnerId (via the runner). Placing the credit only in
-                                // runnerModel.FieldingCredits lets EF Core fix up
-                                // GameEventRunnerId -- the relationship it was reached through --
-                                // but NOT GameEventId, a separate relationship the object was
-                                // never attached through. Without this explicit assignment,
-                                // every credit would insert with GameEventId = 0.
-                                creditModel.GameEvent = eventModel;
+                                foreach (var credit in runnerRecord.FieldingCredits)
+                                {
+                                    var creditModel = _mapper.Map<GameEventFieldingCreditModel>(credit);
 
-                                runnerModel.FieldingCredits.Add(creditModel);
+                                    // GameEventFieldingCreditModel has two independent required FKs
+                                    // into the same ancestor tree: GameEventId (direct) and
+                                    // GameEventRunnerId (via the runner). Placing the credit only in
+                                    // runnerModel.FieldingCredits lets EF Core fix up
+                                    // GameEventRunnerId -- the relationship it was reached through --
+                                    // but NOT GameEventId, a separate relationship the object was
+                                    // never attached through. Without this explicit assignment,
+                                    // every credit would insert with GameEventId = 0.
+                                    creditModel.GameEvent = eventModel;
+
+                                    runnerModel.FieldingCredits.Add(creditModel);
+                                }
+
+                                eventModel.Runners.Add(runnerModel);
                             }
 
-                            eventModel.Runners.Add(runnerModel);
+                            _context.Set<GameEventModel>().Add(eventModel);
                         }
 
-                        _context.Set<GameEventModel>().Add(eventModel);
+                        // Substitutions, adjustments, and comments are direct children of Game
+                        // with GameId already known -- unlike the GameEvent graph above, there's no
+                        // generated-key fixup or shared-ancestor FK to worry about, so each model
+                        // is simply mapped and added directly.
+                        foreach (var substitution in record.Substitutions)
+                            _context.Set<GameSubstitutionModel>().Add(_mapper.Map<GameSubstitutionModel>(substitution));
+
+                        foreach (var adjustment in record.Adjustments)
+                            _context.Set<GameAdjustmentModel>().Add(_mapper.Map<GameAdjustmentModel>(adjustment));
+
+                        foreach (var comment in record.Comments)
+                            _context.Set<GameCommentModel>().Add(_mapper.Map<GameCommentModel>(comment));
+
+                        await _context.SaveChangesAsync();
+                        await _context.Database.CommitTransactionAsync();
                     }
-
-                    // Substitutions, adjustments, and comments are direct children of Game
-                    // with GameId already known -- unlike the GameEvent graph above, there's no
-                    // generated-key fixup or shared-ancestor FK to worry about, so each model
-                    // is simply mapped and added directly.
-                    foreach (var substitution in record.Substitutions)
-                        _context.Set<GameSubstitutionModel>().Add(_mapper.Map<GameSubstitutionModel>(substitution));
-
-                    foreach (var adjustment in record.Adjustments)
-                        _context.Set<GameAdjustmentModel>().Add(_mapper.Map<GameAdjustmentModel>(adjustment));
-
-                    foreach (var comment in record.Comments)
-                        _context.Set<GameCommentModel>().Add(_mapper.Map<GameCommentModel>(comment));
+                    catch
+                    {
+                        await _context.Database.RollbackTransactionAsync();
+                        throw;
+                    }
 
                     existingGameIds.Add(record.GameId);
                     gamesInserted++;
-
-                    // One game (plays + runners + fielding credits, typically a few hundred
-                    // rows) is a natural, safe SaveChanges batch boundary -- large enough to
-                    // avoid saving per-row, small enough to bound change-tracker overhead
-                    // across a whole file's worth of games.
-                    await _context.SaveChangesAsync();
+                }
+                else
+                {
+                    gamesSkipped++;
                 }
 
-                await _context.Database.CommitTransactionAsync();
-                return (gamesInserted, gamesSkipped);
+                // Attempted for every game, regardless of whether its GameEvent-family rows
+                // were just inserted or already existed -- statistics-application idempotency
+                // (GameEventGameStatus) is deliberately independent of raw-event idempotency,
+                // so a game imported before Step 6d existed still gets its statistics applied
+                // the first time this runs against it, and a crash between the two steps above
+                // self-heals on the next run.
+                if (await _gameStatisticsRepository.TryApplyGameStatisticsAsync(record.GameId, record.Statistics))
+                    statisticsApplied++;
+                else
+                    statisticsSkipped++;
             }
-            catch
-            {
-                await _context.Database.RollbackTransactionAsync();
-                throw;
-            }
+
+            return (gamesInserted, gamesSkipped, statisticsApplied, statisticsSkipped);
         }
     }
 }

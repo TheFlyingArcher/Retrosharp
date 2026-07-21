@@ -92,6 +92,12 @@ The same person can be credited more than once on a single play, for different r
 
 `Fielding` is aggregated from `GameEventFieldingCredit` and keyed by `(PersonId, FranchiseId, SeasonYear, Position)` rather than just `(PersonId, FranchiseId, SeasonYear)`. Because baseball positions are fluid — a player may change primary position across seasons, or even within a single game — a player accumulates separate `Fielding` rows per position actually played, rather than one row per season covering all positions combined.
 
+### Future Enhancement (Phase 2): `Batting` positions played
+
+`Batting.Positions` (a single `short` column) was originally intended to record which position(s) a batter played, but a scalar column can't represent this well. For a player with one clear primary position across a season (Fernando Tatis Jr., right field) it's simple enough, but a genuine utility infielder (Ha-Seong Kim, who moves across second base, shortstop, and third base within the same season, sometimes the same game) has no single "right" value — the same positional-fluidity problem `Fielding`'s own `(..., Position)` keying already exists to solve for putouts/assists/errors.
+
+`Batting.Positions` is left at `0` for Phase 1 (Step 6d) and is a candidate for removal from the schema rather than being populated with a value that can't faithfully represent the data. The recommended Phase 2 replacement follows the same normalization approach already used for `Fielding`: track positions actually *played* (games or innings appeared at each position) per `(PersonId, FranchiseId, SeasonYear, Position)`, sourced from the same `start`/`sub` lineup data (`GameLineup` from the Game Log Parser, and `GameSubstitution` once Step 6c's data is available) already being parsed — rather than trying to encode multiple positions into one `Batting` column. This is a genuinely separate concept from `Fielding` itself: a player can be *listed* at a position for an inning without ever recording a fielding chance there, so `Fielding` rows alone would undercount positions actually played.
+
 ### `GameEventGameStatus`
 
 Records that a game's statistics have been fully applied to `Batting`, `Pitching`, and `Fielding`, and is the mechanism used to prevent two concurrent sagas from double-applying the same shared game (see [Considerations](#considerations)). This table is owned entirely by the Game Event Parser — `Game` remains the exclusive domain of the Game Log Parser and is never written to by the Game Event Parser.
@@ -109,7 +115,30 @@ Substitutions, handedness/batting-order adjustments, and commentary are not play
 
 - `GameSubstitution`: a player entering the game mid-game (position player substitution, pinch hitter, or pinch runner). Columns: `GameId`, `Sequence`, `PersonId`, `TeamAtBat`, `BattingOrderPosition`, `FieldingPosition`.
 - `GameAdjustment`: the less common adjustment records (`badj`, `padj`, `ladj`, `radj`, `presadj`), using a single table with an `AdjustmentType` column since these are infrequent and don't need the same level of normalization as `GameEvent`. Columns: `GameId`, `Sequence`, `AdjustmentType`, `PersonId`, `Value`.
-- `GameComment`: free-text commentary (`com`) records. Columns: `GameId`, `Sequence`, `CommentText`. Events without a dedicated Retrosheet record type, such as an ejection, would be captured here for narrative context rather than as a structured event.
+- `GameComment`: free-text commentary (`com`) records. Columns: `GameId`, `Sequence`, `CommentText`. For Phase 1, every `com` record is stored here verbatim, including ejection records (`com,"ej,..."`) — see [Future Enhancement: `GameEjection`](#future-enhancement-phase-2-gameejection) below for why those are deliberately not parsed further yet despite having a predetermined format.
+
+### Future Enhancement (Phase 2): `GameEjection`
+
+Ejection `com` records (`com,"ej,<ejectee>,<job code>,<umpire id>,<reason>"`) follow a predetermined, documented format — see Retrosheet's [event file format reference](https://www.retrosheet.org/eventfile.htm), "Ejections" section — unlike ordinary narrative `com` records, which are free text with no fixed shape. This makes them extractable into a proper structured table, but doing so is **explicitly deferred to Phase 2** to avoid adding scope to Phase 1's Game Event Parser; for Phase 1, `ej` records are stored as ordinary `GameComment` rows like any other comment, per the note above.
+
+Confirmed empirically against the two real reference files (`docs/csv/2025SDN.EVN`, `2025SEA.EVA`): 10 real ejection comments, all matching the format exactly, using job codes `M` (manager), `P` (player), and `C` (coach) — Retrosheet's documentation lists two more, `T` (trainer) and `N` (non-uniformed personnel), not observed in either 2025 file but presumably present in the broader historical dataset.
+
+When this is picked up in Phase 2, the recommended shape — following the same normalization convention already used for `GameSubstitution`/`GameAdjustment` — is a `GameEjection` table:
+
+| Column | Description |
+|---|---|
+| `GameEjectionId` | Primary key |
+| `GameId` | Foreign key to `Game` |
+| `Sequence` | Order of this ejection within the game |
+| `PersonId` | Foreign key to `Person`, the person ejected |
+| `Role` | The ejected person's role at the time (`Player`, `Manager`, `Coach`, `Trainer`, `NonUniformed` — mirroring Retrosheet's five job codes, the same pattern already used for `GameAdjustmentType`) |
+| `UmpireId` | Foreign key to `Person`, the umpire who made the ejection |
+| `Reason` | Free-text reason. Retrosheet states it has made "an effort to standardize the text used in the reason field," but documents no fixed enumeration — treat as free text, not an enum, the same way `GameComment.CommentText` already is |
+
+Implementation notes for whoever picks this up:
+- An `ej` record is itself a `com` record — parsing it requires recognizing the `ej,...` prefix within `ComRecord.CommentText` (or, better, teaching `EventFileReader` to recognize it as a distinct record type at the tokenization level, consistent with how every other structured record type is already handled rather than pattern-matched out of free text after the fact).
+- Decide whether an `ej` record should be persisted to **both** `GameComment` and the new `GameEjection` table, or **only** `GameEjection` once this ships (moving it out of `GameComment` entirely) — the latter seems more consistent with the rest of the schema's normalization, but changes Phase 1's already-shipped `GameComment` row counts for historical re-imports, which is worth flagging to whoever owns that decision rather than assuming.
+- `Role` and `UmpireId` both require `Person` to already contain the ejected party and the umpire — already guaranteed by the Game Event Parser's existing `Person` prerequisite, no new dependency.
 
 ## Prerequisites
 

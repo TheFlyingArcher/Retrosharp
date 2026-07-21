@@ -100,6 +100,8 @@ This is to be implemented after the initial MVP is complete and stable and in pr
 1. Player export: Users can export statistical data of players to CSV formats so that they may be used in other applications or for further analysis.
 1. Advanced statistics requiring external reference data or more involved calculations, such as wRC+ and WAR.
 1. Team analysis: Users can analyze team performance over multiple seasons, comparing statistics and trends across different years, including a resolution for how franchise relocations and renames are grouped for this purpose.
+1. Ejection tracking: parse Retrosheet's structured `ej` comment records (manager/player/coach ejections — see [Ejections](https://www.retrosheet.org/eventfile.htm)) into a dedicated `GameEjection` table instead of leaving them as unstructured `GameComment` text. See [game-event.md](./game-event.md#future-enhancement-phase-2-gameejection) for the full data model and design notes. Noticed during Phase 1's Step 6c (Game Event Parser context records) but deliberately kept out of Phase 1 scope.
+1. Positions played tracking: replace the unused `Batting.Positions` column with proper tracking of which position(s) a batter played per season (games/innings per position), since a single scalar column can't represent positional fluidity for utility players. See [game-event.md](./game-event.md#future-enhancement-phase-2-batting-positions-played) for design notes. Noticed during Phase 1's Step 6d (Batting/Pitching/Fielding derivation) but deliberately kept out of Phase 1 scope.
 
 ## Relavent Information
 

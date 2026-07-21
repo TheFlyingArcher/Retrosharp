@@ -383,7 +383,12 @@ namespace Retrosharp.Data.Context
             // Configure Batting entity
             modelBuilder.Entity<BattingModel>(entity =>
             {
-                entity.HasIndex(e => new { e.PersonId, e.FranchiseId, e.SeasonYear });
+                // Unique as of Step 6d -- this is the natural key the stat-derivation logic
+                // relies on to safely fall back from "insert new season row" to "atomically
+                // increment the existing one" under concurrent access. See spec/game-event.md
+                // and Step 1's progress log in spec/phase-1-build-plan.md, which flagged this
+                // as deliberately non-unique until the step that would actually need it to be.
+                entity.HasIndex(e => new { e.PersonId, e.FranchiseId, e.SeasonYear }).IsUnique();
 
                 entity.HasOne(b => b.Person)
                     .WithMany(p => p.BattingRecords)
@@ -399,7 +404,8 @@ namespace Retrosharp.Data.Context
             // Configure Pitching entity
             modelBuilder.Entity<PitchingModel>(entity =>
             {
-                entity.HasIndex(e => new { e.PersonId, e.FranchiseId, e.SeasonYear });
+                // Unique as of Step 6d -- see the matching note on BattingModel above.
+                entity.HasIndex(e => new { e.PersonId, e.FranchiseId, e.SeasonYear }).IsUnique();
 
                 entity.HasOne(p => p.Person)
                     .WithMany(person => person.PitchingRecords)
@@ -415,7 +421,8 @@ namespace Retrosharp.Data.Context
             // Configure Fielding entity
             modelBuilder.Entity<FieldingModel>(entity =>
             {
-                entity.HasIndex(e => new { e.PersonId, e.FranchiseId, e.SeasonYear, e.Position });
+                // Unique as of Step 6d -- see the matching note on BattingModel above.
+                entity.HasIndex(e => new { e.PersonId, e.FranchiseId, e.SeasonYear, e.Position }).IsUnique();
 
                 entity.HasOne(f => f.Person)
                     .WithMany()
