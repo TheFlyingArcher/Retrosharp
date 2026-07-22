@@ -8,22 +8,13 @@ namespace Retrosharp.Service
     public class PersonService : IPersonService
     {
         private readonly IPersonRepository _personRepository;
-        private readonly IBattingRepository _battingRepository;
-        private readonly IPitchingRepository _pitchingRepository;
-        private readonly IFieldingRepository _fieldingRepository;
         private readonly ILogger<PersonService> _logger;
 
         public PersonService(
             IPersonRepository personRepository,
-            IBattingRepository battingRepository,
-            IPitchingRepository pitchingRepository,
-            IFieldingRepository fieldingRepository,
             ILogger<PersonService> logger)
         {
             _personRepository = personRepository;
-            _battingRepository = battingRepository;
-            _pitchingRepository = pitchingRepository;
-            _fieldingRepository = fieldingRepository;
             _logger = logger;
         }
 
@@ -40,19 +31,6 @@ namespace Retrosharp.Service
         public async Task<Person> GetByRetrosheetIdAsync(string retrosheetId)
         {
             return await _personRepository.GetByRetrosheetIdAsync(retrosheetId);
-        }
-
-        public async Task<Person> GetWithCareerStatsAsync(int personId)
-        {
-            var person = await _personRepository.GetByIdAsync(personId);
-            if (person == null)
-                return null;
-
-            // Note: In a more complete implementation, you would load batting, pitching, 
-            // and fielding stats and attach them to the person object
-            // For now, this returns the person without stats loaded into the object itself
-
-            return person;
         }
 
         public async Task<Person> SaveAsync(Person entity)
@@ -72,12 +50,12 @@ namespace Retrosharp.Service
             return await _personRepository.CreateAsync(entity);
         }
 
-        public async Task<IEnumerable<Person>> SearchByNameAsync(string searchTerm)
+        public async Task<(IEnumerable<Person> Items, int TotalCount)> SearchByNameAsync(string searchTerm, int limit, int offset)
         {
             if (string.IsNullOrWhiteSpace(searchTerm))
-                return Enumerable.Empty<Person>();
+                return (Enumerable.Empty<Person>(), 0);
 
-            return await _personRepository.SearchByNameAsync(searchTerm);
+            return await _personRepository.SearchByNameAsync(searchTerm, limit, offset);
         }
     }
 }

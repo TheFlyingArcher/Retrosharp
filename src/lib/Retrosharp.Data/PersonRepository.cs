@@ -36,22 +36,30 @@ namespace Retrosharp.Data
             return people;
         }
 
-        public async Task<IEnumerable<Person>> SearchByNameAsync(string searchTerm)
+        public async Task<(IEnumerable<Person> Items, int TotalCount)> SearchByNameAsync(string searchTerm, int limit, int offset)
         {
             if (string.IsNullOrWhiteSpace(searchTerm))
-                return Enumerable.Empty<Person>();
+                return (Enumerable.Empty<Person>(), 0);
 
             var searchUpper = searchTerm.ToUpper();
 
-            var people = await Context.People
-                .Where(p => 
+            var query = Context.People
+                .Where(p =>
                     p.Surname.ToUpper().Contains(searchUpper) ||
                     p.UseName.ToUpper().Contains(searchUpper) ||
-                    p.FullName.ToUpper().Contains(searchUpper))
+                    p.FullName.ToUpper().Contains(searchUpper));
+
+            var totalCount = await query.CountAsync();
+
+            var people = await query
+                .OrderBy(p => p.Surname)
+                .ThenBy(p => p.UseName)
+                .Skip(offset)
+                .Take(limit)
                 .ProjectToType<Person>()
                 .ToListAsync();
 
-            return people;
+            return (people, totalCount);
         }
 
         public async Task<(int Added, int Updated)> BulkUpsertAsync(IEnumerable<Person> people)

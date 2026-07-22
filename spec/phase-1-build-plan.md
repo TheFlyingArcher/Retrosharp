@@ -578,17 +578,50 @@ All three fixes required a full clear-and-re-import of both real reference files
 
 ## Step 7: Data Viewing API
 
-**Status**: Not Started
+**Status**: In Progress
 
-**Governing spec**: [project.md](./project.md) (Data Viewing and Statistics features)
+**Governing spec**: [api.md](./api.md) (routes, response shapes, statistic formulas, and the data-model gaps this step resolves), [project.md](./project.md) (Data Viewing and Statistics features)
 
 **Depends on**: Step 5 and Step 6 (needs data to view).
 
-**Objective**: Build the REST API surface for Phase 1's Data Viewing feature — player search, career/season statistics, game summaries, and individual play-by-play events, for both players and teams.
+**Objective**: Build the REST API surface for Phase 1's Data Viewing feature — player search, career/season statistics, game summaries, and individual play-by-play events, for both players and teams, per [api.md](./api.md).
 
-**Note**: unlike Steps 1–6, this step doesn't yet have a dedicated spec document defining exact routes, request/response shapes, or the statistic-calculation formulas (AVG, OBP, SLG, OPS, BABIP, WHIP, ERA, FIP, HR/FB, K/9, HR/9, BB/9, FP) in the same level of detail as the ETL specs. Consider writing a dedicated `api.md` spec before or during this step, the same way `game-event.md` was written before its implementation began.
+Comparably large to Step 6, so it's split into independently built and verified sub-steps, the same way 6a-6f were:
 
-**Deliverables**: to be defined in that future spec — at minimum, player search, player statistics (career and season), game lookup/summary, and game event (play-by-play) retrieval endpoints.
+- **7a** — Shared plumbing (pagination envelope, response-DTO/controller conventions) + Player Search + Player Detail.
+- **7b** — Player batting/pitching/fielding statistics: career and season, including the multi-franchise combined-total row, and auditing/extending the existing `PlayerStatisticsService` scaffold.
+- **7c** — `PitcherEventAggregate` (HR/FB, HR/9, pitcher BABIP) and `LeagueSeasonPitchingTotals`/FIP constant.
+- **7d** — Player game log (per-game stat lines derived on demand from `GameEvent`/`GameEventRunner`).
+- **7e** — Team search, roster, and season statistics.
+- **7f** — Game summary and play-by-play.
+
+### Step 7a: Shared Plumbing, Player Search, Player Detail
+
+**Status**: Complete
+
+**What was found (starting state)**:
+- `IPersonService`/`PersonService` already had a `GetWithCareerStatsAsync` method, but it was a non-functional stub — it loaded the `Person` row and, per its own comment, did nothing else ("a more complete implementation would load batting/pitching/fielding stats"). It had no callers anywhere in the codebase. `PersonService`'s constructor also injected `IBattingRepository`/`IPitchingRepository`/`IFieldingRepository` that only that stub referenced (only in a comment, never in code) — dead dependencies once the stub was removed.
+- `IPersonRepository.SearchByNameAsync`/`PersonRepository.SearchByNameAsync` took just a search term and returned every match with no paging, no total count, and no explicit ordering (meaning `Skip`/`Take` pagination added on top of it would have had undefined row order in SQL Server). Confirmed via grep it had no callers outside `PersonService`'s pass-through wrapper, so the signature could be changed directly rather than adding a parallel overload.
+- **A genuine, previously-latent gap surfaced by this step's live verification**: `Retrosharp.UI.Api/appsettings.json` never had a `ConnectionStrings:DefaultConnection` entry — only `RabbitMQ`. This went undetected through Steps 3/5/6f because every prior UI.Api endpoint only sends fire-and-forget messages onto the service bus; none of them actually execute a query against `RetrosharpContext` from within the API process itself. `PlayersController` is the first code path to do so, and it failed immediately with `System.InvalidOperationException: The ConnectionString property has not been initialized` — `RetrosharpConfiguration.Instance()` builds its own `ConfigurationBuilder` reading `appsettings.json`, and the key genuinely didn't exist in that file. This is a different root cause from Step 6f's `RetrosharpContext` DI-registration gap (that fix made the type resolvable; this fix makes the resolved instance actually point at a real database).
+
+**What was built**:
+- `Retrosharp.UI.Api/Models/PagedResult.cs`: the project's first list/search response envelope (`Items`, `TotalCount`, `Limit`, `Offset`).
+- `IPersonRepository.SearchByNameAsync`/`PersonRepository.SearchByNameAsync` extended to `(searchTerm, limit, offset)`, returning `(IEnumerable<Person> Items, int TotalCount)` via a separate `CountAsync()` plus `OrderBy(Surname).ThenBy(UseName).Skip().Take()` — the explicit ordering is a necessary addition beyond what was originally scoped, since `Skip`/`Take` without an `ORDER BY` has undefined row order in SQL Server and would have made pagination unreliable. `IPersonService.SearchByNameAsync` updated to match, as a pure pass-through.
+- Removed `IPersonService.GetWithCareerStatsAsync` (interface and implementation) and `PersonService`'s now-unused `IBattingRepository`/`IPitchingRepository`/`IFieldingRepository` constructor dependencies, the same category of cleanup Step 5 did for `GameService` after removing `ProcessGameLogsAsync`.
+- `PlayersController` (`GET /api/players/search?q=&limit=&offset=`, `GET /api/players/{id}`), kept separate from `PersonController` (which only triggers the biofile ETL saga). New response DTOs `PlayerSearchResult`/`PlayerDetail` in `Retrosharp.UI.Api/Models/`, mapped from `Person` via Mapster's `Adapt<T>()` (already registered via `AddMapster()`). Both DTOs use `Id` rather than `PersonId` for the primary key, matching `Entity.Id` and Mapster's name-based mapping convention, rather than introducing a custom mapping configuration for one field.
+- Added `ConnectionStrings:DefaultConnection` to `Retrosharp.UI.Api/appsettings.json`, matching Engine.Console's value.
+
+**Discrepancies and decisions made during implementation**:
+- `PlayerDetail` deliberately omits `Person`'s cemetery-related fields (`Cemetery`, `CemeteryCity`, etc.) and `BirthName`/`AlternateName` — genealogical detail not central to a baseball statistics/data-viewing feature. Everything else identity/biographical stays, including manager/coach/umpire debut-last date ranges, since `Person` covers all four roles.
+- No `[Authorize]` on `PlayersController`, consistent with every existing controller and `api.md`'s Phase 1 anonymous-access decision.
+
+**Errors encountered**:
+- The `Retrosharp.UI.Api/appsettings.json` missing-connection-string gap above — not caused by this step's changes, but only exposed by them, and fixed as part of this step per the project's established practice of fixing real bugs found via live verification rather than working around them.
+
+**Verification performed**:
+- Full solution build: 0 errors (198 pre-existing nullable-reference warnings, unchanged in kind from prior steps).
+- Live: started `Retrosharp.UI.Api`, called `GET /api/players/search?q=cease` against the real imported biofile data (26,961 people) — correctly returned Dylan Cease (`id: 3999`, `ceasd001`). Called `GET /api/players/3999` — correct full detail. Called `GET /api/players/999999999` — `404`.
+- Pagination boundaries verified against the real `Person` table: `q=zzzznotaname` → empty `items`, `totalCount: 0`. `q=smith&limit=5` → 5 items, `totalCount: 258`. `q=smith&limit=5&offset=5` → next 5 items, no overlap with the first page, same `totalCount`. `q=smith&limit=5&offset=100000` → empty `items`, `totalCount: 258` unchanged. Invalid `limit=0`, `offset=-1`, and missing `q` all correctly rejected with `400`.
 
 ---
 

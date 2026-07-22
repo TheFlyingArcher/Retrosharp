@@ -28,8 +28,10 @@ namespace Retrosharp.Data
         /// Searches for people by any name field (surname, use name, full name) with case-insensitive partial matching.
         /// </summary>
         /// <param name="searchTerm">The search term to match against name fields.</param>
-        /// <returns>A collection of people matching the search criteria.</returns>
-        Task<IEnumerable<Person>> SearchByNameAsync(string searchTerm);
+        /// <param name="limit">Maximum number of results to return.</param>
+        /// <param name="offset">Number of matching results to skip.</param>
+        /// <returns>The page of people matching the search criteria, and the total number of matches.</returns>
+        Task<(IEnumerable<Person> Items, int TotalCount)> SearchByNameAsync(string searchTerm, int limit, int offset);
 
         /// <summary>
         /// Inserts or updates the given people, matched by Retrosheet ID, as a single atomic
