@@ -1,13 +1,14 @@
 using Mapster;
 using Microsoft.AspNetCore.Mvc;
+using Retrosharp.Contract;
 using Retrosharp.Service.Interface;
 using Retrosharp.UI.Api.Models;
 
 namespace Retrosharp.UI.Api.Controllers
 {
     /// <summary>
-    /// Data Viewing endpoints for players (search, identity/biographical detail). Distinct from
-    /// PersonController, which only triggers the biofile ETL saga. See spec/api.md.
+    /// Data Viewing endpoints for players (search, identity/biographical detail, statistics).
+    /// Distinct from PersonController, which only triggers the biofile ETL saga. See spec/api.md.
     /// </summary>
     [ApiController]
     [Route("api/players")]
@@ -17,10 +18,12 @@ namespace Retrosharp.UI.Api.Controllers
         private const int MaxLimit = 100;
 
         private readonly IPersonService _personService;
+        private readonly IPlayerStatisticsService _playerStatisticsService;
 
-        public PlayersController(IPersonService personService)
+        public PlayersController(IPersonService personService, IPlayerStatisticsService playerStatisticsService)
         {
             _personService = personService;
+            _playerStatisticsService = playerStatisticsService;
         }
 
         /// <summary>
@@ -63,6 +66,95 @@ namespace Retrosharp.UI.Api.Controllers
                 return NotFound();
 
             return person.Adapt<PlayerDetail>();
+        }
+
+        /// <summary>
+        /// Gets a player's batting statistics for one season, or their whole career.
+        /// </summary>
+        [HttpGet("{id}/batting")]
+        public async Task<ActionResult<PlayerStatsResponse<BattingLine>>> GetBatting(int id, [FromQuery] short? season)
+        {
+            if (await _personService.GetByIdAsync(id) == null)
+                return NotFound();
+
+            var stats = await _playerStatisticsService.GetBattingAsync(id, season);
+
+            var rows = stats.Rows.Select(row =>
+            {
+                var line = row.Stats.Adapt<BattingLine>();
+                line.FranchiseCode = row.FranchiseCode;
+                line.FranchiseName = row.FranchiseName;
+                return line;
+            });
+
+            BattingLine? combinedTotal = null;
+            if (stats.CombinedTotal != null)
+            {
+                combinedTotal = stats.CombinedTotal.Adapt<BattingLine>();
+                combinedTotal.SeasonYear = null;
+            }
+
+            return new PlayerStatsResponse<BattingLine> { Rows = rows, CombinedTotal = combinedTotal };
+        }
+
+        /// <summary>
+        /// Gets a player's pitching statistics for one season, or their whole career.
+        /// </summary>
+        [HttpGet("{id}/pitching")]
+        public async Task<ActionResult<PlayerStatsResponse<PitchingLine>>> GetPitching(int id, [FromQuery] short? season)
+        {
+            if (await _personService.GetByIdAsync(id) == null)
+                return NotFound();
+
+            var stats = await _playerStatisticsService.GetPitchingAsync(id, season);
+
+            var rows = stats.Rows.Select(row =>
+            {
+                var line = row.Stats.Adapt<PitchingLine>();
+                line.FranchiseCode = row.FranchiseCode;
+                line.FranchiseName = row.FranchiseName;
+                return line;
+            });
+
+            PitchingLine? combinedTotal = null;
+            if (stats.CombinedTotal != null)
+            {
+                combinedTotal = stats.CombinedTotal.Adapt<PitchingLine>();
+                combinedTotal.SeasonYear = null;
+            }
+
+            return new PlayerStatsResponse<PitchingLine> { Rows = rows, CombinedTotal = combinedTotal };
+        }
+
+        /// <summary>
+        /// Gets a player's fielding statistics for one season, or their whole career, broken out
+        /// by position.
+        /// </summary>
+        [HttpGet("{id}/fielding")]
+        public async Task<ActionResult<PlayerStatsResponse<FieldingLine>>> GetFielding(int id, [FromQuery] short? season)
+        {
+            if (await _personService.GetByIdAsync(id) == null)
+                return NotFound();
+
+            var stats = await _playerStatisticsService.GetFieldingAsync(id, season);
+
+            var rows = stats.Rows.Select(row =>
+            {
+                var line = row.Stats.Adapt<FieldingLine>();
+                line.FranchiseCode = row.FranchiseCode;
+                line.FranchiseName = row.FranchiseName;
+                return line;
+            });
+
+            FieldingLine? combinedTotal = null;
+            if (stats.CombinedTotal != null)
+            {
+                combinedTotal = stats.CombinedTotal.Adapt<FieldingLine>();
+                combinedTotal.SeasonYear = null;
+                combinedTotal.Position = null;
+            }
+
+            return new PlayerStatsResponse<FieldingLine> { Rows = rows, CombinedTotal = combinedTotal };
         }
     }
 }

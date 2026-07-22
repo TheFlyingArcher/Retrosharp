@@ -126,5 +126,39 @@ namespace Retrosharp.Data
 
             return (gamesInserted, gamesSkipped, statisticsApplied, statisticsSkipped);
         }
+
+        public async Task<IEnumerable<PitcherGameEventRecord>> GetPitcherGameEventsAsync(int personId, short? season)
+        {
+            var query = _context.GameEvents.Where(e => e.PitcherId == personId);
+
+            if (season.HasValue)
+                query = query.Where(e => e.Game.GameDate.Year == season.Value);
+
+            var records = await query
+                .Select(e => new PitcherGameEventRecord
+                {
+                    // The pitcher's own franchise is whichever team is NOT at bat -- mirrors
+                    // GameStatisticsResolver's fieldingFranchiseId derivation exactly.
+                    FranchiseId = e.TeamAtBat == "H" ? e.Game.VisitorFranchiseId : e.Game.HomeFranchiseId,
+                    SeasonYear = (short)e.Game.GameDate.Year,
+                    EventType = e.EventType,
+                    BattedBallType = e.BattedBallType,
+                    IsSacHit = e.IsSacHit,
+                    IsSacFly = e.IsSacFly
+                })
+                .ToListAsync();
+
+            return records;
+        }
+
+        public async Task<int> GetLeagueHomerunsAllowedAsync(IEnumerable<int> franchiseIds, short season)
+        {
+            var franchiseIdList = franchiseIds.ToList();
+
+            return await _context.GameEvents
+                .Where(e => e.Game.GameDate.Year == season && e.EventType == GameEventType.HomeRun)
+                .Where(e => franchiseIdList.Contains(e.TeamAtBat == "H" ? e.Game.VisitorFranchiseId : e.Game.HomeFranchiseId))
+                .CountAsync();
+        }
     }
 }

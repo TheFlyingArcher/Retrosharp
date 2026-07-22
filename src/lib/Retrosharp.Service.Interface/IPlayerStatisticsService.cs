@@ -1,3 +1,4 @@
+using Retrosharp.Contract;
 using Retrosharp.Contract.Batting;
 using Retrosharp.Contract.Pitching;
 using Retrosharp.Contract.Fielding;
@@ -6,38 +7,35 @@ namespace Retrosharp.Service.Interface
 {
     /// <summary>
     /// Service interface for calculating and aggregating player statistics.
+    /// See spec/api.md, "GET /players/{id}/batting|pitching|fielding".
     /// </summary>
     public interface IPlayerStatisticsService
     {
         /// <summary>
-        /// Gets batting statistics for a player, optionally filtered by season.
+        /// Gets a player's batting statistics for one season, or their whole career when
+        /// <paramref name="season"/> is null, including a combined total when more than one
+        /// franchise row applies.
         /// </summary>
         /// <param name="personId">The ID of the person.</param>
-        /// <param name="seasonYear">Optional season year filter.</param>
-        /// <returns>A collection of batting statistics.</returns>
-        Task<IEnumerable<Batting>> GetBattingStatsAsync(int personId, short? seasonYear = null);
+        /// <param name="season">The season year to scope to, or null for the player's career.</param>
+        Task<PlayerStatLines<BattingStatistics>> GetBattingAsync(int personId, short? season);
 
         /// <summary>
-        /// Gets pitching statistics for a player, optionally filtered by season.
+        /// Gets a player's pitching statistics for one season, or their whole career when
+        /// <paramref name="season"/> is null, including a combined total when more than one
+        /// franchise row applies.
         /// </summary>
         /// <param name="personId">The ID of the person.</param>
-        /// <param name="seasonYear">Optional season year filter.</param>
-        /// <returns>A collection of pitching statistics.</returns>
-        Task<IEnumerable<Pitching>> GetPitchingStatsAsync(int personId, short? seasonYear = null);
+        /// <param name="season">The season year to scope to, or null for the player's career.</param>
+        Task<PlayerStatLines<PitchingStatistics>> GetPitchingAsync(int personId, short? season);
 
         /// <summary>
-        /// Gets fielding statistics for a player, optionally filtered by season.
+        /// Gets a player's fielding statistics for one season, or their whole career when
+        /// <paramref name="season"/> is null, including a combined total when more than one
+        /// (franchise, position) row applies.
         /// </summary>
         /// <param name="personId">The ID of the person.</param>
-        /// <param name="seasonYear">Optional season year filter.</param>
-        /// <returns>A collection of fielding statistics.</returns>
-        Task<IEnumerable<Fielding>> GetFieldingStatsAsync(int personId, short? seasonYear = null);
-
-        /// <summary>
-        /// Calculates career batting statistics by aggregating all seasons.
-        /// </summary>
-        /// <param name="personId">The ID of the person.</param>
-        /// <returns>Aggregated career batting statistics.</returns>
-        Task<BattingStatistics> CalculateCareerBattingStatsAsync(int personId);
+        /// <param name="season">The season year to scope to, or null for the player's career.</param>
+        Task<PlayerStatLines<FieldingStatistics>> GetFieldingAsync(int personId, short? season);
     }
 }

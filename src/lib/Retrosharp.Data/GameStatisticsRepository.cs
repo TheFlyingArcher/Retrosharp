@@ -85,11 +85,7 @@ namespace Retrosharp.Data
                     SeasonYear = delta.SeasonYear,
                     PlateAppearances = delta.PlateAppearances,
                     AtBats = delta.AtBats,
-                    // Contract.Batting.Hits (plural) vs Data.Model.BattingModel.Hit (singular)
-                    // -- a pre-existing naming mismatch between the two layers, mapped
-                    // explicitly here rather than relying on Mapster's convention-based
-                    // matching (which would silently leave Hit at 0).
-                    Hit = delta.Hits,
+                    Hits = delta.Hits,
                     Doubles = delta.Doubles,
                     Triples = delta.Triples,
                     Homeruns = delta.Homeruns,
@@ -115,7 +111,7 @@ namespace Retrosharp.Data
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(b => b.PlateAppearances, b => (short)(b.PlateAppearances + delta.PlateAppearances))
                     .SetProperty(b => b.AtBats, b => (short)(b.AtBats + delta.AtBats))
-                    .SetProperty(b => b.Hit, b => (short)(b.Hit + delta.Hits))
+                    .SetProperty(b => b.Hits, b => (short)(b.Hits + delta.Hits))
                     .SetProperty(b => b.Doubles, b => (short)(b.Doubles + delta.Doubles))
                     .SetProperty(b => b.Triples, b => (short)(b.Triples + delta.Triples))
                     .SetProperty(b => b.Homeruns, b => (short)(b.Homeruns + delta.Homeruns))

@@ -34,5 +34,26 @@ namespace Retrosharp.Data
 
             return pitching;
         }
+
+        public async Task<(int BaseOnBalls, int HitBatsmen, int Strikeouts, int InningsPitchedOuts)> GetLeagueTotalsAsync(IEnumerable<int> franchiseIds, short season)
+        {
+            var franchiseIdList = franchiseIds.ToList();
+
+            var totals = await Context.Pitching
+                .Where(p => franchiseIdList.Contains(p.FranchiseId) && p.SeasonYear == season)
+                .GroupBy(p => 1)
+                .Select(g => new
+                {
+                    BaseOnBalls = g.Sum(p => (int)p.BaseOnBalls),
+                    HitBatsmen = g.Sum(p => (int)p.HitBatsmen),
+                    Strikeouts = g.Sum(p => (int)p.Strikeouts),
+                    InningsPitchedOuts = g.Sum(p => (int)p.InningsPitched)
+                })
+                .FirstOrDefaultAsync();
+
+            return totals == null
+                ? (0, 0, 0, 0)
+                : (totals.BaseOnBalls, totals.HitBatsmen, totals.Strikeouts, totals.InningsPitchedOuts);
+        }
     }
 }

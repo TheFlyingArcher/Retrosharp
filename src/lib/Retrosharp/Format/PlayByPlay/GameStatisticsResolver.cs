@@ -19,7 +19,12 @@ namespace Retrosharp.Format.PlayByPlay
     /// </summary>
     public static class GameStatisticsResolver
     {
-        private static readonly HashSet<GameEventType> PlateAppearanceEndingEvents =
+        /// <summary>
+        /// Events that end a plate appearance. Shared with <see cref="PitcherEventAggregateResolver"/>,
+        /// which applies the same rule from the pitcher's side (batters faced against, rather than
+        /// plate appearances for) -- see spec/api.md, "PitcherEventAggregate".
+        /// </summary>
+        internal static readonly HashSet<GameEventType> PlateAppearanceEndingEvents =
         [
             GameEventType.Single, GameEventType.Double, GameEventType.Triple, GameEventType.HomeRun,
             GameEventType.Walk, GameEventType.IntentionalWalk, GameEventType.HitByPitch,
@@ -27,7 +32,11 @@ namespace Retrosharp.Format.PlayByPlay
             GameEventType.Error, GameEventType.FieldersChoice, GameEventType.CatcherInterference
         ];
 
-        private static readonly HashSet<GameEventType> NonAtBatEvents =
+        /// <summary>
+        /// Plate-appearance-ending events that don't count as an official at-bat. Shared with
+        /// <see cref="PitcherEventAggregateResolver"/> -- see spec/api.md, "PitcherEventAggregate".
+        /// </summary>
+        internal static readonly HashSet<GameEventType> NonAtBatEvents =
         [
             GameEventType.Walk, GameEventType.IntentionalWalk, GameEventType.HitByPitch, GameEventType.CatcherInterference
         ];

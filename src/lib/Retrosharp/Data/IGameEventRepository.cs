@@ -25,5 +25,22 @@ namespace Retrosharp.Data
         /// <param name="records">The resolved game event records to insert.</param>
         /// <returns>The number of games inserted/skipped for event data, and the number of games whose statistics were newly applied/already claimed.</returns>
         Task<(int GamesInserted, int GamesSkipped, int StatisticsApplied, int StatisticsSkipped)> BulkInsertAsync(IEnumerable<GameEventRecord> records);
+
+        /// <summary>
+        /// Retrieves the raw per-play fields needed to derive a pitcher's per-franchise-season
+        /// event aggregate (see <see cref="Format.PlayByPlay.PitcherEventAggregateResolver"/>),
+        /// optionally scoped to one season. See spec/api.md, "PitcherEventAggregate".
+        /// </summary>
+        /// <param name="personId">The pitcher's person ID.</param>
+        /// <param name="season">The season year to scope to, or null for the pitcher's whole career.</param>
+        Task<IEnumerable<PitcherGameEventRecord>> GetPitcherGameEventsAsync(int personId, short? season);
+
+        /// <summary>
+        /// Counts home runs allowed across every pitcher for the given franchises in one season --
+        /// the league-wide input to <see cref="Format.PlayByPlay.FipConstantCalculator"/>.
+        /// </summary>
+        /// <param name="franchiseIds">The franchises belonging to the league.</param>
+        /// <param name="season">The season year.</param>
+        Task<int> GetLeagueHomerunsAllowedAsync(IEnumerable<int> franchiseIds, short season);
     }
 }

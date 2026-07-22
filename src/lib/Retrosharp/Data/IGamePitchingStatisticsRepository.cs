@@ -26,5 +26,15 @@ namespace Retrosharp.Data
         /// Retrieves all pitching statistics for the specified franchise and game.
         /// </summary>
         Task<IEnumerable<GamePitchingStatistics>> GetByFranchiseAndGameAsync(int franchiseId, int gameId);
+
+        /// <summary>
+        /// Sums TeamEarnedRuns across the given franchises' games in one season -- the
+        /// authoritative team-earned figure used as the league-wide ERA numerator by
+        /// <see cref="Format.PlayByPlay.FipConstantCalculator"/>. GamePitchingStatistics has no
+        /// season column of its own, so this joins through Game for the season filter.
+        /// </summary>
+        /// <param name="franchiseIds">The franchises belonging to the league.</param>
+        /// <param name="season">The season year.</param>
+        Task<int> GetLeagueTeamEarnedRunsAsync(IEnumerable<int> franchiseIds, short season);
     }
 }

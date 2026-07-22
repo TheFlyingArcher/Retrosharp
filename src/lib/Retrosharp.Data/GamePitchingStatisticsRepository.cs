@@ -42,5 +42,14 @@ namespace Retrosharp.Data
 
             return statistics;
         }
+
+        public async Task<int> GetLeagueTeamEarnedRunsAsync(IEnumerable<int> franchiseIds, short season)
+        {
+            var franchiseIdList = franchiseIds.ToList();
+
+            return await Context.GamePitchingStatistics
+                .Where(gs => franchiseIdList.Contains(gs.FranchiseId) && gs.Game.GameDate.Year == season)
+                .SumAsync(gs => (int)gs.TeamEarnedRuns);
+        }
     }
 }

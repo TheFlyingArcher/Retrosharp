@@ -45,7 +45,7 @@ namespace Retrosharp.Data.Model
         /// Total hits.
         /// </summary>
         [Required]
-        public short Hit { get; set; }
+        public short Hits { get; set; }
 
         /// <summary>
         /// Total doubles.
