@@ -128,6 +128,41 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Resolve_StrikeoutBundledWithStolenBase_CreditsRunnerNotBatter()
+        {
+            // "K+SB2" -- EventType is Strikeout (the whole play's classification), but
+            // SecondaryEventType (StolenBase) is what makes the runner's steal count at all.
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 13, PitcherId = 23, EventType = GameEventType.Strikeout, SecondaryEventType = GameEventType.StolenBase };
+            var play = Play(
+                evt,
+                Runner(13, BaseState.BattersBox, BaseState.First, isOut: true),
+                Runner(5, BaseState.First, BaseState.Second));
+
+            var delta = Resolve(play);
+
+            var runnerBatting = Assert.Single(delta.Battings, b => b.PersonId == 5);
+            Assert.Equal(1, runnerBatting.StolenBases);
+
+            // The struck-out batter must never be credited a phantom steal just because they
+            // share the play with the actual base-stealer.
+            var batterRow = Assert.Single(delta.Battings, b => b.PersonId == 13);
+            Assert.Equal(0, batterRow.StolenBases);
+        }
+
+        [Fact]
+        public void Resolve_StrikeoutBundledWithWildPitch_CreditsCurrentPitcher()
+        {
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 13, PitcherId = 23, EventType = GameEventType.Strikeout, SecondaryEventType = GameEventType.WildPitch };
+            var play = Play(evt, Runner(13, BaseState.BattersBox, BaseState.First, isOut: true));
+
+            var delta = Resolve(play);
+
+            var pitching = Assert.Single(delta.Pitchings);
+            Assert.Equal(1, pitching.Strikeouts);
+            Assert.Equal(1, pitching.WildPitches);
+        }
+
+        [Fact]
         public void Resolve_CaughtStealing_CreditedToRunnerAsOut()
         {
             var evt = new GameEvent { TeamAtBat = "V", BatterId = 13, PitcherId = 23, EventType = GameEventType.CaughtStealing };

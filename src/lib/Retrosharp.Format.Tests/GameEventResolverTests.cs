@@ -106,10 +106,13 @@ namespace Retrosharp.Format.Tests
                 new[] { (personIds["arcio002"], FieldingCreditType.Assist, 1), (personIds["albio001"], FieldingCreditType.Putout, 2) },
                 forcedRunner.FieldingCredits.Select(c => (c.PersonId, c.CreditType, c.Sequence)));
 
+            // spec/game-event.md's Data Model explicitly calls out that the second baseman
+            // (albio001) is credited twice on this play: a putout on the forced runner (above),
+            // then an assist on the batter here, before the first baseman's (olsom001) putout.
             var batterOut = Assert.Single(dp.Runners, r => r.Runner.StartBase == BaseState.BattersBox);
             Assert.Equal(personIds["diaze005"], batterOut.Runner.PersonId);
             Assert.Equal(
-                new[] { (personIds["olsom001"], FieldingCreditType.Putout, 1) },
+                new[] { (personIds["albio001"], FieldingCreditType.Assist, 1), (personIds["olsom001"], FieldingCreditType.Putout, 2) },
                 batterOut.FieldingCredits.Select(c => (c.PersonId, c.CreditType, c.Sequence)));
         }
 

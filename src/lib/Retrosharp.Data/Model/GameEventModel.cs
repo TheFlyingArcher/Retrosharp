@@ -93,6 +93,13 @@ namespace Retrosharp.Data.Model
         public GameEventType EventType { get; set; }
 
         /// <summary>
+        /// The bundled right-hand event when the play combines two events with "+" in
+        /// Retrosheet's raw code (for example "K+SB2", "K+WP") -- null otherwise. See
+        /// spec/phase-1-build-plan.md Step 6e.
+        /// </summary>
+        public GameEventType? SecondaryEventType { get; set; }
+
+        /// <summary>
         /// Trajectory of a batted ball, tracked independently of <see cref="EventType"/>.
         /// Null when the play did not involve a batted ball in play, such as a walk or strikeout.
         /// </summary>

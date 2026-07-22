@@ -119,6 +119,7 @@ namespace Retrosharp.Format.PlayByPlay
                 PitchSequence = play.PitchSequence,
                 RawEventText = parsed.RawEventText,
                 EventType = parsed.EventType,
+                SecondaryEventType = parsed.SecondaryEventType,
                 BattedBallType = parsed.BattedBallType,
                 IsSacHit = parsed.IsSacHit,
                 IsSacFly = parsed.IsSacFly

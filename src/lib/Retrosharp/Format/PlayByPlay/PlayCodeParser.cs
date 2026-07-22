@@ -35,7 +35,7 @@ namespace Retrosharp.Format.PlayByPlay
             var modifiers = slashParts.Skip(1).ToList();
 
             var runners = new Dictionary<BaseState, MutableRunner>();
-            var (eventType, isFieldedOutPendingTrajectory) = ParsePrimaryCode(primaryCode, rawEventText, runners);
+            var (eventType, secondaryEventType, isFieldedOutPendingTrajectory) = ParsePrimaryCode(primaryCode, rawEventText, runners);
 
             BattedBallType? battedBallType = null;
             var isSacHit = false;
@@ -67,6 +67,7 @@ namespace Retrosharp.Format.PlayByPlay
             return new ParsedPlay
             {
                 EventType = eventType,
+                SecondaryEventType = secondaryEventType,
                 BattedBallType = battedBallType,
                 IsSacHit = isSacHit,
                 IsSacFly = isSacFly,
@@ -275,20 +276,25 @@ namespace Retrosharp.Format.PlayByPlay
         /// fate for a batted/pitched event, or the runner(s) explicitly named for a
         /// baserunning-only event like a stolen base). Returns the overall <see cref="GameEventType"/>.
         /// </summary>
-        private static (GameEventType EventType, bool IsFieldedOutPendingTrajectory) ParsePrimaryCode(string primaryCode, string rawEventText, IDictionary<BaseState, MutableRunner> runners)
+        private static (GameEventType EventType, GameEventType? SecondaryEventType, bool IsFieldedOutPendingTrajectory) ParsePrimaryCode(string primaryCode, string rawEventText, IDictionary<BaseState, MutableRunner> runners)
         {
             // "K+CS2(24)" / "K+PB" / "W+SB3" -- a secondary baserunning event bundled onto the
             // primary code within the same plate appearance. The left side determines the
             // overall EventType; the right side contributes its own runner(s) exactly as if it
-            // were its own standalone code.
+            // were its own standalone code, and its own EventType is carried up as
+            // SecondaryEventType so statistics derivation has a signal to key off (see
+            // GameStatisticsResolver -- a bundled "K+SB2"/"K+WP" was silently dropping the
+            // stolen base/wild pitch entirely before SecondaryEventType existed, since the
+            // whole play's EventType could only ever be Strikeout. See
+            // spec/phase-1-build-plan.md Step 6e).
             var plusIndex = primaryCode.IndexOf('+');
             if (plusIndex >= 0)
             {
                 var left = primaryCode[..plusIndex];
                 var right = primaryCode[(plusIndex + 1)..];
-                var result = ParseSingleCode(left, rawEventText, runners);
-                ParseSingleCode(right, rawEventText, runners);
-                return result;
+                var (leftEventType, leftIsFieldedOutPendingTrajectory) = ParseSingleCode(left, rawEventText, runners);
+                var (rightEventType, _) = ParseSingleCode(right, rawEventText, runners);
+                return (leftEventType, rightEventType, leftIsFieldedOutPendingTrajectory);
             }
 
             // "SB2;SBH" -- simultaneous multiple steals on one play. Only observed joining
@@ -308,10 +314,11 @@ namespace Retrosharp.Format.PlayByPlay
                     result ??= subResult;
                 }
 
-                return result!.Value;
+                return (result!.Value.EventType, null, result!.Value.IsFieldedOutPendingTrajectory);
             }
 
-            return ParseSingleCode(primaryCode, rawEventText, runners);
+            var (eventType, isFieldedOutPendingTrajectory) = ParseSingleCode(primaryCode, rawEventText, runners);
+            return (eventType, null, isFieldedOutPendingTrajectory);
         }
 
         private static (GameEventType EventType, bool IsFieldedOutPendingTrajectory) ParseSingleCode(string code, string rawEventText, IDictionary<BaseState, MutableRunner> runners)
@@ -563,6 +570,20 @@ namespace Retrosharp.Format.PlayByPlay
             var runner = GetOrAddRunner(runners, BaseState.BattersBox);
             runner.EndBase = endBase;
             runner.IsOut = isOut;
+
+            if (endBase == BaseState.Home && !isOut)
+            {
+                // A scored run is an RBI and earned by default -- the same rule
+                // ApplyAdvanceSegment already applies to explicit "B-H" segments, needed here
+                // too because the batter's own trip around the bases on a home run is implicit
+                // in the primary code (e.g. "HR/F9D" has no explicit "B-H" segment) and never
+                // reaches that logic otherwise. Confirmed against real data (2025SDN.EVN): every
+                // home run was missing both flags until this fix -- see
+                // spec/phase-1-build-plan.md Step 6e.
+                runner.IsRBI = true;
+                runner.IsEarnedRun = true;
+            }
+
             return runner;
         }
 
@@ -577,6 +598,10 @@ namespace Retrosharp.Format.PlayByPlay
         {
             var current = new StringBuilder();
             var hadError = false;
+            // The fielder who completes an earlier out in this same chain (for example the
+            // pivot fielder in a double play) is credited with an assist on the *next* out too
+            // -- see the carry-over comment on AssignFieldedOutGroup below.
+            char? carryOverFielder = null;
             var i = 0;
             while (i < code.Length)
             {
@@ -593,7 +618,7 @@ namespace Retrosharp.Format.PlayByPlay
                         throw new PlayCodeParseException(rawEventText, $"Unbalanced '(' in fielded-out code '{code}'.");
 
                     var runnerStartBase = ParseBaseToken(code[i + 1], rawEventText);
-                    AssignFieldedOutGroup(runners, runnerStartBase, current.ToString(), rawEventText);
+                    carryOverFielder = AssignFieldedOutGroup(runners, runnerStartBase, current.ToString(), carryOverFielder, rawEventText);
                     current.Clear();
                     i = close + 1;
                 }
@@ -619,20 +644,36 @@ namespace Retrosharp.Format.PlayByPlay
             }
 
             if (current.Length > 0)
-                AssignFieldedOutGroup(runners, BaseState.BattersBox, current.ToString(), rawEventText);
+                AssignFieldedOutGroup(runners, BaseState.BattersBox, current.ToString(), carryOverFielder, rawEventText);
 
             return hadError;
         }
 
-        private static void AssignFieldedOutGroup(IDictionary<BaseState, MutableRunner> runners, BaseState startBase, string digits, string rawEventText)
+        /// <summary>
+        /// Assigns a fielded-out group's credits, prefixing any <paramref name="carryOverFielder"/>
+        /// from an earlier out in the same chain as an assist before this group's own fielder
+        /// digits. Confirmed against spec/game-event.md's own worked 6-4-3 double play example:
+        /// for "64(1)3", the forced runner's row gets shortstop (Assist) + second baseman
+        /// (Putout), and the batter's row must *also* credit the second baseman (Assist) before
+        /// the first baseman's (Putout) -- the second baseman is credited twice on the same
+        /// play. Real code "64(1)3" was found (via Step 6e's reconciliation) to have been
+        /// dropping that second credit entirely, only ever assigning the batter's row the
+        /// trailing "3" with no assist -- see spec/phase-1-build-plan.md Step 6e.
+        /// </summary>
+        /// <returns>This group's own last fielder digit, to carry forward into the next group.</returns>
+        private static char AssignFieldedOutGroup(IDictionary<BaseState, MutableRunner> runners, BaseState startBase, string digits, char? carryOverFielder, string rawEventText)
         {
             if (digits.Length == 0)
                 throw new PlayCodeParseException(rawEventText, "Fielded-out group has no fielder digits.");
 
+            var fullDigits = carryOverFielder is { } carry ? carry + digits : digits;
+
             var runner = GetOrAddRunner(runners, startBase);
             runner.EndBase = NextBase(startBase);
             runner.IsOut = true;
-            runner.FieldingCredits.AddRange(ParseFielderChain(digits, rawEventText));
+            runner.FieldingCredits.AddRange(ParseFielderChain(fullDigits, rawEventText));
+
+            return digits[^1];
         }
 
         private static void AssignFieldedOutErrorGroup(IDictionary<BaseState, MutableRunner> runners, string assistDigits, char errorFielderDigit, string rawEventText)

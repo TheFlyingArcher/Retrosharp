@@ -62,7 +62,9 @@ namespace Retrosharp.Format.PlayByPlay
                 ApplyBatterEvent(batterAcc, evt);
 
                 var pitcherAcc = GetOrAdd(pitching, evt.PitcherId, fieldingFranchiseId);
-                ApplyPitcherEvent(pitcherAcc, evt);
+                ApplyPitcherEvent(pitcherAcc, evt.EventType);
+                if (evt.SecondaryEventType is { } secondaryEventType)
+                    ApplyPitcherEvent(pitcherAcc, secondaryEventType);
 
                 var battersOwnRunner = play.Runners.FirstOrDefault(r => r.Runner.StartBase == BaseState.BattersBox);
                 var outsOnThisPlay = play.Runners.Count(r => r.Runner.IsOut);
@@ -82,11 +84,21 @@ namespace Retrosharp.Format.PlayByPlay
                             GetOrAdd(pitching, responsiblePitcherId, fieldingFranchiseId).Runs++;
                     }
 
-                    if (evt.EventType == GameEventType.StolenBase)
+                    // Checking SecondaryEventType too (not just EventType) is what makes a
+                    // bundled "K+SB2"/"K+CS2(24)" count at all -- EventType alone can only ever
+                    // be Strikeout/Walk for those plays. The StartBase != BattersBox guard keeps
+                    // this correct now that a bundled play's Runners can include the batter
+                    // (from the primary K/W) alongside the actual base-stealer (from the
+                    // secondary SB/CS) -- a real steal is never the batter's own row.
+                    var isStolenBaseEvent = evt.EventType == GameEventType.StolenBase || evt.SecondaryEventType == GameEventType.StolenBase;
+                    var isCaughtStealingEvent = evt.EventType is GameEventType.CaughtStealing or GameEventType.PickoffCaughtStealing
+                        || evt.SecondaryEventType is GameEventType.CaughtStealing or GameEventType.PickoffCaughtStealing;
+
+                    if (isStolenBaseEvent && runner.StartBase != BaseState.BattersBox)
                     {
                         GetOrAdd(batting, runner.PersonId, battingFranchiseId).StolenBases++;
                     }
-                    else if ((evt.EventType is GameEventType.CaughtStealing or GameEventType.PickoffCaughtStealing) && runner.IsOut)
+                    else if (isCaughtStealingEvent && runner.IsOut && runner.StartBase != BaseState.BattersBox)
                     {
                         GetOrAdd(batting, runner.PersonId, battingFranchiseId).TimesCaughtStealing++;
                     }
@@ -209,9 +221,13 @@ namespace Retrosharp.Format.PlayByPlay
                 acc.SacrificeBunts++;
         }
 
-        private static void ApplyPitcherEvent(PitchingAccumulator acc, GameEvent evt)
+        // Takes a bare GameEventType (not the whole GameEvent) so the same logic can be applied
+        // once for evt.EventType and, for a bundled play, a second time for
+        // evt.SecondaryEventType (e.g. "K+WP" -- the wild pitch would otherwise never be
+        // counted, since the play's own EventType can only ever be Strikeout).
+        private static void ApplyPitcherEvent(PitchingAccumulator acc, GameEventType eventType)
         {
-            switch (evt.EventType)
+            switch (eventType)
             {
                 case GameEventType.Single or GameEventType.Double or GameEventType.Triple or GameEventType.HomeRun:
                     acc.Hits++;

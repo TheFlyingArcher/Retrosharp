@@ -8,11 +8,18 @@ namespace Retrosharp.Contract.GameEvent
     /// commentary), and the derived Batting/Pitching/Fielding statistical deltas -- so it can
     /// move from the import service to the repository layer as a single unit, mirroring
     /// <see cref="Retrosharp.Contract.Game.GameLogRecord"/>'s existing whole-graph pattern.
-    /// See spec/phase-1-build-plan.md Steps 6b/6c/6d.
+    /// <see cref="HomeFranchiseId"/>/<see cref="VisitorFranchiseId"/> let Step 6e's
+    /// reconciliation resolver attribute plays to a team the same way
+    /// <see cref="Retrosharp.Format.PlayByPlay.GameStatisticsResolver"/> already does. See
+    /// spec/phase-1-build-plan.md Steps 6b/6c/6d/6e.
     /// </summary>
     public sealed class GameEventRecord
     {
         public required int GameId { get; init; }
+
+        public required int HomeFranchiseId { get; init; }
+
+        public required int VisitorFranchiseId { get; init; }
 
         public required IReadOnlyList<GameEventPlayRecord> Plays { get; init; }
 

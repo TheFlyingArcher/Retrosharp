@@ -11,8 +11,10 @@ namespace Retrosharp.Service
     /// <summary>
     /// Parses a Retrosheet play-by-play event file and populates GameEvent, GameEventRunner,
     /// GameEventFieldingCredit, GameSubstitution, GameAdjustment, and GameComment for every
-    /// game in it, as a single atomic batch. See spec/game-event.md and
-    /// spec/phase-1-build-plan.md Steps 6b/6c.
+    /// game in it, as a single atomic batch, then reconciles the derived Batting/Pitching/
+    /// Fielding statistics against the Game Log Parser's Game*Statistics and Pitching.EarnedRuns
+    /// against an independently-computed play-by-play figure, logging (never overwriting) any
+    /// discrepancy. See spec/game-event.md and spec/phase-1-build-plan.md Steps 6b/6c/6d/6e.
     /// </summary>
     public class GameEventImportService : IGameEventImportService
     {
@@ -20,6 +22,9 @@ namespace Retrosharp.Service
         private readonly IFranchiseRepository _franchiseRepository;
         private readonly IPersonRepository _personRepository;
         private readonly IGameEventRepository _gameEventRepository;
+        private readonly IGameBattingStatisticsRepository _gameBattingStatisticsRepository;
+        private readonly IGamePitchingStatisticsRepository _gamePitchingStatisticsRepository;
+        private readonly IGameFieldingStatisticsRepository _gameFieldingStatisticsRepository;
         private readonly ILogger<GameEventImportService> _logger;
 
         public GameEventImportService(
@@ -27,12 +32,18 @@ namespace Retrosharp.Service
             IFranchiseRepository franchiseRepository,
             IPersonRepository personRepository,
             IGameEventRepository gameEventRepository,
+            IGameBattingStatisticsRepository gameBattingStatisticsRepository,
+            IGamePitchingStatisticsRepository gamePitchingStatisticsRepository,
+            IGameFieldingStatisticsRepository gameFieldingStatisticsRepository,
             ILogger<GameEventImportService> logger)
         {
             _gameRepository = gameRepository;
             _franchiseRepository = franchiseRepository;
             _personRepository = personRepository;
             _gameEventRepository = gameEventRepository;
+            _gameBattingStatisticsRepository = gameBattingStatisticsRepository;
+            _gamePitchingStatisticsRepository = gamePitchingStatisticsRepository;
+            _gameFieldingStatisticsRepository = gameFieldingStatisticsRepository;
             _logger = logger;
         }
 
@@ -59,6 +70,16 @@ namespace Retrosharp.Service
                 "Game event import for '{FilePath}': {GamesInserted} games inserted, {GamesSkipped} games skipped, " +
                 "{StatisticsApplied} games' statistics applied, {StatisticsSkipped} games' statistics already claimed.",
                 filePath, result.GamesInserted, result.GamesSkipped, result.StatisticsApplied, result.StatisticsSkipped);
+
+            // Reconciliation runs as a distinct pass at the end of the file, over every game
+            // just processed -- not interleaved with the per-game claim/write transaction above.
+            // It's read-only against Game*Statistics (a table this parser never writes to), so
+            // it has no atomicity relationship with that write path. Re-checking on every run
+            // (not just newly-inserted games) is harmless, since it never writes anything.
+            foreach (var record in records)
+            {
+                await ReconcileGameAsync(record);
+            }
 
             return result;
         }
@@ -93,6 +114,8 @@ namespace Retrosharp.Service
             return new GameEventRecord
             {
                 GameId = resolvedGame.Id,
+                HomeFranchiseId = homeFranchise.Id,
+                VisitorFranchiseId = visitingFranchise.Id,
                 Plays = plays,
                 Substitutions = substitutions,
                 Adjustments = adjustments,
@@ -129,6 +152,48 @@ namespace Retrosharp.Service
                         "Game '{GameId}': no 'data,er,...' record found for pitcher PersonId {PersonId}; EarnedRuns defaulted to 0.",
                         game.GameId, pitching.PersonId);
                 }
+            }
+        }
+
+        // Read-only against Game*Statistics: only GetByGameIdAsync is ever called here, so the
+        // "never overwrites Game*Statistics" guarantee (spec/game-event.md Requirement 178)
+        // holds by construction, not just by convention.
+        private async Task ReconcileGameAsync(GameEventRecord record)
+        {
+            var teamTotals = GameReconciliationResolver.ResolveTeamTotals(
+                record.HomeFranchiseId, record.VisitorFranchiseId, record.Plays, record.Statistics);
+
+            var persistedBatting = await _gameBattingStatisticsRepository.GetByGameIdAsync(record.GameId);
+            var persistedPitching = await _gamePitchingStatisticsRepository.GetByGameIdAsync(record.GameId);
+            var persistedFielding = await _gameFieldingStatisticsRepository.GetByGameIdAsync(record.GameId);
+
+            var teamDiscrepancies = ReconciliationComparer.CompareTeamTotals(teamTotals, persistedBatting, persistedPitching, persistedFielding);
+            foreach (var discrepancy in teamDiscrepancies)
+            {
+                if (discrepancy.Field == ReconciliationComparer.NoPersistedRowField)
+                {
+                    _logger.LogWarning(
+                        "Game '{GameId}', Franchise '{FranchiseId}': no Game{StatisticGroup}Statistics row found to reconcile against.",
+                        record.GameId, discrepancy.FranchiseId, discrepancy.StatisticGroup);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "Game '{GameId}', Franchise '{FranchiseId}': Game{StatisticGroup}Statistics.{Field} = {PersistedValue}, " +
+                        "but play-by-play derives {DerivedValue}.",
+                        record.GameId, discrepancy.FranchiseId, discrepancy.StatisticGroup, discrepancy.Field,
+                        discrepancy.PersistedValue, discrepancy.DerivedValue);
+                }
+            }
+
+            var independentEarnedRuns = GameReconciliationResolver.ResolveIndependentEarnedRuns(record.Plays);
+            var earnedRunDiscrepancies = ReconciliationComparer.CompareEarnedRuns(record.Statistics.Pitchings, independentEarnedRuns);
+            foreach (var discrepancy in earnedRunDiscrepancies)
+            {
+                _logger.LogWarning(
+                    "Game '{GameId}', PersonId '{PersonId}': Pitching.EarnedRuns = {DataRecordEarnedRuns} (from 'data,er,...'), " +
+                    "but play-by-play independently derives {IndependentlyComputedEarnedRuns} earned runs.",
+                    record.GameId, discrepancy.PersonId, discrepancy.DataRecordEarnedRuns, discrepancy.IndependentlyComputedEarnedRuns);
             }
         }
 

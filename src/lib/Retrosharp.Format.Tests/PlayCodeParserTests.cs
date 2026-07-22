@@ -47,11 +47,14 @@ namespace Retrosharp.Format.Tests
                 new[] { (6, FieldingCreditType.Assist, 1), (4, FieldingCreditType.Putout, 2) },
                 forcedRunner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
 
+            // spec/game-event.md's Data Model explicitly calls out that the second baseman is
+            // credited twice on this play: a putout on the forced runner (above), then an
+            // assist on the batter here, before the first baseman's putout.
             var batter = Assert.Single(result.Runners, r => r.StartBase == BaseState.BattersBox);
             Assert.Equal(BaseState.First, batter.EndBase);
             Assert.True(batter.IsOut);
             Assert.Equal(
-                new[] { (3, FieldingCreditType.Putout, 1) },
+                new[] { (4, FieldingCreditType.Assist, 1), (3, FieldingCreditType.Putout, 2) },
                 batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
         }
 
@@ -411,6 +414,7 @@ namespace Retrosharp.Format.Tests
             var result = PlayCodeParser.Parse("K+CS2(24)/DP", "32", "SFBFBB>C");
 
             Assert.Equal(GameEventType.Strikeout, result.EventType);
+            Assert.Equal(GameEventType.CaughtStealing, result.SecondaryEventType);
             Assert.Equal(2, result.Runners.Count);
 
             var batter = Assert.Single(result.Runners, r => r.StartBase == BaseState.BattersBox);
@@ -419,6 +423,36 @@ namespace Retrosharp.Format.Tests
             var caughtStealing = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
             Assert.True(caughtStealing.IsOut);
             Assert.Equal(BaseState.Second, caughtStealing.EndBase);
+        }
+
+        [Fact]
+        public void Parse_StrikeoutCombinedWithStolenBase_SecondaryEventTypeSet()
+        {
+            var result = PlayCodeParser.Parse("K+SB2", "22", "CBBFS");
+
+            Assert.Equal(GameEventType.Strikeout, result.EventType);
+            Assert.Equal(GameEventType.StolenBase, result.SecondaryEventType);
+
+            var stealer = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
+            Assert.False(stealer.IsOut);
+            Assert.Equal(BaseState.Second, stealer.EndBase);
+        }
+
+        [Fact]
+        public void Parse_StrikeoutCombinedWithWildPitch_SecondaryEventTypeSetAndNoExtraRunner()
+        {
+            var result = PlayCodeParser.Parse("K+WP", "22", "CBBFS");
+
+            Assert.Equal(GameEventType.Strikeout, result.EventType);
+            Assert.Equal(GameEventType.WildPitch, result.SecondaryEventType);
+        }
+
+        [Fact]
+        public void Parse_SingleWithNoCombinator_SecondaryEventTypeIsNull()
+        {
+            var result = PlayCodeParser.Parse("S9/G34", "21", "B*BCX");
+
+            Assert.Null(result.SecondaryEventType);
         }
 
         [Fact]

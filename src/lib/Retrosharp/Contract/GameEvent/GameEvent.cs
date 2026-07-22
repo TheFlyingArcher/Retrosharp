@@ -70,6 +70,15 @@ namespace Retrosharp.Contract.GameEvent
         public GameEventType EventType { get; set; }
 
         /// <summary>
+        /// The bundled right-hand event when the play combines two events with "+" in
+        /// Retrosheet's raw code (for example "K+SB2", "K+WP", "W+CS2(24)") -- null otherwise.
+        /// <see cref="EventType"/> can only hold the left-hand event, so this is what lets
+        /// statistics derivation notice a bundled stolen base/caught stealing/wild pitch/balk/
+        /// passed ball at all. See spec/phase-1-build-plan.md Step 6e.
+        /// </summary>
+        public GameEventType? SecondaryEventType { get; set; }
+
+        /// <summary>
         /// Trajectory of a batted ball, tracked independently of <see cref="EventType"/>.
         /// Null when the play did not involve a batted ball in play, such as a walk or strikeout.
         /// </summary>

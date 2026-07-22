@@ -98,6 +98,15 @@ The same person can be credited more than once on a single play, for different r
 
 `Batting.Positions` is left at `0` for Phase 1 (Step 6d) and is a candidate for removal from the schema rather than being populated with a value that can't faithfully represent the data. The recommended Phase 2 replacement follows the same normalization approach already used for `Fielding`: track positions actually *played* (games or innings appeared at each position) per `(PersonId, FranchiseId, SeasonYear, Position)`, sourced from the same `start`/`sub` lineup data (`GameLineup` from the Game Log Parser, and `GameSubstitution` once Step 6c's data is available) already being parsed — rather than trying to encode multiple positions into one `Batting` column. This is a genuinely separate concept from `Fielding` itself: a player can be *listed* at a position for an inning without ever recording a fielding chance there, so `Fielding` rows alone would undercount positions actually played.
 
+### Future Enhancement (Phase 2): Team earned run reconciliation and passed-ball/double-play reconciliation
+
+Step 6e's reconciliation of derived team-level aggregates against `GameBattingStatistics`/`GamePitchingStatistics`/`GameFieldingStatistics` (Requirement 165/178) compares every field "covered by both datasets" except three, deliberately excluded rather than silently mismatched on every real game:
+
+- `GamePitchingStatistics.TeamEarnedRuns`: distinct from `IndividualEarnedRuns` (which the Game Event Parser already sources per-pitcher from `data,er,...` records and can safely sum and compare). Distinguishing "team earned" from "individual earned" requires resolving which runs still count as earned against the team despite being unearned for the individual pitcher — a fielding-error attribution rule not currently needed anywhere else in the codebase, the same category of situational complexity that kept `Pitching.Saves` out of Step 6d's derivation.
+- `GameFieldingStatistics.PassedBalls`/`DoublePlays`/`TriplePlays`: a direct consequence of Step 6d's own scope exclusion for `Fielding.PassedBalls`/`DoublePlays`/`TriplePlays` (no denormalized "current catcher" tracking exists yet) — there is nothing derived to compare against these fields.
+
+Building out either would unblock comparing these fields too, at which point they should be added to Step 6e's reconciliation rather than left as a permanent gap.
+
 ### `GameEventGameStatus`
 
 Records that a game's statistics have been fully applied to `Batting`, `Pitching`, and `Fielding`, and is the mechanism used to prevent two concurrent sagas from double-applying the same shared game (see [Considerations](#considerations)). This table is owned entirely by the Game Event Parser — `Game` remains the exclusive domain of the Game Log Parser and is never written to by the Game Event Parser.

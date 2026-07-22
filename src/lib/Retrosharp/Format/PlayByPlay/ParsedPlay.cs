@@ -15,6 +15,16 @@ namespace Retrosharp.Format.PlayByPlay
         public required GameEventType EventType { get; init; }
 
         /// <summary>
+        /// The bundled right-hand event when the primary code combines two events with "+"
+        /// (for example "K+SB2", "K+WP", "W+CS2(24)") -- null otherwise. Needed because
+        /// <see cref="EventType"/> can only hold the left-hand event; without this, a bundled
+        /// stolen base/caught stealing/wild pitch/balk/passed ball is parsed correctly into
+        /// runner/base movement but has no event-type signal for statistics derivation to key
+        /// off. See spec/phase-1-build-plan.md Step 6e.
+        /// </summary>
+        public GameEventType? SecondaryEventType { get; init; }
+
+        /// <summary>
         /// Null when the play did not involve a batted ball in play, such as a walk or
         /// strikeout.
         /// </summary>
