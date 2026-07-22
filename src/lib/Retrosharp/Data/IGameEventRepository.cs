@@ -42,5 +42,26 @@ namespace Retrosharp.Data
         /// <param name="franchiseIds">The franchises belonging to the league.</param>
         /// <param name="season">The season year.</param>
         Task<int> GetLeagueHomerunsAllowedAsync(IEnumerable<int> franchiseIds, short season);
+
+        /// <summary>
+        /// Distinct game IDs where the given person batted at least once, optionally scoped to
+        /// one season. See spec/api.md, "Player game logs are derived on demand".
+        /// </summary>
+        Task<IEnumerable<int>> GetGameIdsAsBatterAsync(int personId, short? season);
+
+        /// <summary>
+        /// Distinct game IDs where the given person pitched at least once, optionally scoped to
+        /// one season.
+        /// </summary>
+        Task<IEnumerable<int>> GetGameIdsAsPitcherAsync(int personId, short? season);
+
+        /// <summary>
+        /// Reconstructs the complete play-by-play (every play, every runner) for every requested
+        /// game in a single batched query, keyed by GameId -- <see cref="Format.PlayByPlay.GameStatisticsResolver"/>
+        /// needs a whole game's plays regardless of which single player is being queried, so this
+        /// can't be filtered down to just one player's rows. Fielding credits are deliberately not
+        /// fetched, since nothing this supports (the player game log) uses them.
+        /// </summary>
+        Task<IReadOnlyDictionary<int, GamePlayByPlay>> GetGamesPlayByPlayAsync(IEnumerable<int> gameIds);
     }
 }

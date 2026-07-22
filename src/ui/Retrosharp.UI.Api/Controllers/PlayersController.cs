@@ -19,11 +19,16 @@ namespace Retrosharp.UI.Api.Controllers
 
         private readonly IPersonService _personService;
         private readonly IPlayerStatisticsService _playerStatisticsService;
+        private readonly IPlayerGameLogService _playerGameLogService;
 
-        public PlayersController(IPersonService personService, IPlayerStatisticsService playerStatisticsService)
+        public PlayersController(
+            IPersonService personService,
+            IPlayerStatisticsService playerStatisticsService,
+            IPlayerGameLogService playerGameLogService)
         {
             _personService = personService;
             _playerStatisticsService = playerStatisticsService;
+            _playerGameLogService = playerGameLogService;
         }
 
         /// <summary>
@@ -155,6 +160,51 @@ namespace Retrosharp.UI.Api.Controllers
             }
 
             return new PlayerStatsResponse<FieldingLine> { Rows = rows, CombinedTotal = combinedTotal };
+        }
+
+        /// <summary>
+        /// Gets a player's per-game batting or pitching lines for one season, or their whole career.
+        /// </summary>
+        [HttpGet("{id}/games")]
+        public async Task<ActionResult> GetGames(int id, [FromQuery] string type, [FromQuery] short? season)
+        {
+            if (type != "batting" && type != "pitching")
+                return BadRequest("type must be 'batting' or 'pitching'.");
+
+            if (await _personService.GetByIdAsync(id) == null)
+                return NotFound();
+
+            if (type == "batting")
+            {
+                var battingGames = await _playerGameLogService.GetBattingGameLogAsync(id, season);
+                var lines = battingGames.Select(game =>
+                {
+                    var line = game.Stats.Adapt<GameBattingLine>();
+                    line.GameId = game.GameId;
+                    line.GameDate = game.GameDate;
+                    line.IsHome = game.IsHome;
+                    line.FranchiseCode = game.FranchiseCode;
+                    line.OpponentFranchiseCode = game.OpponentFranchiseCode;
+                    return line;
+                });
+
+                return Ok(lines);
+            }
+
+            var pitchingGames = await _playerGameLogService.GetPitchingGameLogAsync(id, season);
+            var pitchingLines = pitchingGames.Select(game =>
+            {
+                var line = game.Stats.Adapt<GamePitchingLine>();
+                line.GameId = game.GameId;
+                line.GameDate = game.GameDate;
+                line.IsHome = game.IsHome;
+                line.FranchiseCode = game.FranchiseCode;
+                line.OpponentFranchiseCode = game.OpponentFranchiseCode;
+                line.InningsPitchedDisplay = $"{game.Stats.InningsPitched / 3}.{game.Stats.InningsPitched % 3}";
+                return line;
+            });
+
+            return Ok(pitchingLines);
         }
     }
 }

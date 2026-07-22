@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -159,6 +160,65 @@ namespace Retrosharp.Data
                 .Where(e => e.Game.GameDate.Year == season && e.EventType == GameEventType.HomeRun)
                 .Where(e => franchiseIdList.Contains(e.TeamAtBat == "H" ? e.Game.VisitorFranchiseId : e.Game.HomeFranchiseId))
                 .CountAsync();
+        }
+
+        public async Task<IEnumerable<int>> GetGameIdsAsBatterAsync(int personId, short? season)
+        {
+            var query = _context.GameEvents.Where(e => e.BatterId == personId);
+
+            if (season.HasValue)
+                query = query.Where(e => e.Game.GameDate.Year == season.Value);
+
+            return await query.Select(e => e.GameId).Distinct().ToListAsync();
+        }
+
+        public async Task<IEnumerable<int>> GetGameIdsAsPitcherAsync(int personId, short? season)
+        {
+            var query = _context.GameEvents.Where(e => e.PitcherId == personId);
+
+            if (season.HasValue)
+                query = query.Where(e => e.Game.GameDate.Year == season.Value);
+
+            return await query.Select(e => e.GameId).Distinct().ToListAsync();
+        }
+
+        public async Task<IReadOnlyDictionary<int, GamePlayByPlay>> GetGamesPlayByPlayAsync(IEnumerable<int> gameIds)
+        {
+            var gameIdList = gameIds.ToList();
+
+            var eventModels = await _context.GameEvents
+                .Where(e => gameIdList.Contains(e.GameId))
+                .Include(e => e.Runners)
+                .Include(e => e.Game)
+                .OrderBy(e => e.Sequence)
+                .ToListAsync();
+
+            var result = new Dictionary<int, GamePlayByPlay>();
+            foreach (var group in eventModels.GroupBy(e => e.GameId))
+            {
+                var plays = group.Select(eventModel => new GameEventPlayRecord
+                {
+                    Event = _mapper.Map<GameEvent>(eventModel),
+                    Runners = eventModel.Runners
+                        .Select(runnerModel => new GameEventRunnerRecord
+                        {
+                            Runner = _mapper.Map<GameEventRunner>(runnerModel),
+                            FieldingCredits = Array.Empty<GameEventFieldingCredit>()
+                        })
+                        .ToList()
+                }).ToList();
+
+                var firstEvent = group.First();
+                result[group.Key] = new GamePlayByPlay
+                {
+                    HomeFranchiseId = firstEvent.Game.HomeFranchiseId,
+                    VisitorFranchiseId = firstEvent.Game.VisitorFranchiseId,
+                    GameDate = firstEvent.Game.GameDate,
+                    Plays = plays
+                };
+            }
+
+            return result;
         }
     }
 }

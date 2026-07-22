@@ -680,6 +680,31 @@ Comparably large to Step 6, so it's split into independently built and verified 
 - FIP confirmed to compute end-to-end without error (`FipConstantLeagueCode: "NL"`, `FipConstantSeasonYear: 2025`) — not compared to a published figure, per the AC3 resolution already agreed when `api.md` was written; the resulting value's implausibility is fully explained by the scope-mismatch finding above, not a formula error (the formula itself is separately verified by the 9 unit tests against constructed data with known expected outputs).
 - Combined-total cross-league blend verified via a constructed fixture: inserted a synthetic `Pitching` row for Dylan Cease at Seattle (AL) alongside his real San Diego (NL) row, same season. The response's `CombinedTotal.FipConstant` (`61.696`) matched the hand-computed innings-weighted blend of the two rows' own constants (`(62.742×275 + 58.502×90) ÷ 365 = 61.696`) exactly, `FipConstantLeagueCode` correctly read `"NL/AL"`, and every counting stat summed correctly. Fixture row deleted immediately after; confirmed via `sqlcmd` that `Pitching` returned to its exact baseline row count (461).
 
+### Step 7d: Player Game Log
+
+**Status**: Complete
+
+**What was found (starting state)**: A pleasant surprise — the actual per-game derivation logic this step needs already exists and is already tested. `GameStatisticsResolver.Resolve()` (Step 6d) and `GameReconciliationResolver.ResolveIndependentEarnedRuns()` (Step 6e) both already take one game's full play-by-play and produce exactly the per-player deltas a game log needs; nothing in 6b-6e or 7a-7c ever needed to read a game's play-by-play back out of the database as a graph, though, since every prior read only needed scalar fields or simple counts. That read path was the only genuinely new piece.
+
+**What was built**:
+- `GamePlayByPlay` (`Retrosharp.Contract.GameEvent`): one game's reconstructed play-by-play (`HomeFranchiseId`, `VisitorFranchiseId`, `GameDate`, `Plays`), shaped to feed directly into the existing resolvers.
+- Three new `IGameEventRepository` methods: `GetGameIdsAsBatterAsync`/`GetGameIdsAsPitcherAsync` (distinct game IDs for a player, season-filtered) and `GetGamesPlayByPlayAsync` (fetches every play for every requested game in one batched query — not one query per game — grouping client-side by `GameId`; `GameEventFieldingCredit` rows are deliberately not fetched, since `Resolve()`'s `Fieldings` output isn't used here).
+- `PlayerGameBattingLine`/`PlayerGamePitchingLine` (`Retrosharp.Contract.GameEvent`): a game's `BattingDelta`/`PitchingDelta` plus `GameId`/`GameDate`/`IsHome`/`FranchiseCode`/`OpponentFranchiseCode`.
+- New `IPlayerGameLogService`/`PlayerGameLogService` (`GetBattingGameLogAsync`/`GetPitchingGameLogAsync`), kept separate from `PlayerStatisticsService` since it's a genuinely different operation (re-deriving from source events, not summing stored aggregates). For each game: run `ResolveIndependentEarnedRuns` then `Resolve()` (exactly as Step 6d/6e already do during import), pick out the requested player's own delta, and resolve `FranchiseCode`/`OpponentFranchiseCode` via the same franchise-cache pattern already established in `PlayerStatisticsService`.
+- `PlayersController`: `GET /api/players/{id}/games?season=&type=batting|pitching`, plus `GameBattingLine`/`GamePitchingLine` response DTOs (`Retrosharp.UI.Api/Models/`) — named distinctly from the Contract-layer types of almost the same name to avoid a same-name collision across namespaces, consistent with how 7b/7c always used different names between the Contract and DTO layers.
+
+**Discrepancies and decisions made during implementation**:
+- Per-game `EarnedRuns` in the game log is the **independently-computed** figure (from `GameEventRunner.IsEarnedRun`), not the season aggregate's authoritative "data,er,..." record value — that raw per-game figure was only ever used transiently during Step 6d's import and was never persisted at the per-game grain, so there's nothing more authoritative to read back at this level. Documented explicitly on `PlayerGamePitchingLine`/`GamePitchingLine`, mirroring how Step 6e already treats this same independently-derived figure elsewhere.
+- No pagination on this endpoint, per `api.md`'s own reasoning (one player, one season, at most ~162 rows).
+
+**Errors encountered**: None.
+
+**Verification performed**:
+- Full solution build: 0 errors. Full test suite: 124/124 passing, unchanged (no new derivation logic — this step is entirely reuse of already-tested resolvers plus new plumbing, so live verification against real data was the primary check).
+- Live, and a strong one: `GET /api/players/3999/games?type=pitching` (Dylan Cease) returned all 17 real games; summing `Hits`/`Runs`/`EarnedRuns`/`BaseOnBalls`/`Strikeouts` across every row matched his already-verified 7b/7c season totals **exactly** (`80`/`41`/`39`/`39`/`123`) — including `EarnedRuns`, meaning the independently-computed figure agrees with the authoritative season total for every one of his games, with zero reconciliation discrepancy.
+- Live: `GET /api/players/20670/games?type=batting` (Julio Rodríguez) returned 83 games; summing all ten cross-checked fields (`PlateAppearances`/`AtBats`/`Hits`/`Doubles`/`Triples`/`Homeruns`/`BaseOnBalls`/`Strikeouts`/`StolenBases`/`Runs`) matched his already-verified 7b season totals exactly, with no exceptions.
+- `400` confirmed for both a missing `type` and an invalid `type` value; `404` confirmed for a non-existent player; an out-of-range `season` (2024, no data) correctly returned an empty array rather than an error.
+
 ---
 
 ## Step 8: Containerized Deployment
