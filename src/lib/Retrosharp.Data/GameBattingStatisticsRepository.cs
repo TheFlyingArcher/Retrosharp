@@ -42,5 +42,15 @@ namespace Retrosharp.Data
 
             return statistics;
         }
+
+        public async Task<IEnumerable<GameBattingStatistics>> GetByFranchiseSeasonAsync(int franchiseId, short season)
+        {
+            var statistics = await Context.GameBattingStatistics
+                .Where(gs => gs.FranchiseId == franchiseId && gs.Game.GameDate.Year == season)
+                .ProjectToType<GameBattingStatistics>()
+                .ToListAsync();
+
+            return statistics;
+        }
     }
 }

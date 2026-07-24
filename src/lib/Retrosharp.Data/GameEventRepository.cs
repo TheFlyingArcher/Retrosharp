@@ -152,6 +152,25 @@ namespace Retrosharp.Data
             return records;
         }
 
+        public async Task<IEnumerable<PitcherGameEventRecord>> GetTeamPitchingEventsAsync(int franchiseId, short season)
+        {
+            var records = await _context.GameEvents
+                .Where(e => e.Game.GameDate.Year == season)
+                .Where(e => (e.TeamAtBat == "H" ? e.Game.VisitorFranchiseId : e.Game.HomeFranchiseId) == franchiseId)
+                .Select(e => new PitcherGameEventRecord
+                {
+                    FranchiseId = franchiseId,
+                    SeasonYear = season,
+                    EventType = e.EventType,
+                    BattedBallType = e.BattedBallType,
+                    IsSacHit = e.IsSacHit,
+                    IsSacFly = e.IsSacFly
+                })
+                .ToListAsync();
+
+            return records;
+        }
+
         public async Task<int> GetLeagueHomerunsAllowedAsync(IEnumerable<int> franchiseIds, short season)
         {
             var franchiseIdList = franchiseIds.ToList();

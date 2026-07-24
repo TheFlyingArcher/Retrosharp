@@ -19,7 +19,7 @@ namespace Retrosharp.Service
         private readonly IFieldingRepository _fieldingRepository;
         private readonly IFranchiseRepository _franchiseRepository;
         private readonly IGameEventRepository _gameEventRepository;
-        private readonly IGamePitchingStatisticsRepository _gamePitchingStatisticsRepository;
+        private readonly IFipConstantResolver _fipConstantResolver;
         private readonly ILeagueRepository _leagueRepository;
         private readonly ILogger<PlayerStatisticsService> _logger;
 
@@ -29,7 +29,7 @@ namespace Retrosharp.Service
             IFieldingRepository fieldingRepository,
             IFranchiseRepository franchiseRepository,
             IGameEventRepository gameEventRepository,
-            IGamePitchingStatisticsRepository gamePitchingStatisticsRepository,
+            IFipConstantResolver fipConstantResolver,
             ILeagueRepository leagueRepository,
             ILogger<PlayerStatisticsService> logger)
         {
@@ -38,7 +38,7 @@ namespace Retrosharp.Service
             _fieldingRepository = fieldingRepository;
             _franchiseRepository = franchiseRepository;
             _gameEventRepository = gameEventRepository;
-            _gamePitchingStatisticsRepository = gamePitchingStatisticsRepository;
+            _fipConstantResolver = fipConstantResolver;
             _leagueRepository = leagueRepository;
             _logger = logger;
         }
@@ -131,13 +131,7 @@ namespace Retrosharp.Service
             if (cache.TryGetValue((leagueId, season), out var cached))
                 return cached;
 
-            var franchiseIdsInLeague = (await _franchiseRepository.GetByLeagueIdAsync(leagueId)).Select(f => f.Id).ToList();
-
-            var (baseOnBalls, hitBatsmen, strikeouts, inningsPitchedOuts) = await _pitchingRepository.GetLeagueTotalsAsync(franchiseIdsInLeague, season);
-            var teamEarnedRuns = await _gamePitchingStatisticsRepository.GetLeagueTeamEarnedRunsAsync(franchiseIdsInLeague, season);
-            var homerunsAllowed = await _gameEventRepository.GetLeagueHomerunsAllowedAsync(franchiseIdsInLeague, season);
-
-            var result = FipConstantCalculator.Calculate(teamEarnedRuns, homerunsAllowed, baseOnBalls, hitBatsmen, strikeouts, inningsPitchedOuts);
+            var result = await _fipConstantResolver.ResolveAsync(leagueId, season);
             cache[(leagueId, season)] = result;
             return result;
         }

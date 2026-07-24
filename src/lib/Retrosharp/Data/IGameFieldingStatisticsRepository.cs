@@ -26,5 +26,11 @@ namespace Retrosharp.Data
         /// Retrieves all fielding statistics for the specified franchise and game.
         /// </summary>
         Task<IEnumerable<GameFieldingStatistics>> GetByFranchiseAndGameAsync(int franchiseId, int gameId);
+
+        /// <summary>
+        /// Retrieves a franchise's team fielding statistics for every game in one season --
+        /// joins through Game since GameFieldingStatistics has no season column of its own.
+        /// </summary>
+        Task<IEnumerable<GameFieldingStatistics>> GetByFranchiseSeasonAsync(int franchiseId, short season);
     }
 }

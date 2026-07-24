@@ -25,5 +25,11 @@ namespace Retrosharp.Data
         /// <param name="seasonYear">The season year.</param>
         /// <returns>The batting statistics for the specified combination, or null if not found.</returns>
         Task<Batting> GetByPersonFranchiseSeasonAsync(int personId, int franchiseId, short seasonYear);
+
+        /// <summary>
+        /// Retrieves every batting row for a franchise, optionally scoped to one season --
+        /// powers both a team's roster (distinct PersonIds) and its season batting stats.
+        /// </summary>
+        Task<IEnumerable<Batting>> GetByFranchiseAsync(int franchiseId, short? season);
     }
 }

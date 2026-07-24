@@ -63,5 +63,13 @@ namespace Retrosharp.Data
         /// fetched, since nothing this supports (the player game log) uses them.
         /// </summary>
         Task<IReadOnlyDictionary<int, GamePlayByPlay>> GetGamesPlayByPlayAsync(IEnumerable<int> gameIds);
+
+        /// <summary>
+        /// The same shape/projection as <see cref="GetPitcherGameEventsAsync"/>, but for every
+        /// pitcher on one franchise's staff in one season rather than a single player -- feeds
+        /// <see cref="Format.PlayByPlay.PitcherEventAggregateResolver.Resolve"/> for a team-wide
+        /// pitching event aggregate. See spec/api.md, team season statistics.
+        /// </summary>
+        Task<IEnumerable<PitcherGameEventRecord>> GetTeamPitchingEventsAsync(int franchiseId, short season);
     }
 }

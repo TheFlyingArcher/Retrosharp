@@ -22,5 +22,11 @@ namespace Retrosharp.Data
         /// <param name="seasonYear">The season year.</param>
         /// <returns>The fielding statistics for the specified combination, or null if not found.</returns>
         Task<Fielding> GetByPersonFranchiseSeasonAsync(int personId, int franchiseId, short seasonYear);
+
+        /// <summary>
+        /// Retrieves every fielding row for a franchise, optionally scoped to one season --
+        /// powers a team's roster (distinct PersonIds).
+        /// </summary>
+        Task<IEnumerable<Fielding>> GetByFranchiseAsync(int franchiseId, short? season);
     }
 }

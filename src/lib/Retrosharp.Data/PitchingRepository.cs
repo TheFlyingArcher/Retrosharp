@@ -55,5 +55,15 @@ namespace Retrosharp.Data
                 ? (0, 0, 0, 0)
                 : (totals.BaseOnBalls, totals.HitBatsmen, totals.Strikeouts, totals.InningsPitchedOuts);
         }
+
+        public async Task<IEnumerable<Pitching>> GetByFranchiseAsync(int franchiseId, short? season)
+        {
+            var query = Context.Pitching.Where(p => p.FranchiseId == franchiseId);
+
+            if (season.HasValue)
+                query = query.Where(p => p.SeasonYear == season.Value);
+
+            return await query.ProjectToType<Pitching>().ToListAsync();
+        }
     }
 }

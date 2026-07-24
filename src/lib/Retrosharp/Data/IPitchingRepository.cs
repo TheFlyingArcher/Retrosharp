@@ -27,6 +27,12 @@ namespace Retrosharp.Data
         Task<Pitching> GetByPersonFranchiseSeasonAsync(int personId, int franchiseId, short seasonYear);
 
         /// <summary>
+        /// Retrieves every pitching row for a franchise, optionally scoped to one season --
+        /// powers both a team's roster (distinct PersonIds) and its season pitching stats.
+        /// </summary>
+        Task<IEnumerable<Pitching>> GetByFranchiseAsync(int franchiseId, short? season);
+
+        /// <summary>
         /// Sums BaseOnBalls/HitBatsmen/Strikeouts/InningsPitched across every pitcher at the
         /// given franchises for one season -- the league-wide input to
         /// <see cref="Format.PlayByPlay.FipConstantCalculator"/>. See spec/api.md,

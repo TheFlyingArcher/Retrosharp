@@ -34,5 +34,15 @@ namespace Retrosharp.Data
 
             return fielding;
         }
+
+        public async Task<IEnumerable<Fielding>> GetByFranchiseAsync(int franchiseId, short? season)
+        {
+            var query = Context.Fielding.Where(f => f.FranchiseId == franchiseId);
+
+            if (season.HasValue)
+                query = query.Where(f => f.SeasonYear == season.Value);
+
+            return await query.ProjectToType<Fielding>().ToListAsync();
+        }
     }
 }

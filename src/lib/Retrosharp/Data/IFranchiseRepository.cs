@@ -38,5 +38,16 @@ namespace Retrosharp.Data
         /// </summary>
         /// <returns>A collection of all active franchises.</returns>
         Task<IEnumerable<Franchise>> GetActiveAsync();
+
+        /// <summary>
+        /// Searches franchises by name/nickname/city (<paramref name="q"/>) and/or franchise code
+        /// (<paramref name="code"/>), optionally disambiguated to the era active in
+        /// <paramref name="season"/> (see <see cref="GetByFranchiseCodeAndDateAsync"/> -- the same
+        /// reason: FranchiseCode is reused across a franchise's eras). Unlike player search,
+        /// neither <paramref name="q"/> nor <paramref name="code"/> is required -- franchises are
+        /// a small, bounded reference set, so browsing all of them paginated is a legitimate
+        /// request. See spec/api.md.
+        /// </summary>
+        Task<(IEnumerable<Franchise> Items, int TotalCount)> SearchAsync(string? q, string? code, short? season, int limit, int offset);
     }
 }

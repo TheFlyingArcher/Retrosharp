@@ -30,8 +30,11 @@ namespace Retrosharp.Service
             services.AddTransient<IGameEventImportService, GameEventImportService>();
             services.AddTransient<IGameService, GameService>();
             services.AddTransient<IBattingService, BattingService>();
+            services.AddTransient<IFipConstantResolver, FipConstantResolver>();
             services.AddTransient<IPlayerStatisticsService, PlayerStatisticsService>();
             services.AddTransient<IPlayerGameLogService, PlayerGameLogService>();
+            services.AddTransient<ITeamService, TeamService>();
+            services.AddTransient<ITeamStatisticsService, TeamStatisticsService>();
             services.AddTransient<ISeedDataService, SeedDataService>();
         }
     }
