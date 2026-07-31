@@ -20,10 +20,18 @@ namespace Retrosharp.Data.Model
         public int GameId { get; set; }
 
         /// <summary>
-        /// Order of this substitution within the game.
+        /// Order of this substitution among substitutions only.
         /// </summary>
         [Required]
         public int Sequence { get; set; }
+
+        /// <summary>
+        /// Position of this record within the game's full Retrosheet record list -- shared
+        /// across GameEvent/GameSubstitution/GameAdjustment/GameComment, used to interleave
+        /// all four in true chronological order. See GameEventModel.RecordIndex.
+        /// </summary>
+        [Required]
+        public int RecordIndex { get; set; }
 
         /// <summary>
         /// Foreign key to the person entering the game.

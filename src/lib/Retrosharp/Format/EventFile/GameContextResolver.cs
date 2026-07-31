@@ -29,9 +29,9 @@ namespace Retrosharp.Format.EventFile
             var adjustmentSequence = 0;
             var commentSequence = 0;
 
-            foreach (var record in game.Records)
+            for (var i = 0; i < game.Records.Count; i++)
             {
-                switch (record)
+                switch (game.Records[i])
                 {
                     // StartRecord is deliberately excluded -- it's the starting lineup, not a
                     // substitution ("a player entering the game *mid-game*").
@@ -40,6 +40,7 @@ namespace Retrosharp.Format.EventFile
                         {
                             GameId = gameId,
                             Sequence = ++substitutionSequence,
+                            RecordIndex = i,
                             PersonId = ResolvePersonId(sub.RetrosheetId, personIdsByRetrosheetId),
                             TeamAtBat = sub.IsHomeTeam ? "H" : "V",
                             BattingOrderPosition = sub.BattingOrder,
@@ -52,6 +53,7 @@ namespace Retrosharp.Format.EventFile
                         {
                             GameId = gameId,
                             Sequence = ++adjustmentSequence,
+                            RecordIndex = i,
                             AdjustmentType = MapAdjustmentType(adjustment.AdjustmentTypeCode),
                             PersonId = ResolvePersonId(adjustment.RetrosheetId, personIdsByRetrosheetId),
                             Value = adjustment.Value
@@ -63,6 +65,7 @@ namespace Retrosharp.Format.EventFile
                         {
                             GameId = gameId,
                             Sequence = ++commentSequence,
+                            RecordIndex = i,
                             CommentText = comment.CommentText
                         });
                         break;

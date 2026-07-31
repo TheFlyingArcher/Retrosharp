@@ -21,5 +21,9 @@
   </Folder>
   <Folder Name="/ui/">
     <Project Path="ui/Retrosharp.UI.Api/Retrosharp.UI.Api.csproj" Id="41176f60-6d01-4560-b756-23782baaf6da" />
+    <Project Path="ui/Retrosharp.UI.Web/Retrosharp.UI.Web.esproj">
+      <Build />
+      <Deploy />
+    </Project>
   </Folder>
 </Solution>

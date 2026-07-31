@@ -71,5 +71,13 @@ namespace Retrosharp.Data
         /// pitching event aggregate. See spec/api.md, team season statistics.
         /// </summary>
         Task<IEnumerable<PitcherGameEventRecord>> GetTeamPitchingEventsAsync(int franchiseId, short season);
+
+        /// <summary>
+        /// Reconstructs one game's full play-by-play for display, including
+        /// <see cref="GameEventFieldingCredit"/> rows (deliberately omitted by
+        /// <see cref="GetGamesPlayByPlayAsync"/>, which only needs to re-derive statistics),
+        /// ordered by RecordIndex. See spec/api.md, "GET /games/{gameId}/events".
+        /// </summary>
+        Task<IReadOnlyList<GameEventPlayRecord>> GetGameEventsForDisplayAsync(int gameId);
     }
 }

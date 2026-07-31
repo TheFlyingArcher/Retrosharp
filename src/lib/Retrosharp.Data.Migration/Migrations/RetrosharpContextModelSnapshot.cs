@@ -279,6 +279,9 @@ namespace Retrosharp.Data.Migrator.Migrations
                     b.Property<int>("PersonId")
                         .HasColumnType("int");
 
+                    b.Property<int>("RecordIndex")
+                        .HasColumnType("int");
+
                     b.Property<int>("Sequence")
                         .HasColumnType("int");
 
@@ -391,6 +394,9 @@ namespace Retrosharp.Data.Migrator.Migrations
                     b.Property<int>("GameId")
                         .HasColumnType("int");
 
+                    b.Property<int>("RecordIndex")
+                        .HasColumnType("int");
+
                     b.Property<int>("Sequence")
                         .HasColumnType("int");
 
@@ -498,6 +504,9 @@ namespace Retrosharp.Data.Migrator.Migrations
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
+
+                    b.Property<int>("RecordIndex")
+                        .HasColumnType("int");
 
                     b.Property<int?>("SecondaryEventType")
                         .HasColumnType("int");
@@ -864,6 +873,9 @@ namespace Retrosharp.Data.Migrator.Migrations
                         .HasColumnType("int");
 
                     b.Property<int>("PersonId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("RecordIndex")
                         .HasColumnType("int");
 
                     b.Property<int>("Sequence")

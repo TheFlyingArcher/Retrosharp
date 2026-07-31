@@ -52,5 +52,11 @@ namespace Retrosharp.Data
         /// <param name="visitorFranchiseId">The visiting franchise's Id.</param>
         /// <returns>The matching Game, or null if no such game exists yet.</returns>
         Task<Game> GetByNaturalKeyAsync(DateTime gameDate, byte gameNumber, int homeFranchiseId, int visitorFranchiseId);
+
+        /// <summary>
+        /// Searches games by date, season, and/or participating franchise (home or visitor) --
+        /// all filters optional, paginated. See spec/api.md, "GET /games/search".
+        /// </summary>
+        Task<(IEnumerable<Game> Items, int TotalCount)> SearchAsync(DateTime? date, short? season, int? franchiseId, int limit, int offset);
     }
 }

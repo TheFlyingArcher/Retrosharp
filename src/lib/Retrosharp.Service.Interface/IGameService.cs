@@ -21,5 +21,11 @@ namespace Retrosharp.Service.Interface
         /// <param name="gameDate">The date to search for.</param>
         /// <returns>A collection of games played on the specified date.</returns>
         Task<IEnumerable<Game>> GetByDateAsync(DateTime gameDate);
+
+        /// <summary>
+        /// Searches games by date, season, and/or participating franchise, paginated.
+        /// See spec/api.md, "GET /games/search".
+        /// </summary>
+        Task<(IEnumerable<Game> Items, int TotalCount)> SearchAsync(DateTime? date, short? season, int? franchiseId, int limit, int offset);
     }
 }

@@ -15,9 +15,16 @@ namespace Retrosharp.Contract.GameEvent
         public int GameId { get; set; }
 
         /// <summary>
-        /// Order of this comment within the game.
+        /// Order of this comment among comments only.
         /// </summary>
         public int Sequence { get; set; }
+
+        /// <summary>
+        /// Position of this record within the game's full Retrosheet record list -- shared
+        /// across GameEvent/GameSubstitution/GameAdjustment/GameComment, used to interleave
+        /// all four in true chronological order. See <see cref="GameEvent.RecordIndex"/>.
+        /// </summary>
+        public int RecordIndex { get; set; }
 
         /// <summary>
         /// The free-text comment.

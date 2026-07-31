@@ -22,10 +22,18 @@ namespace Retrosharp.Data.Model
         public int GameId { get; set; }
 
         /// <summary>
-        /// Order of this event within the game, used to reconstruct chronology.
+        /// Order of this event among plays only, used to reconstruct play chronology.
         /// </summary>
         [Required]
         public int Sequence { get; set; }
+
+        /// <summary>
+        /// Position of this record within the game's full Retrosheet record list -- shared
+        /// across GameEvent/GameSubstitution/GameAdjustment/GameComment, used to interleave
+        /// all four in true chronological order. See spec/api.md, "GET /games/{gameId}/events".
+        /// </summary>
+        [Required]
+        public int RecordIndex { get; set; }
 
         /// <summary>
         /// Inning number.

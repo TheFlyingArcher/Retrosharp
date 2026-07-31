@@ -78,7 +78,7 @@ namespace Retrosharp.Format.PlayByPlay
 
                     case PlayRecord play:
                         sequence++;
-                        plays.Add(ResolvePlay(gameId, sequence, play, visitingTeam, homeTeam, personIdsByRetrosheetId, baserunners));
+                        plays.Add(ResolvePlay(gameId, sequence, i, play, visitingTeam, homeTeam, personIdsByRetrosheetId, baserunners));
                         break;
 
                     // ComRecord/DataRecord: not part of GameEvent resolution (Step 6c/6e).
@@ -91,6 +91,7 @@ namespace Retrosharp.Format.PlayByPlay
         private static GameEventPlayRecord ResolvePlay(
             int gameId,
             int sequence,
+            int recordIndex,
             PlayRecord play,
             TeamLineupState visitingTeam,
             TeamLineupState homeTeam,
@@ -109,6 +110,7 @@ namespace Retrosharp.Format.PlayByPlay
             {
                 GameId = gameId,
                 Sequence = sequence,
+                RecordIndex = recordIndex,
                 Inning = play.Inning,
                 TeamAtBat = play.IsHomeTeamBatting ? "H" : "V",
                 BatterId = batterId,

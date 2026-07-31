@@ -40,6 +40,9 @@ namespace Retrosharp.Service
             return homeGames.Concat(visitorGames).Distinct();
         }
 
+        public Task<(IEnumerable<Game> Items, int TotalCount)> SearchAsync(DateTime? date, short? season, int? franchiseId, int limit, int offset) =>
+            _gameRepository.SearchAsync(date, season, franchiseId, limit, offset);
+
         public async Task<Game> SaveAsync(Game entity)
         {
             if (entity == null)

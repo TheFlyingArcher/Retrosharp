@@ -239,5 +239,31 @@ namespace Retrosharp.Data
 
             return result;
         }
+
+        public async Task<IReadOnlyList<GameEventPlayRecord>> GetGameEventsForDisplayAsync(int gameId)
+        {
+            var eventModels = await _context.GameEvents
+                .Where(e => e.GameId == gameId)
+                .Include(e => e.Runners)
+                    .ThenInclude(r => r.FieldingCredits)
+                .OrderBy(e => e.RecordIndex)
+                .ToListAsync();
+
+            return eventModels
+                .Select(eventModel => new GameEventPlayRecord
+                {
+                    Event = _mapper.Map<GameEvent>(eventModel),
+                    Runners = eventModel.Runners
+                        .Select(runnerModel => new GameEventRunnerRecord
+                        {
+                            Runner = _mapper.Map<GameEventRunner>(runnerModel),
+                            FieldingCredits = runnerModel.FieldingCredits
+                                .Select(creditModel => _mapper.Map<GameEventFieldingCredit>(creditModel))
+                                .ToList()
+                        })
+                        .ToList()
+                })
+                .ToList();
+        }
     }
 }
