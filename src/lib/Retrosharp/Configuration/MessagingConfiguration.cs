@@ -15,7 +15,7 @@ namespace Retrosharp.Configuration
             EndpointName = "Retrosharp.Engine";
             ErrorQueue = "Retrosharp.Engine.Errors";
             AuditQueue = "Retrosharp.Engine.Audit";
-            SqlPersistenceSchema = "dbo";
+            SqlPersistenceSchema = "public";
             SqlPersistenceTablePrefix = string.Empty;
             ImmediateRetries = 3;
             DelayedRetries = 5;
@@ -68,7 +68,7 @@ namespace Retrosharp.Configuration
                 EndpointName = section["EndpointName"] ?? "Retrosharp.Engine",
                 ErrorQueue = section["ErrorQueue"] ?? "Retrosharp.Engine.Errors",
                 AuditQueue = section["AuditQueue"] ?? "Retrosharp.Engine.Audit",
-                SqlPersistenceSchema = section["SqlPersistenceSchema"] ?? "dbo",
+                SqlPersistenceSchema = section["SqlPersistenceSchema"] ?? "public",
                 SqlPersistenceTablePrefix = section["SqlPersistenceTablePrefix"] ?? string.Empty,
                 ImmediateRetries = int.TryParse(section["ImmediateRetries"], out var immediateRetries) ? immediateRetries : 3,
                 DelayedRetries = int.TryParse(section["DelayedRetries"], out var delayedRetries) ? delayedRetries : 5,

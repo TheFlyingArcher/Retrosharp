@@ -45,6 +45,22 @@ namespace Retrosharp.Data.Context
             base.OnConfiguring(optionsBuilder);
         }
 
+        /// <summary>
+        /// Every DateTime in this schema (birthdates, game dates, franchise eras, etc.) is a
+        /// plain calendar date/time with no real timezone meaning -- exactly what SQL Server's
+        /// old datetime2 column type stored. Npgsql's EF Core provider defaults DateTime to
+        /// Postgres's "timestamp with time zone", which requires Kind=Utc and throws on the
+        /// Kind=Unspecified values this project's parsers produce (found live running Step 8's
+        /// migration against real Postgres). Mapping every DateTime to "timestamp without time
+        /// zone" here, once, restores the SQL-Server-equivalent behavior project-wide instead of
+        /// annotating each of the ~20 affected properties individually.
+        /// </summary>
+        protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+        {
+            configurationBuilder.Properties<DateTime>().HaveColumnType("timestamp without time zone");
+            configurationBuilder.Properties<DateTime?>().HaveColumnType("timestamp without time zone");
+        }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Configure League entity

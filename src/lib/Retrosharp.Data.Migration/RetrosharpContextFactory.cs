@@ -15,7 +15,7 @@ namespace Retrosharp.Data.Migrator
             var config = RetrosharpConfiguration.Instance();
 
             var optionsBuilder = new DbContextOptionsBuilder<RetrosharpContext>();
-            optionsBuilder.UseSqlServer(config.ConnectionString, 
+            optionsBuilder.UseNpgsql(config.ConnectionString,
                 b => b.MigrationsAssembly("Retrosharp.Data.Migration"));
 
             return new RetrosharpContext(optionsBuilder.Options);

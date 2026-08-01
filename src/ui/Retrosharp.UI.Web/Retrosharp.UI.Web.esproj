@@ -8,6 +8,8 @@
     <BuildOutputFolder>$(MSBuildProjectDirectory)\dist\Retrosharp.UI.Web\browser\</BuildOutputFolder>
   </PropertyGroup>
   <ItemGroup>
+    <Folder Include="model\" />
+    <Folder Include="src\model\" />
     <Folder Include="src\service\" />
   </ItemGroup>
 </Project>

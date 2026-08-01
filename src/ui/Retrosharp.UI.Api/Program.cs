@@ -25,7 +25,7 @@ builder.Services.AddMapster();
 // GameEventController end-to-end (Person/GameLog controllers have the same transitive
 // dependency and would have failed identically). See spec/phase-1-build-plan.md Step 6f.
 var retrosharpConfig = RetrosharpConfiguration.Instance();
-builder.Services.AddDbContext<RetrosharpContext>(b => b.UseSqlServer(retrosharpConfig.ConnectionString));
+builder.Services.AddDbContext<RetrosharpContext>(b => b.UseNpgsql(retrosharpConfig.ConnectionString));
 
 var messagingConfig = MessagingConfiguration.Instance();
 
@@ -53,6 +53,12 @@ builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
+// Docker Compose's healthcheck probes this to know when the API is actually ready to serve
+// requests, not just that the process has started -- a real Postgres-connectivity check, not a
+// bare liveness ping. See spec/phase-1-build-plan.md Step 8.
+builder.Services.AddHealthChecks()
+    .AddNpgSql(retrosharpConfig.ConnectionString, name: "postgres");
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -66,5 +72,6 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();

@@ -2,6 +2,11 @@
 
 # This stage is used when running from VS in fast mode (Default for Debug configuration)
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+# curl is needed for Docker Compose's HEALTHCHECK to probe /health. libgssapi-krb5-2 silences
+# a benign "Cannot load library libgssapi_krb5.so.2" warning Npgsql logs on every connection
+# when probing for optional Kerberos/GSSAPI auth support, which this project doesn't use. Both
+# must run as root, before USER switches to the unprivileged app account.
+RUN apt-get update && apt-get install -y --no-install-recommends curl libgssapi-krb5-2 && rm -rf /var/lib/apt/lists/*
 USER $APP_UID
 WORKDIR /app
 EXPOSE 8080

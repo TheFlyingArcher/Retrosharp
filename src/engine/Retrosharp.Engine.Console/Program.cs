@@ -1,10 +1,14 @@
 using Mapster;
-using Microsoft.Data.SqlClient;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using NServiceBus;
 using NServiceBus.Transport;
+using Npgsql;
 using Retrosharp.Configuration;
 using Retrosharp.Data.Context;
 using Retrosharp.DI;
@@ -21,7 +25,7 @@ namespace Retrosharp.Engine.Console
             var messagingConfig = MessagingConfiguration.Instance();
 
             builder.Services.AddMapster();
-            builder.Services.AddDbContext<RetrosharpContext>(b => b.UseSqlServer(config.ConnectionString));
+            builder.Services.AddDbContext<RetrosharpContext>(b => b.UseNpgsql(config.ConnectionString));
 
             await ContainerRegistration.RegisterContainer(builder.Services, typeof(Program).Assembly);
 
@@ -40,10 +44,10 @@ namespace Retrosharp.Engine.Console
                 messagingConfig.RabbitMQConnectionString));
 
             var persistence = endpointConfiguration.UsePersistence<SqlPersistence>();
-            var dialect = persistence.SqlDialect<SqlDialect.MsSqlServer>();
+            var dialect = persistence.SqlDialect<SqlDialect.PostgreSql>();
             dialect.Schema(messagingConfig.SqlPersistenceSchema);
             persistence.TablePrefix(messagingConfig.SqlPersistenceTablePrefix);
-            persistence.ConnectionBuilder(() => new SqlConnection(config.ConnectionString));
+            persistence.ConnectionBuilder(() => new NpgsqlConnection(config.ConnectionString));
 
             endpointConfiguration.SendFailedMessagesTo(messagingConfig.ErrorQueue);
             endpointConfiguration.AuditProcessedMessagesTo(messagingConfig.AuditQueue);
@@ -57,7 +61,21 @@ namespace Retrosharp.Engine.Console
             builder.UseNServiceBus(endpointConfiguration);
 
             var host = builder.Build();
-            await host.RunAsync();
+
+            // A separate, minimal WebApplication rather than extending the NServiceBus host
+            // itself -- this stays a plain worker process with no other web-hosting surface,
+            // just a sidecar liveness listener for Docker Compose's HEALTHCHECK to probe (this
+            // process has no HTTP endpoint otherwise). Confirms the process is up and its host
+            // finished building, not RabbitMQ/Postgres connectivity specifically -- NServiceBus
+            // itself will fail fast on startup if either is unreachable.
+            var healthCheckPort = Environment.GetEnvironmentVariable("HEALTH_CHECK_PORT") ?? "8081";
+            var healthBuilder = WebApplication.CreateBuilder();
+            healthBuilder.WebHost.UseUrls($"http://0.0.0.0:{healthCheckPort}");
+            healthBuilder.Logging.ClearProviders();
+            var healthApp = healthBuilder.Build();
+            healthApp.MapGet("/health", () => Results.Ok());
+
+            await Task.WhenAll(host.RunAsync(), healthApp.RunAsync());
         }
 
         /// <summary>

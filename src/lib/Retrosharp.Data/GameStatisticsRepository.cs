@@ -1,5 +1,6 @@
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+
+using Npgsql;
 
 using Retrosharp.Contract.Batting;
 using Retrosharp.Contract.Fielding;
@@ -219,6 +220,6 @@ namespace Retrosharp.Data
         }
 
         private static bool IsUniqueConstraintViolation(DbUpdateException ex) =>
-            ex.InnerException is SqlException { Number: 2601 or 2627 };
+            ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
     }
 }

@@ -1,10 +1,10 @@
 ﻿using Mapster;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NServiceBus;
 using NServiceBus.Persistence.Sql;
+using Npgsql;
 using Retrosharp.Configuration;
 using Retrosharp.Data.Context;
 using Retrosharp.DI;
@@ -19,7 +19,7 @@ namespace Retrosharp.Data.Migrator
             var builder = Host.CreateApplicationBuilder(args);
             var config = RetrosharpConfiguration.Instance();
             builder.Services.AddMapster();
-            builder.Services.AddDbContext<RetrosharpContext>(b => b.UseSqlServer(config.ConnectionString,
+            builder.Services.AddDbContext<RetrosharpContext>(b => b.UseNpgsql(config.ConnectionString,
                 options => options.MigrationsAssembly("Retrosharp.Data.Migration")));
             await ContainerRegistration.RegisterContainer(builder.Services, typeof(Program).Assembly);
 
@@ -64,12 +64,12 @@ namespace Retrosharp.Data.Migrator
                 return;
             }
 
-            var dialect = new SqlDialect.MsSqlServer();
+            var dialect = new SqlDialect.PostgreSql();
 
             await ScriptRunner.Install(
                 dialect,
                 messagingConfig.SqlPersistenceTablePrefix,
-                () => new SqlConnection(config.ConnectionString),
+                () => new NpgsqlConnection(config.ConnectionString),
                 scriptDirectory,
                 true,
                 true,
