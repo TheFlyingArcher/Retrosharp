@@ -32,13 +32,18 @@ namespace Retrosharp.Engine.Console
             var endpointConfiguration = new EndpointConfiguration(messagingConfig.EndpointName);
             endpointConfiguration.UseSerialization<SystemJsonSerializer>();
 
-            // No EnableInstallers() call: the RabbitMQ transport declares its own
-            // queues/exchanges unconditionally during normal startup regardless of installer
-            // settings (confirmed empirically -- queues formed correctly without it, and the
-            // transport's own docs never mention installers at all). EnableInstallers() would
-            // only have re-run NServiceBus.Persistence.Sql's own schema installer, duplicating
-            // what Retrosharp.Data.Migration already applies alongside its EF Core migrations
-            // (see spec/seed-data.md's "one command prepares the database" precedent).
+            // EnableInstallers() IS needed: found live running this endpoint against a
+            // genuinely fresh RabbitMQ broker (Step 8's Docker Compose stack, no queues from
+            // any prior run) for the first time -- every earlier "queues form correctly without
+            // it" test in this project ran against an already-warm broker with the queue
+            // already created from earlier testing, which never actually exercised true
+            // first-run behavior. Without this, BrokerVerifier's own startup validation
+            // (checking the input queue's delivery-limit policy) throws outright, since it
+            // expects the queue to already exist rather than creating it as needed. The one
+            // known side effect -- re-running NServiceBus.Persistence.Sql's own schema
+            // installer, duplicating what Retrosharp.Data.Migration already applies -- is
+            // harmless, since those scripts are idempotent (guarded by "if not exists" checks).
+            endpointConfiguration.EnableInstallers();
             endpointConfiguration.UseTransport(new RabbitMQTransport(
                 RoutingTopology.Conventional(QueueType.Classic),
                 messagingConfig.RabbitMQConnectionString));
@@ -75,7 +80,18 @@ namespace Retrosharp.Engine.Console
             var healthApp = healthBuilder.Build();
             healthApp.MapGet("/health", () => Results.Ok());
 
-            await Task.WhenAll(host.RunAsync(), healthApp.RunAsync());
+            // Task.WhenAll would silently mask a startup failure here: healthApp.RunAsync()
+            // never completes on its own, so if host.RunAsync() faults immediately (NServiceBus
+            // failing to start), WhenAll would just hang forever waiting on the still-running
+            // health app -- Docker's HEALTHCHECK would keep reporting healthy on a process that
+            // never actually finished starting and is silently not processing any messages.
+            // Found live: RestartCount stayed 0 and /health kept responding 200 even after
+            // NServiceBus's host startup threw. WhenAny + awaiting the first-completed task
+            // rethrows that fault immediately instead, so the process exits and Docker Compose's
+            // restart policy can actually recover it.
+            var runningHost = host.RunAsync();
+            var runningHealthApp = healthApp.RunAsync();
+            await await Task.WhenAny(runningHost, runningHealthApp);
         }
 
         /// <summary>
