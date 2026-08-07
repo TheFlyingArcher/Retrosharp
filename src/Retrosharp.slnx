@@ -16,6 +16,7 @@
     <File Path="../spec/parser.md" />
     <File Path="../spec/person.md" />
     <File Path="../docker-compose.yml" />
+    <File Path="../spec/frontend-prototype.md" />
     <File Path="../spec/game-event.md" />
     <File Path="../spec/game-log.md" />
     <File Path="../spec/seed-data.md" />

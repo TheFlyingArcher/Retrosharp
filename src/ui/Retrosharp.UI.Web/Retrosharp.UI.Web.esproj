@@ -8,7 +8,10 @@
     <BuildOutputFolder>$(MSBuildProjectDirectory)\dist\Retrosharp.UI.Web\browser\</BuildOutputFolder>
   </PropertyGroup>
   <ItemGroup>
-    <Folder Include="model\" />
+    <None Remove="model\**" />
+    <TypeScriptConfiguration Remove="model\**" />
+  </ItemGroup>
+  <ItemGroup>
     <Folder Include="src\model\" />
     <Folder Include="src\service\" />
   </ItemGroup>

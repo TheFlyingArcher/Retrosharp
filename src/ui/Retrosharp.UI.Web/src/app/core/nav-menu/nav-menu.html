@@ -1,16 +1,6 @@
-<div>
+<mat-toolbar>
   <span>Retrosharp</span>
-</div>
-<div>
-  <mat-toolbar>
-    <button matIconButton class="example-icon favorite-icon" aria-label="Example icon-button with heart icon">
-      <mat-icon>favorite</mat-icon>
-    </button>
-    <button matIconButton class="example-icon" aria-label="Example icon-button with share icon">
-      <mat-icon>share</mat-icon>
-    </button>
-  </mat-toolbar>
-</div>
-<mat-menu #menu="matMenu">
-
-</mat-menu>
+  <a mat-button routerLink="/">Home</a>
+  <a mat-button routerLink="/players">Players</a>
+  <a mat-button routerLink="/teams">Teams</a>
+</mat-toolbar>
