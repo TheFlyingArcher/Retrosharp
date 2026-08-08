@@ -72,6 +72,31 @@ Standard pitcher BABIP is `(Hits - HomerunsAllowed) / (AtBatsAgainst - Strikeout
 
 `GamePitchingStatistics` is *not* sufficient for team pitching rate stats — it only carries `PitchersUsed`, `IndividualEarnedRuns`, `TeamEarnedRuns`, `WildPitches`, and `Balks`, with no hits/walks/strikeouts/innings at team granularity. Team pitching rate stats (ERA, WHIP, K/9, BB/9, HR/9, FIP) are instead computed by summing that franchise-season's individual pitchers' `Pitching` rows (hits, BB, K, innings-as-outs, and the `PitcherEventAggregate` values), **except** the ERA numerator, which uses summed `GamePitchingStatistics.TeamEarnedRuns` rather than summed individual earned runs, since `TeamEarnedRuns` is specifically the authoritative team-earned figure (distinct from the sum of each pitcher's individually-earned runs, per the Team Earned Run Phase 2 note in [game-event.md](./game-event.md#future-enhancement-phase-2-team-earned-run-reconciliation-and-passed-balldouble-play-reconciliation)).
 
+### Team-season manager history is not yet exposed
+
+The Franchise Detail page (see [frontend-prototype.md](./frontend-prototype.md#resolved-multiple-managers-per-season)) needs to display which manager(s) ran a franchise during a given season, including mid-season changes. The underlying data already fully supports this — `Game.HomeManagerId`/`VisitorManagerId` are recorded per game, not per team-season, so a mid-season firing is just a change in manager partway through that franchise's games for the year (see [game-log.md](./game-log.md), Game Log fields 90-93). No endpoint currently surfaces this: `teams/{franchiseId}/stats` covers statistics only, and no repository method groups a franchise-season's games by manager.
+
+This needs a new `GET /teams/{franchiseId}/managers?season=` endpoint: group that franchise-season's `Game` rows by manager (home or visitor, whichever side matches the requested franchise), ordered chronologically by game date, and collapse consecutive games under the same manager into a single `{ personId, name, fromDate, toDate }` entry. A season with no change returns a single entry spanning the whole season.
+
+### Game summary is missing starting pitchers and the inning-by-inning line score
+
+The Individual Game page (see [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season)) needs each team's starting pitcher and inning-by-inning line score, alongside what `GameSummaryResponse` already returns.
+
+- **Line score**: already stored (`Game.VisitorLineScore`/`HomeLineScore`), just never mapped onto `GameSummaryResponse` — a response-shape fix, not a new derivation.
+- **Starting pitchers**: Retrosheet's Game Log format records each team's starting pitcher explicitly (fields 102-105, distinct from the batting lineup, since a DH-era starting pitcher never bats). The Game Log Parser already reads `VisitorStartingPitcherId`/`HomeStartingPitcherId` into its raw import object (`GameLog.cs`), but never persists them — `Game`/`GameModel` has no corresponding column. Deriving the starter from the batting lineup's "P" position instead doesn't work, since a DH-era starter is never in that lineup at all.
+
+This needs `VisitorStartingPitcherId`/`HomeStartingPitcherId` added to `Game`/`GameModel` (nullable FK to `Person`, mirroring the existing `WinningPitcherId`/`LosingPitcherId`/`SavingPitcherId` pattern), populated by the Game Log Parser from the field it already parses but currently discards, and both new fields plus the two line-score strings added to `GameSummaryResponse`.
+
+### Per-game batting/pitching box score (all participants) is not yet exposed
+
+`GameSummaryResponse` returns each team's *totals* (`GameBoxScoreBatting`/`GameBoxScorePitching`) and the *starting* lineup only — it has no per-player line for every batter and pitcher who actually appeared (starters and substitutes). Step 7d already built the mirror-image derivation for `GET /players/{personId}/games` (`GameBattingLine`/`GamePitchingLine`: one player's stat line for every game in a season, grouped by `GameId` for one `PersonId`). The game box score needs the same classification logic grouped the other way — every batter/pitcher for one `GameId`, across both teams.
+
+This needs new repository/service methods that group `GameEvent`/`GameEventRunner` rows by `BatterId`/`PitcherId` within a single `GameId` (rather than by `GameId` within a single player's season), reusing `GameBattingLine`/`GamePitchingLine`'s existing shape plus batter identity and defensive position(s) played. Response wiring: extend `GameSummaryResponse` with per-team collections of these lines, rather than adding a new route, so the page can render from one request — the same reasoning already applied to lineups/decisions/umpires living on this endpoint rather than being split out.
+
+### Game start time is parsed and discarded, not stored
+
+The Individual Game page also wants each game's local start time (see [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season)). Retrosheet's event files carry this as an `info,starttime,...` record, and Retrosharp's Game Event Parser already reads it off disk — but discards it rather than persisting it (see [game-event.md](./game-event.md#future-enhancement-phase-1-gap-game-start-time-from-info-records) for the parser-level gap and why it can't simply be added to `Game`). Once captured (in a new table owned by the Game Event Parser, not `Game` itself), it should be added to `GameSummaryResponse` alongside Step 7h's other additions. Like play-by-play, it will only be populated for games with an imported event file — null for Game Log-only games.
+
 ### Player game logs are derived on demand, not stored
 
 project.md's Player Search feature explicitly promises "career statistics and game logs," but Phase 1's schema has no per-game player statistic line — only season aggregates (`Batting`/`Pitching`/`Fielding`) and event-level detail (`GameEvent`/`GameEventRunner`/`GameEventFieldingCredit`). A player's game log is derived per request: group that player's `GameEvent`/`GameEventRunner` rows (as batter) or `GameEvent` rows (as pitcher) by `GameId` within the requested season, and apply the same counting-stat classification Step 6d already uses, just grouped per-game instead of accumulated per-season. This is naturally bounded (one player, one season, at most ~162 games) so performance isn't a concern the way a league-wide query would be.
@@ -100,8 +125,9 @@ All routes are `GET`, prefixed `/api`, and return `200 OK` with a JSON body on s
 | `GET /teams/{franchiseId}` | Franchise identity detail. |
 | `GET /teams/{franchiseId}/roster?season=` | Players who recorded a `Batting`, `Pitching`, or `Fielding` row for that franchise-season. |
 | `GET /teams/{franchiseId}/stats?season=` | Team season statistics, counting and rate (see [Considerations](#team-season-statistics-two-different-authoritative-sources-for-two-different-things)). |
+| `GET /teams/{franchiseId}/managers?season=` | Manager(s) for a franchise-season, chronologically ordered, collapsing mid-season changes into date-ranged entries (see [Considerations](#team-season-manager-history-is-not-yet-exposed)). **Not yet implemented** — see [phase-1-build-plan.md](./phase-1-build-plan.md#step-7g-team-season-manager-history). |
 | `GET /games/search?date=&season=&franchiseId=&limit=&offset=` | Search games by date, season, and/or participating franchise. |
-| `GET /games/{gameId}` | Game summary: final score, both teams' box-score totals, both starting lineups, decisions (winning/losing/saving pitcher), umpires, ballpark. |
+| `GET /games/{gameId}` | Game summary: final score, line score, both teams' box-score totals, both starting lineups and starting pitchers, per-player batting/pitching lines for every participant, start time (where available), decisions (winning/losing/saving pitcher), umpires, ballpark. Line score, starting pitchers, per-player lines, and start time **not yet implemented** — see [phase-1-build-plan.md Step 7h](./phase-1-build-plan.md#step-7h-game-summary-enrichment-starting-pitchers-and-line-score), [Step 7i](./phase-1-build-plan.md#step-7i-full-game-box-score-all-participants), and [Step 7j](./phase-1-build-plan.md#step-7j-game-start-time-from-event-file-info-records). |
 | `GET /games/{gameId}/events` | Full play-by-play: `GameEvent` rows (with nested runners and fielding credits) interleaved with `GameSubstitution`/`GameAdjustment`/`GameComment` context records, ordered by `Sequence`. |
 
 ## Statistic Formulas

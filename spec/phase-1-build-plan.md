@@ -826,6 +826,93 @@ A subsequent research pass over the whole `src/` tree (before writing any code) 
 
 ---
 
+## Step 7g: Team Season Manager History
+
+**Status**: Not Started
+
+**Governing spec**: [api.md](./api.md#team-season-manager-history-is-not-yet-exposed) (new endpoint, response shape), [frontend-prototype.md](./frontend-prototype.md#resolved-multiple-managers-per-season) (consuming page and display rule)
+
+**Depends on**: Step 7e (established the `TeamsController`/`ITeamService` pattern this extends).
+
+**Objective**: Add `GET /api/teams/{franchiseId}/managers?season=`, so the Franchise Detail page can display one or more managers per season, correctly reflecting mid-season changes.
+
+**Why this wasn't caught in Step 7e**: Step 7e scoped team-season *statistics* only. The frontend's originally-open "does the data support multiple managers per season" design question wasn't resolved until the frontend prototyping pass — the answer turned out to be yes (managers are recorded per `Game`, not per team-season), which is exactly why no endpoint exists yet: nothing before this needed to query manager data grouped this way.
+
+**Suggested approach**:
+- New `IGameRepository`/`GameRepository` method (or a `TeamService` addition) that fetches a franchise-season's games ordered by `GameDate`, projecting whichever of `HomeManagerId`/`VisitorManagerId` matches the requested franchise per game.
+- Collapse consecutive games under the same manager into a single `{ personId, name, fromDate, toDate }` entry — a season with no change produces exactly one entry.
+- New `TeamManagerHistoryEntry` response DTO in `Retrosharp.UI.Api/Models/`, following the existing DTO-not-Contract-entity convention.
+- `404` for a non-existent franchise, `400` for a missing `season`, consistent with `teams/{franchiseId}/stats`.
+
+**Definition of done**: endpoint live-verified against real imported game data (same 2025 SDN/SEA reference data used throughout Step 7), including at least one constructed fixture proving a mid-season manager change collapses into two correctly-dated entries rather than one entry per game.
+
+---
+
+## Step 7h: Game Summary Enrichment (Starting Pitchers and Line Score)
+
+**Status**: Not Started
+
+**Governing spec**: [api.md](./api.md#game-summary-is-missing-starting-pitchers-and-the-inning-by-inning-line-score) (fields, persistence gap), [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season) (consuming page)
+
+**Depends on**: Step 7f (established `GamesController`/`GameSummaryService`/`GameSummaryResponse`, extended here).
+
+**Objective**: Add each team's starting pitcher and inning-by-inning line score to `GET /api/games/{gameId}`, so the Individual Game page can render a standard box score header without guessing the starter from lineup position (which silently breaks for any DH-era game).
+
+**Why this wasn't caught in Step 7f**: Step 7f scoped game summary against what `GameModel` already stored. Starting pitcher was never in scope because the Game Log Parser (Step 5) parses `VisitorStartingPitcherId`/`HomeStartingPitcherId` off the raw file into `GameLog.cs` but never persists them onto `Game`/`GameModel` — a gap that only surfaced once the frontend prototyping pass specified a page needing them. Line score is a smaller oversight: `Game.VisitorLineScore`/`HomeLineScore` were always stored, just never mapped onto `GameSummaryResponse`.
+
+**Suggested approach**:
+- Add `VisitorStartingPitcherId`/`HomeStartingPitcherId` (nullable FK to `Person`) to `Game`/`GameModel`, mirroring the existing `WinningPitcherId`/`LosingPitcherId`/`SavingPitcherId` pattern. New EF Core migration.
+- Update the Game Log Parser's persistence step to populate these two new columns from the `GameLog.VisitorStartingPitcherId`/`HomeStartingPitcherId` fields it already parses.
+- Add both fields (resolved to `PlayerSearchResult`, matching the existing decision/umpire fields' shape) plus `VisitorLineScore`/`HomeLineScore` (raw strings, or split into an `int[]` of per-inning runs — implementer's choice, whichever is cheaper to render on the frontend) to `GameSummaryResponse`.
+- Backfilling already-imported games: re-running the Game Log Parser for already-imported seasons is idempotent (Step 5), so existing data can be backfilled by re-import rather than a one-off migration script.
+
+**Definition of done**: `GET /api/games/{gameId}` for a real imported game (the existing SDN/SEA 2025 reference data) returns correct starting pitchers for both teams (spot-checked against the source Game Log file) and a correct line score, cross-checked against `VisitorRuns`/`HomeTeamRuns` totals (the line score's own runs must sum to the stored total).
+
+---
+
+## Step 7i: Full Game Box Score (All Participants)
+
+**Status**: Not Started
+
+**Governing spec**: [api.md](./api.md#per-game-battingpitching-box-score-all-participants-is-not-yet-exposed) (derivation, response shape), [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season) (consuming page)
+
+**Depends on**: Step 7d (the per-player, per-game classification logic this reuses, just grouped the other way), Step 7h (this step extends the same `GameSummaryResponse`).
+
+**Objective**: Add a per-player batting line and pitching line for every batter and pitcher who appeared in a game — starters and substitutes alike — to `GET /api/games/{gameId}`, so the Individual Game page can render a full box score instead of team totals plus a bare starting lineup.
+
+**Why this wasn't caught in Step 7f**: Step 7f's box score was scoped to team-level totals (`GameBoxScoreBatting`/`GameBoxScorePitching`, summed from `GameBattingStatistics`/`GamePitchingStatistics`) and the *starting* lineup only (`GameLineup`). Nothing before this needed "every participant's individual line for one game" — the only existing per-game-line derivation (Step 7d's `GameBattingLine`/`GamePitchingLine`) was built and grouped the opposite way, for one player's games across a season.
+
+**Suggested approach**:
+- New repository/service methods that group `GameEvent`/`GameEventRunner` rows (batting) and `GameEvent` rows (pitching) by `BatterId`/`PitcherId` for a single `GameId` — the same counting-stat classification Step 6d/7d already established, just grouped by player-within-game instead of game-within-player-season.
+- Reuse `GameBattingLine`/`GamePitchingLine`'s existing field shape rather than inventing a new one, adding batter identity (`PlayerSearchResult`) and defensive position(s) played (from `GameLineup` for starters, `GameSubstitution` for players who entered mid-game).
+- Extend `GameSummaryResponse` with `HomeBattingLines`/`VisitorBattingLines`/`HomePitchingLines`/`VisitorPitchingLines` collections, keeping the whole page servable from one request rather than adding a separate route.
+
+**Definition of done**: `GET /api/games/{gameId}` for a real imported game returns one line per distinct batter and one line per distinct pitcher for both teams, with each team's summed batting lines matching that team's already-verified `GameBoxScoreBatting` totals exactly (a built-in reconciliation check, the same technique Step 6e already uses elsewhere).
+
+---
+
+## Step 7j: Game Start Time from Event File `info` Records
+
+**Status**: Not Started
+
+**Governing spec**: [game-event.md](./game-event.md#future-enhancement-phase-1-gap-game-start-time-from-info-records) (parser-level gap, the `Game`-exclusivity and `GameEventGameStatus`-scope constraints on where the fix lives), [api.md](./api.md#game-start-time-is-parsed-and-discarded-not-stored) (response wiring), [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season) (consuming page)
+
+**Depends on**: Step 6b/6c (extends `EventFileReader`/`EventFileGame` and sits alongside the context tables those steps built), Step 7h (this step's data lands on the same `GameSummaryResponse` fields Step 7h is already extending).
+
+**Objective**: Capture each game's local start time from its event file's `info,starttime,...` record (already read off disk but silently discarded today) and surface it on `GET /api/games/{gameId}`.
+
+**Why this wasn't caught in Step 6**: Step 6's `EventFileReader.ApplyInfo` was scoped to the four `info` fields needed to identify and build an `EventFileGame` (`hometeam`/`visteam`/`date`/`number`) — enough to match games and drive `GameEvent` derivation, which was Step 6's whole objective. Every other `info` field, including `starttime`, was never in scope until the frontend prototyping pass asked for it.
+
+**Suggested approach**:
+- Add a `StartTime` property to `EventFileReader`'s `EventFileGame`/its builder, populated by a new `starttime` case in `ApplyInfo`'s switch, parsed from Retrosheet's `h:mmtt` format (e.g. `"7:44PM"`) into a `TimeOnly?`.
+- New `GameEventContext` table (`GameId` primary key/foreign key to `Game`, `StartTimeLocal` nullable `TimeOnly?`), owned by the Game Event Parser — **not** a new column on `Game`/`GameModel` (would violate the Game Log Parser's exclusive write ownership of `Game`, per game-event.md) and **not** added to `GameEventGameStatus` (a narrow concurrency-control marker, not a general metadata store; conflating the two concerns would make that table's one job — the atomic double-processing guard — harder to reason about).
+- Persist a `GameEventContext` row (when `StartTime` was present in the file) at the same point Step 6c's context tables (`GameSubstitution`/`GameAdjustment`/`GameComment`) are written for a game.
+- Add `StartTimeLocal` to `GameSummaryResponse`, joined from `GameEventContext`, alongside Step 7h's other additions. Null for any game with no imported event file — this is expected, not an error, mirroring play-by-play's own coverage limitation.
+
+**Definition of done**: `GET /api/games/{gameId}` for a real imported game (the existing SDN/SEA 2025 reference data) returns the correct start time, spot-checked against the source event file's `info,starttime` record; a game with no imported event file returns `null` rather than erroring.
+
+---
+
 ## Step 9: End-to-End Validation
 
 **Status**: Not Started

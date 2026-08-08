@@ -118,6 +118,17 @@ Records that a game's statistics have been fully applied to `Batting`, `Pitching
 
 Before applying a game's events to `Batting`, `Pitching`, and `Fielding`, a saga attempts to insert a row into `GameEventGameStatus` for that `GameId`, within the same transaction as the stat updates. Because `GameId` is the primary key, only one saga can successfully insert this row for a given game; a saga that loses this race detects the uniqueness violation, treats the game as already processed, and continues to the next game in the file without reapplying its statistics.
 
+### Future Enhancement (Phase 1 gap): Game start time from `info` records
+
+Retrosheet's event files carry a game's local start time as an `info,starttime,7:44PM`-style record (see Retrosheet's [event file format reference](https://www.retrosheet.org/eventfile.htm)), needed by the Individual Game page (see [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season)). `EventFileReader.ApplyInfo` already iterates every `info` record for a game, but its `switch` only recognizes `hometeam`/`visteam`/`date`/`number` — `starttime` (and every other `info` field) falls through with no `default` case and is silently discarded. This is a real, fixable gap: the value is already being read off disk, just never captured.
+
+Two constraints shape where the fix lives, not just what it is:
+
+- `Game` is exclusively the Game Log Parser's domain — "never written to by the Game Event Parser," per this table's own note above. Start time cannot be added as a `Game`/`GameModel` column populated from the Game Event Parser without breaking that invariant.
+- `GameEventGameStatus` is a narrow, purpose-built concurrency marker (the atomic double-processing guard described above), not a general per-game metadata store. Overloading it with unrelated fields would conflate two different concerns.
+
+The correct home is a new table, owned by the Game Event Parser like `GameEventGameStatus` and the context tables below, e.g. `GameEventContext` (`GameId` primary key/foreign key to `Game`, `StartTimeLocal` nullable). `EventFileGame`/`ApplyInfo` needs a new `StartTime` property populated from the `starttime` case, parsed from Retrosheet's `h:mmtt` format (e.g. "7:44PM", no colon before AM/PM) into a `TimeOnly?`. Like play-by-play itself, this will only be populated for games whose team-season event file has been imported — Game Log-only games will have no value here, which is expected, not an error.
+
 ### Context tables
 
 Substitutions, handedness/batting-order adjustments, and commentary are not plays — they have no fielding or baserunning outcome and are not derived into `Batting`, `Pitching`, or `Fielding`. They are modeled as siblings of `GameEvent`, not sub-tables of it:
