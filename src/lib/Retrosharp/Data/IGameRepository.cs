@@ -58,5 +58,13 @@ namespace Retrosharp.Data
         /// all filters optional, paginated. See spec/api.md, "GET /games/search".
         /// </summary>
         Task<(IEnumerable<Game> Items, int TotalCount)> SearchAsync(DateTime? date, short? season, int? franchiseId, int limit, int offset);
+
+        /// <summary>
+        /// Retrieves every game the given franchise played (as home or visitor) in the given
+        /// season, ordered chronologically (by date, then game number, so doubleheader games
+        /// sort correctly). Used to derive per-season manager history -- see
+        /// spec/api.md, "GET /teams/{id}/managers".
+        /// </summary>
+        Task<IEnumerable<Game>> GetByFranchiseSeasonAsync(int franchiseId, short seasonYear);
     }
 }

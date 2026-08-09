@@ -33,6 +33,7 @@ namespace Retrosharp.Data.Context
         public DbSet<GameEventRunnerModel> GameEventRunners { get; set; }
         public DbSet<GameEventFieldingCreditModel> GameEventFieldingCredits { get; set; }
         public DbSet<GameEventGameStatusModel> GameEventGameStatuses { get; set; }
+        public DbSet<GameEventContextModel> GameEventContexts { get; set; }
         public DbSet<GameSubstitutionModel> GameSubstitutions { get; set; }
         public DbSet<GameAdjustmentModel> GameAdjustments { get; set; }
         public DbSet<GameCommentModel> GameComments { get; set; }
@@ -183,6 +184,17 @@ namespace Retrosharp.Data.Context
                 entity.HasOne(g => g.UmpireRight)
                     .WithMany(p => p.UmpireRightGames)
                     .HasForeignKey(g => g.UmpireRightId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                // Starting pitcher relationships
+                entity.HasOne(g => g.VisitorStartingPitcher)
+                    .WithMany(p => p.VisitorStartingPitcherGames)
+                    .HasForeignKey(g => g.VisitorStartingPitcherId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(g => g.HomeStartingPitcher)
+                    .WithMany(p => p.HomeStartingPitcherGames)
+                    .HasForeignKey(g => g.HomeStartingPitcherId)
                     .OnDelete(DeleteBehavior.Restrict);
 
                 // Pitcher relationships
@@ -350,6 +362,18 @@ namespace Retrosharp.Data.Context
                 entity.HasOne(s => s.Game)
                     .WithOne(g => g.GameEventGameStatus)
                     .HasForeignKey<GameEventGameStatusModel>(s => s.GameId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure GameEventContext entity -- same shared-primary-key, at-most-one-row-per-
+            // game shape as GameEventGameStatus above.
+            modelBuilder.Entity<GameEventContextModel>(entity =>
+            {
+                entity.HasKey(e => e.GameId);
+
+                entity.HasOne(c => c.Game)
+                    .WithOne(g => g.GameEventContext)
+                    .HasForeignKey<GameEventContextModel>(c => c.GameId)
                     .OnDelete(DeleteBehavior.Restrict);
             });
 

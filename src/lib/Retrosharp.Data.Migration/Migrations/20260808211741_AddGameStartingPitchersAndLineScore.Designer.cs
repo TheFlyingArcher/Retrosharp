@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Retrosharp.Data.Context;
@@ -11,9 +12,11 @@ using Retrosharp.Data.Context;
 namespace Retrosharp.Data.Migrator.Migrations
 {
     [DbContext(typeof(RetrosharpContext))]
-    partial class RetrosharpContextModelSnapshot : ModelSnapshot
+    [Migration("20260808211741_AddGameStartingPitchersAndLineScore")]
+    partial class AddGameStartingPitchersAndLineScore
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -403,19 +406,6 @@ namespace Retrosharp.Data.Migrator.Migrations
                     b.HasIndex("GameId", "Sequence");
 
                     b.ToTable("GameComment");
-                });
-
-            modelBuilder.Entity("Retrosharp.Data.Model.GameEventContextModel", b =>
-                {
-                    b.Property<int>("GameId")
-                        .HasColumnType("integer");
-
-                    b.Property<TimeOnly?>("StartTimeLocal")
-                        .HasColumnType("time without time zone");
-
-                    b.HasKey("GameId");
-
-                    b.ToTable("GameEventContext");
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameEventFieldingCreditModel", b =>
@@ -1299,17 +1289,6 @@ namespace Retrosharp.Data.Migrator.Migrations
                     b.Navigation("Game");
                 });
 
-            modelBuilder.Entity("Retrosharp.Data.Model.GameEventContextModel", b =>
-                {
-                    b.HasOne("Retrosharp.Data.Model.GameModel", "Game")
-                        .WithOne("GameEventContext")
-                        .HasForeignKey("Retrosharp.Data.Model.GameEventContextModel", "GameId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Game");
-                });
-
             modelBuilder.Entity("Retrosharp.Data.Model.GameEventFieldingCreditModel", b =>
                 {
                     b.HasOne("Retrosharp.Data.Model.GameEventModel", "GameEvent")
@@ -1662,9 +1641,6 @@ namespace Retrosharp.Data.Migrator.Migrations
                     b.Navigation("GameBattingStatistics");
 
                     b.Navigation("GameComments");
-
-                    b.Navigation("GameEventContext")
-                        .IsRequired();
 
                     b.Navigation("GameEventGameStatus")
                         .IsRequired();

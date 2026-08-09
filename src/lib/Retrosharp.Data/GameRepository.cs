@@ -75,6 +75,19 @@ namespace Retrosharp.Data
             return (games, totalCount);
         }
 
+        public async Task<IEnumerable<Game>> GetByFranchiseSeasonAsync(int franchiseId, short seasonYear)
+        {
+            var games = await Context.Set<GameModel>()
+                .Where(g => (g.HomeFranchiseId == franchiseId || g.VisitorFranchiseId == franchiseId)
+                    && g.GameDate.Year == seasonYear)
+                .OrderBy(g => g.GameDate)
+                .ThenBy(g => g.GameNumber)
+                .ProjectToType<Game>()
+                .ToListAsync();
+
+            return games;
+        }
+
         public async Task<(int Added, int Skipped)> BulkInsertAsync(IEnumerable<GameLogRecord> records)
         {
             const int saveChangesBatchSize = 200;

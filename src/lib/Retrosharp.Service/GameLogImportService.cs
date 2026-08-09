@@ -107,6 +107,8 @@ namespace Retrosharp.Service
                 UmpireThirdId = await ResolveOptionalPersonIdAsync(gameLog.UmpireThirdId),
                 UmpireLeftId = await ResolveOptionalPersonIdAsync(gameLog.UmpireLeftId),
                 UmpireRightId = await ResolveOptionalPersonIdAsync(gameLog.UmpireRightId),
+                VisitorStartingPitcherId = await ResolveOptionalPersonIdAsync(gameLog.VisitorStartingPitcherId),
+                HomeStartingPitcherId = await ResolveOptionalPersonIdAsync(gameLog.HomeStartingPitcherId),
                 WinningPitcherId = await ResolveOptionalPersonIdAsync(gameLog.WinningPitcherId),
                 LosingPitcherId = await ResolveOptionalPersonIdAsync(gameLog.LosingPitcherId),
                 SavingPitcherId = await ResolveOptionalPersonIdAsync(gameLog.SavingPitcherId),

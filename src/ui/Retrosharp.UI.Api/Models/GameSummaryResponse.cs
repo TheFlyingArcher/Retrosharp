@@ -23,6 +23,12 @@ namespace Retrosharp.UI.Api.Models
 
         public string? GameNotes { get; set; }
 
+        /// <summary>
+        /// The game's local start time. Null for a game with no imported event file, or whose
+        /// event file had no parseable value.
+        /// </summary>
+        public TimeOnly? StartTimeLocal { get; set; }
+
         public string? BallparkName { get; set; }
 
         public string? BallparkCity { get; set; }
@@ -34,6 +40,10 @@ namespace Retrosharp.UI.Api.Models
         public IEnumerable<GameLineupEntryResponse> HomeLineup { get; set; } = Array.Empty<GameLineupEntryResponse>();
 
         public IEnumerable<GameLineupEntryResponse> VisitorLineup { get; set; } = Array.Empty<GameLineupEntryResponse>();
+
+        public PlayerSearchResult? VisitorStartingPitcher { get; set; }
+
+        public PlayerSearchResult? HomeStartingPitcher { get; set; }
 
         public PlayerSearchResult? WinningPitcher { get; set; }
 
@@ -81,11 +91,28 @@ namespace Retrosharp.UI.Api.Models
 
         public byte? Errors { get; set; }
 
+        /// <summary>
+        /// Inning-by-inning line score (e.g. "010000(10)0x").
+        /// </summary>
+        public string? LineScore { get; set; }
+
         public GameBoxScoreBatting? Batting { get; set; }
 
         public GameBoxScorePitching? Pitching { get; set; }
 
         public GameBoxScoreFielding? Fielding { get; set; }
+
+        /// <summary>
+        /// One batting line per distinct batter who appeared for this team. Empty (not null)
+        /// for a game with no imported play-by-play.
+        /// </summary>
+        public IReadOnlyList<GameBoxScoreBattingParticipant> Batters { get; set; } = Array.Empty<GameBoxScoreBattingParticipant>();
+
+        /// <summary>
+        /// One pitching line per distinct pitcher who appeared for this team. Same
+        /// empty-not-null convention as <see cref="Batters"/>.
+        /// </summary>
+        public IReadOnlyList<GameBoxScorePitchingParticipant> Pitchers { get; set; } = Array.Empty<GameBoxScorePitchingParticipant>();
     }
 
     public class GameBoxScoreBatting
@@ -163,8 +190,111 @@ namespace Retrosharp.UI.Api.Models
         public PlayerSearchResult? Batter { get; set; }
 
         /// <summary>
-        /// Defensive position played (e.g., "1B", "SS", "CF").
+        /// Defensive position played -- the raw Retrosheet numeric code as a string ("1"-"9",
+        /// "10" for DH), not a display abbreviation. No code-to-abbreviation table exists
+        /// elsewhere in this project.
         /// </summary>
         public string? Position { get; set; }
+    }
+
+    /// <summary>
+    /// One batter's box-score line for one game -- starters and substitutes alike, not just the
+    /// starting lineup. See spec/api.md, "Per-game batting/pitching box score (all participants)
+    /// is not yet exposed".
+    /// </summary>
+    public class GameBoxScoreBattingParticipant
+    {
+        public PlayerSearchResult? Player { get; set; }
+
+        /// <summary>
+        /// Defensive position(s) played, comma-separated if more than one -- raw Retrosheet
+        /// position codes, not display abbreviations (see <see cref="GameLineupEntryResponse.Position"/>).
+        /// </summary>
+        public string? Position { get; set; }
+
+        public GameBoxScoreBattingParticipantStats? Stats { get; set; }
+    }
+
+    public class GameBoxScoreBattingParticipantStats
+    {
+        public short PlateAppearances { get; set; }
+
+        public short AtBats { get; set; }
+
+        public short Hits { get; set; }
+
+        public short Doubles { get; set; }
+
+        public short Triples { get; set; }
+
+        public short Homeruns { get; set; }
+
+        public short BaseOnBalls { get; set; }
+
+        public short Strikeouts { get; set; }
+
+        public short SacrificeFlies { get; set; }
+
+        public short SacrificeBunts { get; set; }
+
+        public short IntentionalBb { get; set; }
+
+        public short HitByPitches { get; set; }
+
+        public short StolenBases { get; set; }
+
+        public short TimesCaughtStealing { get; set; }
+
+        public short Runs { get; set; }
+
+        public short GroundedIntoDoublePlay { get; set; }
+    }
+
+    /// <summary>
+    /// One pitcher's box-score line for one game -- starters and relievers alike.
+    /// </summary>
+    public class GameBoxScorePitchingParticipant
+    {
+        public PlayerSearchResult? Player { get; set; }
+
+        public GameBoxScorePitchingParticipantStats? Stats { get; set; }
+    }
+
+    public class GameBoxScorePitchingParticipantStats
+    {
+        public short GamesStarted { get; set; }
+
+        public short GamesFinished { get; set; }
+
+        public short CompleteGames { get; set; }
+
+        public short Shutouts { get; set; }
+
+        public short Saves { get; set; }
+
+        /// <summary>
+        /// Display-friendly innings pitched (e.g. "6.1"), not raw outs. Set explicitly by the
+        /// controller after mapping -- see the fixup note in <c>GamesController.GetById</c>,
+        /// the same "Mapster can't compute this" pattern as <c>PitchingLine.InningsPitchedDisplay</c>.
+        /// </summary>
+        public string InningsPitchedDisplay { get; set; } = string.Empty;
+
+        public short Hits { get; set; }
+
+        public short Runs { get; set; }
+
+        public short EarnedRuns { get; set; }
+
+        public short BaseOnBalls { get; set; }
+
+        public short Strikeouts { get; set; }
+
+        public short IntentionalBb { get; set; }
+
+        public short HitBatsmen { get; set; }
+
+        public short Balks { get; set; }
+
+        public short WildPitches { get; set; }
     }
 }

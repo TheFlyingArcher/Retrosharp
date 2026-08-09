@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Retrosharp.Contract.GameEvent
@@ -30,5 +31,11 @@ namespace Retrosharp.Contract.GameEvent
         public required IReadOnlyList<GameComment> Comments { get; init; }
 
         public required GameStatisticsDelta Statistics { get; init; }
+
+        /// <summary>
+        /// The game's local start time, from the event file's "info,starttime,..." record --
+        /// null if missing or unparseable. See <see cref="GameEventContext"/>.
+        /// </summary>
+        public TimeOnly? StartTimeLocal { get; init; }
     }
 }

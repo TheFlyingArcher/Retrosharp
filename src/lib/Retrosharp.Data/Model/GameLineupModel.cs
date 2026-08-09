@@ -38,7 +38,9 @@ namespace Retrosharp.Data.Model
         public int BatterId { get; set; }
 
         /// <summary>
-        /// Defensive position played (e.g., "1B", "SS", "CF").
+        /// Defensive position played -- the raw Retrosheet numeric code as a string ("1"-"9",
+        /// "10" for DH), not a display abbreviation. No code-to-abbreviation table exists
+        /// elsewhere in this project.
         /// </summary>
         [StringLength(3)]
         public string Position { get; set; }

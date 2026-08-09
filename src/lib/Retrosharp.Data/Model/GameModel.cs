@@ -173,6 +173,20 @@ namespace Retrosharp.Data.Model
         public int? UmpireRightId { get; set; }
 
         /// <summary>
+        /// Foreign key to the visiting team's starting pitcher. Distinct from the batting
+        /// lineup, since a DH-era starting pitcher never appears there.
+        /// </summary>
+        [ForeignKey("VisitorStartingPitcher")]
+        public int? VisitorStartingPitcherId { get; set; }
+
+        /// <summary>
+        /// Foreign key to the home team's starting pitcher. Distinct from the batting lineup,
+        /// since a DH-era starting pitcher never appears there.
+        /// </summary>
+        [ForeignKey("HomeStartingPitcher")]
+        public int? HomeStartingPitcherId { get; set; }
+
+        /// <summary>
         /// Foreign key to the winning pitcher.
         /// </summary>
         [ForeignKey("WinningPitcher")]
@@ -260,6 +274,16 @@ namespace Retrosharp.Data.Model
         public PersonModel UmpireRight { get; set; }
 
         /// <summary>
+        /// Navigation property for the visiting team's starting pitcher.
+        /// </summary>
+        public PersonModel VisitorStartingPitcher { get; set; }
+
+        /// <summary>
+        /// Navigation property for the home team's starting pitcher.
+        /// </summary>
+        public PersonModel HomeStartingPitcher { get; set; }
+
+        /// <summary>
         /// Navigation property for the winning pitcher.
         /// </summary>
         public PersonModel WinningPitcher { get; set; }
@@ -325,5 +349,11 @@ namespace Retrosharp.Data.Model
         /// Game Event Parser has fully applied this game's statistics.
         /// </summary>
         public GameEventGameStatusModel GameEventGameStatus { get; set; }
+
+        /// <summary>
+        /// Navigation property for this game's Game Event Parser-derived context metadata
+        /// (currently just start time). Null if no event file has been imported for this game.
+        /// </summary>
+        public GameEventContextModel GameEventContext { get; set; }
     }
 }

@@ -28,6 +28,15 @@ namespace Retrosharp.Format.EventFile
 
         public required byte GameNumber { get; init; }
 
+        /// <summary>
+        /// The game's local start time, from the file's "info,starttime,..." record (e.g.
+        /// "7:44PM") -- null if the record is missing or its value doesn't parse. Optional,
+        /// unlike <see cref="GameDate"/>/<see cref="GameNumber"/>: a game is still fully
+        /// buildable without it, so a missing or malformed value is tolerated rather than
+        /// failing the whole game's import.
+        /// </summary>
+        public TimeOnly? StartTime { get; init; }
+
         public required IReadOnlyList<EventFileRecord> Records { get; init; }
     }
 }

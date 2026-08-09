@@ -243,6 +243,18 @@ namespace Retrosharp.Data.Model
         public ICollection<GameModel> UmpireRightGames { get; set; } = new List<GameModel>();
 
         /// <summary>
+        /// Navigation property for games where this person was the visiting team's starting
+        /// pitcher.
+        /// </summary>
+        public ICollection<GameModel> VisitorStartingPitcherGames { get; set; } = new List<GameModel>();
+
+        /// <summary>
+        /// Navigation property for games where this person was the home team's starting
+        /// pitcher.
+        /// </summary>
+        public ICollection<GameModel> HomeStartingPitcherGames { get; set; } = new List<GameModel>();
+
+        /// <summary>
         /// Navigation property for games where this person was the winning pitcher.
         /// </summary>
         public ICollection<GameModel> WinningPitcherGames { get; set; } = new List<GameModel>();

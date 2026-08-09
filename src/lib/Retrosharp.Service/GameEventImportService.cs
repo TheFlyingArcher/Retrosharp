@@ -120,7 +120,8 @@ namespace Retrosharp.Service
                 Substitutions = substitutions,
                 Adjustments = adjustments,
                 Comments = comments,
-                Statistics = statistics
+                Statistics = statistics,
+                StartTimeLocal = game.StartTime
             };
         }
 

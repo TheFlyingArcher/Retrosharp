@@ -1,3 +1,5 @@
+using System.Globalization;
+
 using Retrosharp.Format.EventFile;
 
 namespace Retrosharp.Format.Tests
@@ -34,6 +36,20 @@ namespace Retrosharp.Format.Tests
             Assert.Equal("SDN", game.HomeTeamCode);
             Assert.Equal(new DateTime(2025, 3, 27), game.GameDate);
             Assert.Equal(0, game.GameNumber);
+        }
+
+        [Theory]
+        [InlineData("SDN202503270", 1, 10, "PM")] // info,starttime,1:10PM
+        [InlineData("SDN202503300", 4, 10, "PM")] // info,starttime,4:10PM
+        [InlineData("SDN202504150", 6, 40, "PM")] // info,starttime,6:40PM
+        [InlineData("SDN202504300", 1, 10, "PM")] // info,starttime,1:10PM
+        [InlineData("SDN202509220", 6, 40, "PM")] // info,starttime,6:40PM
+        public void ReadGames_EachGame_StartTimeParsedFromRealInfoRecord(string gameId, int hour12, int minute, string amPm)
+        {
+            var game = EventFileReader.ReadGames(FixturePath).Single(g => g.GameId == gameId);
+
+            var expected = TimeOnly.ParseExact($"{hour12}:{minute:D2}{amPm}", "h:mmtt", CultureInfo.InvariantCulture);
+            Assert.Equal(expected, game.StartTime);
         }
 
         [Theory]

@@ -24,6 +24,7 @@ namespace Retrosharp.Data
             services.AddTransient<IGameSubstitutionRepository, GameSubstitutionRepository>();
             services.AddTransient<IGameAdjustmentRepository, GameAdjustmentRepository>();
             services.AddTransient<IGameCommentRepository, GameCommentRepository>();
+            services.AddTransient<IGameEventContextRepository, GameEventContextRepository>();
 
             // Statistics repositories
             services.AddTransient<IBattingRepository, BattingRepository>();

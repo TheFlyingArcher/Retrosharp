@@ -1,5 +1,6 @@
 using Mapster;
 using Microsoft.AspNetCore.Mvc;
+using Retrosharp.Contract.Game;
 using Retrosharp.Service.Interface;
 using Retrosharp.UI.Api.Models;
 
@@ -93,6 +94,26 @@ namespace Retrosharp.UI.Api.Controllers
             if (summary == null)
                 return NotFound();
 
+            var home = summary.HomeTeam.Adapt<GameTeamBoxScoreResponse>();
+            var visitor = summary.VisitorTeam.Adapt<GameTeamBoxScoreResponse>();
+
+            // PitchingDelta.InningsPitched is raw outs, and GameBoxScorePitchingParticipantStats
+            // has no matching property to blindly map from -- it only exposes the
+            // display-friendly string, which nothing can compute except explicit code (the same
+            // "Mapster can't derive a computed field" situation as PitchingLine.InningsPitchedDisplay
+            // in Step 7d). Fixed up here by index, since Mapster preserves list order.
+            static void FixUpInningsPitchedDisplay(GameTeamBoxScore source, GameTeamBoxScoreResponse mapped)
+            {
+                for (var i = 0; i < mapped.Pitchers.Count; i++)
+                {
+                    var outs = source.Pitchers[i].Stats.InningsPitched;
+                    mapped.Pitchers[i].Stats!.InningsPitchedDisplay = $"{outs / 3}.{outs % 3}";
+                }
+            }
+
+            FixUpInningsPitchedDisplay(summary.HomeTeam, home);
+            FixUpInningsPitchedDisplay(summary.VisitorTeam, visitor);
+
             return new GameSummaryResponse
             {
                 Id = summary.Id,
@@ -102,10 +123,11 @@ namespace Retrosharp.UI.Api.Controllers
                 GameLengthMinutes = summary.GameLengthMinutes,
                 ParkAttendance = summary.ParkAttendance,
                 GameNotes = summary.GameNotes,
+                StartTimeLocal = summary.StartTimeLocal,
                 BallparkName = summary.Ballpark?.ParkName,
                 BallparkCity = summary.Ballpark?.City,
-                Home = summary.HomeTeam.Adapt<GameTeamBoxScoreResponse>(),
-                Visitor = summary.VisitorTeam.Adapt<GameTeamBoxScoreResponse>(),
+                Home = home,
+                Visitor = visitor,
                 HomeLineup = summary.HomeLineup.Adapt<IEnumerable<GameLineupEntryResponse>>(),
                 VisitorLineup = summary.VisitorLineup.Adapt<IEnumerable<GameLineupEntryResponse>>(),
                 WinningPitcher = summary.WinningPitcher?.Adapt<PlayerSearchResult>(),

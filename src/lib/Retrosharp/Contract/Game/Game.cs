@@ -143,6 +143,18 @@ namespace Retrosharp.Contract.Game
         public int? UmpireRightId { get; set; }
 
         /// <summary>
+        /// Foreign key to the visiting team's starting pitcher. Distinct from the batting
+        /// lineup, since a DH-era starting pitcher never appears there.
+        /// </summary>
+        public int? VisitorStartingPitcherId { get; set; }
+
+        /// <summary>
+        /// Foreign key to the home team's starting pitcher. Distinct from the batting lineup,
+        /// since a DH-era starting pitcher never appears there.
+        /// </summary>
+        public int? HomeStartingPitcherId { get; set; }
+
+        /// <summary>
         /// Foreign key to the winning pitcher.
         /// </summary>
         public int? WinningPitcherId { get; set; }

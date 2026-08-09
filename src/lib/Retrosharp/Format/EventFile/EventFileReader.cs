@@ -184,6 +184,11 @@ namespace Retrosharp.Format.EventFile
 
             public byte? GameNumber { get; private set; }
 
+            /// <summary>
+            /// Optional, unlike the four fields above -- see <see cref="EventFileGame.StartTime"/>.
+            /// </summary>
+            public TimeOnly? StartTime { get; private set; }
+
             public List<EventFileRecord> Records { get; } = new();
 
             public void ApplyInfo(string[] row, string filePath)
@@ -205,6 +210,14 @@ namespace Retrosharp.Format.EventFile
                     case "number":
                         GameNumber = byte.Parse(row[2], CultureInfo.InvariantCulture);
                         break;
+                    case "starttime":
+                        // Retrosheet's format ("7:44PM", "1:10PM" -- no space before the AM/PM
+                        // designator, hour without a leading zero). Best-effort: unlike the four
+                        // fields above, a missing or malformed value doesn't fail the game's
+                        // import, since every other field on this page is buildable without it.
+                        if (TimeOnly.TryParseExact(row[2], "h:mmtt", CultureInfo.InvariantCulture, DateTimeStyles.None, out var startTime))
+                            StartTime = startTime;
+                        break;
                 }
             }
 
@@ -221,6 +234,7 @@ namespace Retrosharp.Format.EventFile
                     VisitingTeamCode = VisitingTeamCode,
                     GameDate = GameDate.Value,
                     GameNumber = GameNumber.Value,
+                    StartTime = StartTime,
                     Records = Records
                 };
             }

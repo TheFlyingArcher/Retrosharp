@@ -122,5 +122,23 @@ namespace Retrosharp.UI.Api.Controllers
                 Fielding = fieldingLine
             };
         }
+
+        /// <summary>
+        /// Gets the manager(s) who ran this franchise during the given season, chronologically
+        /// ordered. A season with a mid-season managerial change returns more than one entry.
+        /// </summary>
+        [HttpGet("{id}/managers")]
+        public async Task<ActionResult<IEnumerable<TeamManagerHistoryEntry>>> GetManagerHistory(int id, [FromQuery] short? season)
+        {
+            if (season == null)
+                return BadRequest("season is required.");
+
+            if (await _teamService.GetByIdAsync(id) == null)
+                return NotFound();
+
+            var history = await _teamService.GetManagerHistoryAsync(id, season.Value);
+
+            return Ok(history.Adapt<IEnumerable<TeamManagerHistoryEntry>>());
+        }
     }
 }

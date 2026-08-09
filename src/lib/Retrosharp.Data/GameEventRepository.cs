@@ -96,6 +96,18 @@ namespace Retrosharp.Data
                         foreach (var comment in record.Comments)
                             _context.Set<GameCommentModel>().Add(_mapper.Map<GameCommentModel>(comment));
 
+                        // Only written when the source file actually had a parseable value --
+                        // GameEventContext is a sparse, at-most-one-row-per-game table, not a
+                        // required one (see spec/game-event.md).
+                        if (record.StartTimeLocal.HasValue)
+                        {
+                            _context.Set<GameEventContextModel>().Add(new GameEventContextModel
+                            {
+                                GameId = record.GameId,
+                                StartTimeLocal = record.StartTimeLocal.Value
+                            });
+                        }
+
                         await _context.SaveChangesAsync();
                         await _context.Database.CommitTransactionAsync();
                     }

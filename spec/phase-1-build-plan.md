@@ -578,7 +578,7 @@ All three fixes required a full clear-and-re-import of both real reference files
 
 ## Step 7: Data Viewing API
 
-**Status**: Complete
+**Status**: Being Revised — 7a-7f were built and verified as Step 7's original scope; 7g-7j were added afterward once the frontend prototyping pass (see [frontend-prototype.md](./frontend-prototype.md)) surfaced real gaps against that already-shipped API surface. Reopening this step (rather than filing 7g-7j as a disconnected, separately-numbered addition) keeps every Data Viewing API sub-step in one place.
 
 **Governing spec**: [api.md](./api.md) (routes, response shapes, statistic formulas, and the data-model gaps this step resolves), [project.md](./project.md) (Data Viewing and Statistics features)
 
@@ -594,6 +594,10 @@ Comparably large to Step 6, so it's split into independently built and verified 
 - **7d** — Player game log (per-game stat lines derived on demand from `GameEvent`/`GameEventRunner`).
 - **7e** — Team search, roster, and season statistics.
 - **7f** — Game summary and play-by-play.
+- **7g** — Team season manager history (gap found during frontend prototyping).
+- **7h** — Game summary enrichment: starting pitchers and line score (gap found during frontend prototyping).
+- **7i** — Full game box score, all participants (gap found during frontend prototyping).
+- **7j** — Game start time from event file `info` records (gap found during frontend prototyping).
 
 ### Step 7a: Shared Plumbing, Player Search, Player Detail
 
@@ -771,7 +775,182 @@ A genuine spec/implementation gap surfaced while researching the play-by-play re
 - Live: `games/search` verified against real data -- `franchiseId=106&season=2025` correctly returned `totalCount: 162` (SDN's real full season, from the Game Log Parser's separate, untouched table set); `date=2025-05-16` correctly returned all 15 real games played that day league-wide, including game `3092`. Pagination boundaries verified: empty result (`date=1950-01-01`), offset beyond the end, and an exact-multiple-of-`limit` page.
 - `404` confirmed for a non-existent game ID on all three new routes (including `/events`); `400` confirmed for invalid `limit`/`offset`; a real game with no imported play-by-play (outside the two reference files) correctly returned `{ people: {}, events: [] }` rather than erroring.
 
-This completes Step 7 (Data Viewing API) in full: 7a through 7f are all built, live-verified against real 2025 season data, and documented.
+This completes Step 7's original scope: 7a through 7f are all built, live-verified against real 2025 season data, and documented. Step 7 was subsequently reopened (see the **Status** note at the top of Step 7) to add 7g-7j below, once the frontend prototyping pass surfaced gaps against this already-shipped API surface.
+
+---
+
+### Step 7g: Team Season Manager History
+
+**Status**: In Progress — code and constructed-fixture tests complete; live verification against a real database still outstanding (see Verification performed below).
+
+**Governing spec**: [api.md](./api.md#team-season-manager-history-is-not-yet-exposed) (new endpoint, response shape), [frontend-prototype.md](./frontend-prototype.md#resolved-multiple-managers-per-season) (consuming page and display rule)
+
+**Depends on**: Step 7e (established the `TeamsController`/`ITeamService` pattern this extends).
+
+**Objective**: Add `GET /api/teams/{franchiseId}/managers?season=`, so the Franchise Detail page can display one or more managers per season, correctly reflecting mid-season changes.
+
+**Why this wasn't caught in Step 7e**: Step 7e scoped team-season *statistics* only. The frontend's originally-open "does the data support multiple managers per season" design question wasn't resolved until the frontend prototyping pass — the answer turned out to be yes (managers are recorded per `Game`, not per team-season), which is exactly why no endpoint exists yet: nothing before this needed to query manager data grouped this way.
+
+**Suggested approach**:
+- New `IGameRepository`/`GameRepository` method (or a `TeamService` addition) that fetches a franchise-season's games ordered by `GameDate`, projecting whichever of `HomeManagerId`/`VisitorManagerId` matches the requested franchise per game.
+- Collapse consecutive games under the same manager into a single `{ personId, name, fromDate, toDate }` entry — a season with no change produces exactly one entry.
+- New `TeamManagerHistoryEntry` response DTO in `Retrosharp.UI.Api/Models/`, following the existing DTO-not-Contract-entity convention.
+- `404` for a non-existent franchise, `400` for a missing `season`, consistent with `teams/{franchiseId}/stats`.
+
+**Definition of done**: endpoint live-verified against real imported game data (same 2025 SDN/SEA reference data used throughout Step 7), including at least one constructed fixture proving a mid-season manager change collapses into two correctly-dated entries rather than one entry per game.
+
+### Progress Log
+
+**What was built**:
+- `IGameRepository.GetByFranchiseSeasonAsync(franchiseId, seasonYear)` / `GameRepository`: returns a franchise's games for a season (home or visitor), ordered by `GameDate` then `GameNumber` so doubleheader games sort correctly — the exact ordering the collapsing algorithm below depends on.
+- New `Retrosharp.Contract.Game.ManagerTenure` (`Manager`, `FromDate`, `ToDate`), following the same "service returns Contract types with nested identity already resolved" convention `GameSummaryService` established, rather than a bare-FK shape the controller would have to resolve itself.
+- `ITeamService.GetManagerHistoryAsync(franchiseId, season)` / `TeamService`: single forward pass over the season's chronologically-ordered games, reading whichever of `HomeManagerId`/`VisitorManagerId` matches the requested franchise per game, collapsing consecutive same-manager games into one tenure. `TeamService` gained a new `IGameRepository` constructor dependency (already registered in DI from Step 5, so no `IocRegistratrions.cs` change needed).
+- New `TeamManagerHistoryEntry` response DTO (`Manager: PlayerSearchResult`, `FromDate`, `ToDate`) in `Retrosharp.UI.Api/Models/`.
+- `TeamsController.GetManagerHistory`: `GET /api/teams/{id}/managers?season=`, following `GetStats`'s existing `400`-if-missing-season / `404`-if-franchise-missing shape exactly.
+- **`Retrosharp.Service.Tests`**: a new test project — the solution's first for the Service layer (previously only `Retrosharp.Format.Tests` existed, scoped to parsing logic). `TeamManagerHistoryTests` covers the collapsing algorithm via hand-written in-memory fakes for `IGameRepository`/`IPersonRepository` (no mocking library is referenced anywhere in the solution, and both interfaces are small enough — 5 base `IRepository<T>` members plus a handful each — that hand-rolled fakes were simpler than adding one). `TeamService`'s other four constructor dependencies, unused by this method, are passed as `null!` rather than stubbed out. 4 cases: no change (one tenure spanning the season), a mid-season change (two correctly-dated tenures), a visitor-side franchise (proving `VisitorManagerId` is read, not just `HomeManagerId`), and no games for the season (empty result, not an error).
+
+**Discrepancies and decisions made during implementation**:
+- Marked **In Progress**, not **Complete**, because this sandbox has no reachable Postgres or RabbitMQ instance (confirmed: connection attempts to `localhost:5432` fail) — the live verification every other "Complete" step in this document performed against real imported 2025 SDN/SEA data could not be performed here. The constructed-fixture tests substitute for that, but per this document's own established discipline (e.g. Step 7e/7f), a constructed fixture proves the logic is correct, not that it's wired correctly end-to-end against a real running stack.
+- Creating a whole new test project for one service method was a deliberate, considered choice, not default scope creep: Step 3's own precedent was "create `Retrosharp.Format.Tests` when a first-of-its-kind test is needed," which is exactly the situation here for the Service layer.
+
+**Errors encountered**: none.
+
+**Verification performed**:
+- Full solution build: 0 errors (same pre-existing nullable-reference-warning pattern as every prior step, plus pre-existing NuGet advisory warnings unrelated to this change).
+- `Retrosharp.Service.Tests`: 4/4 passing. `Retrosharp.Format.Tests`: 125/125 passing, unchanged (confirms this step didn't regress anything it touched, namely `IGameRepository`/`ITeamService`).
+- **Outstanding before this step can be marked Complete**: live verification against a real database — `GET /api/teams/106/managers?season=2025` returning SDN's real 2025 manager as a single entry, `404` for a non-existent franchise, `400` for a missing `season` — per this step's original Definition of Done. Needs an environment with a reachable Postgres/RabbitMQ (per Step 8's docker-compose stack) to complete.
+
+---
+
+### Step 7h: Game Summary Enrichment (Starting Pitchers and Line Score)
+
+**Status**: In Progress — schema, parser, and API changes complete and unit-verified; live verification against a real database still outstanding (see Progress Log below).
+
+**Governing spec**: [api.md](./api.md#game-summary-is-missing-starting-pitchers-and-the-inning-by-inning-line-score) (fields, persistence gap), [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season) (consuming page)
+
+**Depends on**: Step 7f (established `GamesController`/`GameSummaryService`/`GameSummaryResponse`, extended here).
+
+**Objective**: Add each team's starting pitcher and inning-by-inning line score to `GET /api/games/{gameId}`, so the Individual Game page can render a standard box score header without guessing the starter from lineup position (which silently breaks for any DH-era game).
+
+**Why this wasn't caught in Step 7f**: Step 7f scoped game summary against what `GameModel` already stored. Starting pitcher was never in scope because the Game Log Parser (Step 5) parses `VisitorStartingPitcherId`/`HomeStartingPitcherId` off the raw file into `GameLog.cs` but never persists them onto `Game`/`GameModel` — a gap that only surfaced once the frontend prototyping pass specified a page needing them. Line score is a smaller oversight: `Game.VisitorLineScore`/`HomeLineScore` were always stored, just never mapped onto `GameSummaryResponse`.
+
+**Suggested approach**:
+- Add `VisitorStartingPitcherId`/`HomeStartingPitcherId` (nullable FK to `Person`) to `Game`/`GameModel`, mirroring the existing `WinningPitcherId`/`LosingPitcherId`/`SavingPitcherId` pattern. New EF Core migration.
+- Update the Game Log Parser's persistence step to populate these two new columns from the `GameLog.VisitorStartingPitcherId`/`HomeStartingPitcherId` fields it already parses.
+- Add both fields (resolved to `PlayerSearchResult`, matching the existing decision/umpire fields' shape) plus the line score to `GameSummaryResponse`.
+- ~~Backfilling already-imported games: re-running the Game Log Parser for already-imported seasons is idempotent (Step 5), so existing data can be backfilled by re-import rather than a one-off migration script.~~ **Corrected during implementation** — this was wrong. `GameRepository.BulkInsertAsync` is skip-only, not upsert (a completed historical game's recorded stats deliberately don't get overwritten, per its own doc comment): a game already present is skipped entirely, so a naive re-import would never populate these new columns on existing rows. Backfilling already-imported data needs either a full wipe-and-reimport (the pattern Step 7f's `RecordIndex` backfill already used) or a small one-off data-fix script — an operational task for whoever has a live database, not new production code added by this step.
+
+**Definition of done**: `GET /api/games/{gameId}` for a real imported game (the existing SDN/SEA 2025 reference data) returns correct starting pitchers for both teams (spot-checked against the source Game Log file) and a correct line score, cross-checked against `VisitorRuns`/`HomeTeamRuns` totals (the line score's own runs must sum to the stored total).
+
+### Progress Log
+
+**What was built**:
+- `VisitorStartingPitcherId`/`HomeStartingPitcherId` (nullable FK to `Person`) added to `Game`/`GameModel`, exactly mirroring the existing `WinningPitcherId`/`LosingPitcherId`/`SavingPitcherId` pattern (including `PersonModel`'s matching back-navigation collections and `RetrosharpContext`'s `HasOne(...).WithMany(...).OnDelete(Restrict)` configuration). Migration `AddGameStartingPitchersAndLineScore` generated and inspected: exactly the two nullable columns, two indexes, and two FKs — no unrelated model drift.
+- `GameLogImportService.MapToGameLogRecordAsync` now resolves `gameLog.VisitorStartingPitcherId`/`HomeStartingPitcherId` via the already-existing `ResolveOptionalPersonIdAsync` helper (the same one already used for `WinningPitcherId`/umpires/etc.), and sets them on `Game`.
+- **Line score placed differently than the Suggested Approach's literal wording**: rather than two top-level `VisitorLineScore`/`HomeLineScore` fields on `GameSummaryResponse`, a single `LineScore` string was added to `GameTeamBoxScore`/`GameTeamBoxScoreResponse` instead — that type already carries each team's `Runs`/`Hits`/`Errors`, and the line score is the same category of per-team fact, not a summary-level one. The Suggested Approach itself flagged the exact shape as "implementer's choice."
+- `GameSummary`/`GameSummaryResponse` gained top-level `VisitorStartingPitcher`/`HomeStartingPitcher` (resolved via `GameSummaryService`'s existing per-request `personCache`, the same pattern already used for every other decision-maker field), matching the shape of `WinningPitcher`/`LosingPitcher`/etc.
+
+**Discrepancies and decisions made during implementation**:
+- The backfill correction described above (Suggested Approach struck through and replaced).
+- No new unit test added for this step, unlike Step 7g — this is straight-line plumbing (resolve two more IDs the same way six others already are; map two more fields the same way twelve others already are), with no new branching algorithm to verify in isolation the way Step 7g's manager-tenure-collapsing logic needed.
+
+**Errors encountered**: none.
+
+**Verification performed**:
+- Full solution build: 0 errors, both before writing the migration (to confirm the model changes alone compiled) and after.
+- `dotnet ef migrations add` succeeded without a live database connection (migration generation is a design-time/model-diff operation, not a live-connection one) and produced the minimal expected diff, manually inspected.
+- Full test suite: 125/125 (`Format.Tests`) + 4/4 (`Service.Tests`) passing, unchanged — confirms this step didn't regress `GameLogImportService`/`GameSummaryService`/the EF model.
+- **Outstanding before this step can be marked Complete**, same limitation as Step 7g: this sandbox has no reachable Postgres/RabbitMQ, so the live checks from this step's own Definition of Done (`GET /api/games/{gameId}` against real imported SDN/SEA 2025 data, spot-checked starting pitchers and line score) have not been performed.
+
+---
+
+### Step 7i: Full Game Box Score (All Participants)
+
+**Status**: In Progress — code and constructed-fixture tests complete; live verification against a real database still outstanding, same as 7g/7h.
+
+**Governing spec**: [api.md](./api.md#per-game-battingpitching-box-score-all-participants-is-not-yet-exposed) (derivation, response shape), [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season) (consuming page)
+
+**Depends on**: Step 7d (the per-player, per-game classification logic this reuses, just grouped the other way), Step 7h (this step extends the same `GameSummaryResponse`).
+
+**Objective**: Add a per-player batting line and pitching line for every batter and pitcher who appeared in a game — starters and substitutes alike — to `GET /api/games/{gameId}`, so the Individual Game page can render a full box score instead of team totals plus a bare starting lineup.
+
+**Why this wasn't caught in Step 7f**: Step 7f's box score was scoped to team-level totals (`GameBoxScoreBatting`/`GameBoxScorePitching`, summed from `GameBattingStatistics`/`GamePitchingStatistics`) and the *starting* lineup only (`GameLineup`). Nothing before this needed "every participant's individual line for one game" — the only existing per-game-line derivation (Step 7d's `GameBattingLine`/`GamePitchingLine`) was built and grouped the opposite way, for one player's games across a season.
+
+**Suggested approach**:
+- New repository/service methods that group `GameEvent`/`GameEventRunner` rows (batting) and `GameEvent` rows (pitching) by `BatterId`/`PitcherId` for a single `GameId` — the same counting-stat classification Step 6d/7d already established, just grouped by player-within-game instead of game-within-player-season.
+- Reuse `GameBattingLine`/`GamePitchingLine`'s existing field shape rather than inventing a new one, adding batter identity (`PlayerSearchResult`) and defensive position(s) played (from `GameLineup` for starters, `GameSubstitution` for players who entered mid-game).
+- Extend `GameSummaryResponse` with `HomeBattingLines`/`VisitorBattingLines`/`HomePitchingLines`/`VisitorPitchingLines` collections, keeping the whole page servable from one request rather than adding a separate route.
+
+**Definition of done**: `GET /api/games/{gameId}` for a real imported game returns one line per distinct batter and one line per distinct pitcher for both teams, with each team's summed batting lines matching that team's already-verified `GameBoxScoreBatting` totals exactly (a built-in reconciliation check, the same technique Step 6e already uses elsewhere).
+
+### Progress Log
+
+**What was found (starting state)**: no new grouping query was actually needed. `GameStatisticsResolver.Resolve(...)` (Step 6d) already computes a `GameStatisticsDelta` containing **every** batter's and pitcher's delta for a game in one pass — `PlayerGameLogService` (Step 7d) was already calling it per game, just immediately filtering `statistics.Battings`/`Pitchings` down to one `PersonId` to build one player's game log entry. The "Suggested approach" above assumed a new grouped query would be needed; it wasn't — only the filter needed removing, and the split changed from "by `PersonId`" to "by `FranchiseId`" (home vs. visitor).
+
+**What was built**:
+- `GameSummaryService` gained two new constructor dependencies, `IGameEventRepository` and `IGameSubstitutionRepository` (both already registered in DI from Steps 6/7f — no `IocRegistratrions.cs` change needed). `GetSummaryAsync` now fetches the game's play-by-play via `GetGamesPlayByPlayAsync(new[] { gameId })` and, when present, resolves a `GameStatisticsDelta` exactly the way `PlayerGameLogService.ResolveGameStatistics` does (`GameReconciliationResolver.ResolveIndependentEarnedRuns` + `GameStatisticsResolver.Resolve`). When absent (no imported event file for this game), `Batters`/`Pitchers` stay empty lists rather than erroring — the same graceful-empty convention play-by-play itself already uses.
+- New Contract types (`Retrosharp.Contract.Game.GameSummary.cs`): `GameBoxScoreBattingParticipant`/`GameBoxScorePitchingParticipant` (`Player`, and for batting `Position`, plus a nested `Stats: BattingDelta`/`PitchingDelta` rather than a flattened field-for-field copy — matching how `GameTeamBoxScore` already nests `GameBattingStatistics`/`GamePitchingStatistics`/`GameFieldingStatistics` rather than flattening them). Added as `Batters`/`Pitchers` collections on the existing `GameTeamBoxScore`.
+- `GameSummaryService.ResolvePosition` (`public static`, no I/O): combines a batter's starting lineup position (`GameLineup`) with every position recorded via `GameSubstitution` for that same person (Retrosheet records an in-game position change as another substitution row for the same person, not just entries/exits — this is a discrepancy/assumption, see below), de-duplicated, comma-joined, assuming the substitution list is already ordered by `RecordIndex` (as `IGameSubstitutionRepository.GetByGameIdAsync` already returns it). Extracted as a standalone static method specifically so it's unit-testable without a database, the same reasoning as Step 7g's manager-tenure collapsing logic.
+- Matching DTOs in `Retrosharp.UI.Api/Models/GameSummaryResponse.cs`: `GameBoxScoreBattingParticipant`/`GameBoxScorePitchingParticipant` (nested `Stats: GameBoxScoreBattingParticipantStats`/`GameBoxScorePitchingParticipantStats`), added as `Batters`/`Pitchers` on `GameTeamBoxScoreResponse`. Nested (not flattened) specifically so Mapster's existing nested-object mapping convention (already proven via `GameTeamBoxScore.Batting` → `GameTeamBoxScoreResponse.Batting`) applies here too, with no new mapping configuration.
+- `GamesController.GetById`: one explicit fixup loop (`FixUpInningsPitchedDisplay`) setting each pitching line's display-friendly innings string from the pre-map `PitchingDelta.InningsPitched` (raw outs) — the same category of "Mapster can't compute a derived field, fix it up explicitly by index after the blind `Adapt<T>()`" pattern already established for `PitchingLine.InningsPitchedDisplay` (Step 7d) and `BattingLine.Hits` (Step 7e). Everything else on `GameTeamBoxScoreResponse`, including the new `Batters`/`Pitchers` collections themselves, is picked up by the existing blind `.Adapt<GameTeamBoxScoreResponse>()` call with no controller changes.
+- Fixed a pre-existing, unrelated doc-comment inaccuracy noticed while documenting the new `Position` field: `GameLineup.Position`/`GameLineupModel.Position`/`GameLineupEntryResponse.Position`'s doc comments claimed the stored value looks like `"1B"`/`"SS"`/`"CF"`; the real, already-tested value (confirmed via `GameLogMappingTests.cs`) is Retrosheet's raw numeric position code as a string (`"7"`, `"4"`, `"10"`). No code changed — only the three doc comments, since leaving a known-wrong comment directly next to the new, correctly-documented `Position` field would have been actively misleading.
+- `Retrosharp.Service.Tests`: 6 new tests in `GameSummaryPositionResolutionTests`, covering `ResolvePosition` — starting-lineup-only, substitute-with-no-starting-entry, a starter who changes position mid-game (two positions, comma-joined), duplicate-position de-duplication, no matching record on either side (null), and opponent-side records being correctly ignored even with a colliding `PersonId` (guards against the same home/visitor mix-up class of bug Step 7g's tests guarded against).
+
+**Discrepancies and decisions made during implementation**:
+- The "new grouping query" scope reduction described above.
+- **A real assumption, not a verified fact**: that Retrosheet records an in-game position change (same player, same game, different fielding position, no actual substitution) as another `GameSubstitution` row for that same `PersonId`, rather than some other mechanism (e.g. a `GameAdjustment` record, or nothing at all if position-only changes aren't tracked). This wasn't independently verified against Retrosheet's format documentation or a real example in this session — flagged explicitly rather than silently assumed correct. If wrong, `ResolvePosition` would under-report multi-position games (returning only the starting position) but would not error or crash.
+- New response shape (`GameBoxScoreBattingParticipant`/`GameBoxScorePitchingParticipant`, nested `Stats`) rather than the Suggested Approach's literal `HomeBattingLines`/`VisitorBattingLines`/`HomePitchingLines`/`VisitorPitchingLines` reusing `GameBattingLine`/`GamePitchingLine` verbatim — those DTOs carry `GameId`/`GameDate`/`FranchiseCode`/`OpponentFranchiseCode` fields that are redundant once nested under one specific game's one specific team's box score, and would have rendered as confusing always-zero/always-blank fields per row.
+
+**Errors encountered**: none.
+
+**Verification performed**:
+- Full solution build: 0 errors (same pre-existing warning set as every prior step).
+- `Retrosharp.Service.Tests`: 10/10 passing (4 from Step 7g + 6 new). `Retrosharp.Format.Tests`: 125/125, unchanged.
+- **Outstanding before this step can be marked Complete**, same limitation as 7g/7h: no reachable Postgres/RabbitMQ in this sandbox, so this step's own Definition of Done (one line per distinct batter/pitcher against real SDN/SEA 2025 data, with each team's summed batting lines reconciling exactly against `GameBoxScoreBatting` totals) has not been performed. That reconciliation check in particular is the most valuable live check remaining across all of 7g-7j, since it would catch any real discrepancy between `GameStatisticsResolver`'s per-player deltas and the Game Log Parser's independently-sourced team totals — something no constructed fixture can substitute for.
+
+---
+
+### Step 7j: Game Start Time from Event File `info` Records
+
+**Status**: In Progress — code and real-fixture tests complete; live verification against a real database still outstanding, same as 7g/7h/7i.
+
+**Governing spec**: [game-event.md](./game-event.md#future-enhancement-phase-1-gap-game-start-time-from-info-records) (parser-level gap, the `Game`-exclusivity and `GameEventGameStatus`-scope constraints on where the fix lives), [api.md](./api.md#game-start-time-is-parsed-and-discarded-not-stored) (response wiring), [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season) (consuming page)
+
+**Depends on**: Step 6b/6c (extends `EventFileReader`/`EventFileGame` and sits alongside the context tables those steps built), Step 7h (this step's data lands on the same `GameSummaryResponse` fields Step 7h is already extending).
+
+**Objective**: Capture each game's local start time from its event file's `info,starttime,...` record (already read off disk but silently discarded today) and surface it on `GET /api/games/{gameId}`.
+
+**Why this wasn't caught in Step 6**: Step 6's `EventFileReader.ApplyInfo` was scoped to the four `info` fields needed to identify and build an `EventFileGame` (`hometeam`/`visteam`/`date`/`number`) — enough to match games and drive `GameEvent` derivation, which was Step 6's whole objective. Every other `info` field, including `starttime`, was never in scope until the frontend prototyping pass asked for it.
+
+**Suggested approach**:
+- Add a `StartTime` property to `EventFileReader`'s `EventFileGame`/its builder, populated by a new `starttime` case in `ApplyInfo`'s switch, parsed from Retrosheet's `h:mmtt` format (e.g. `"7:44PM"`) into a `TimeOnly?`.
+- New `GameEventContext` table (`GameId` primary key/foreign key to `Game`, `StartTimeLocal` nullable `TimeOnly?`), owned by the Game Event Parser — **not** a new column on `Game`/`GameModel` (would violate the Game Log Parser's exclusive write ownership of `Game`, per game-event.md) and **not** added to `GameEventGameStatus` (a narrow concurrency-control marker, not a general metadata store; conflating the two concerns would make that table's one job — the atomic double-processing guard — harder to reason about).
+- Persist a `GameEventContext` row (when `StartTime` was present in the file) at the same point Step 6c's context tables (`GameSubstitution`/`GameAdjustment`/`GameComment`) are written for a game.
+- Add `StartTimeLocal` to `GameSummaryResponse`, joined from `GameEventContext`, alongside Step 7h's other additions. Null for any game with no imported event file — this is expected, not an error, mirroring play-by-play's own coverage limitation.
+
+**Definition of done**: `GET /api/games/{gameId}` for a real imported game (the existing SDN/SEA 2025 reference data) returns the correct start time, spot-checked against the source event file's `info,starttime` record; a game with no imported event file returns `null` rather than erroring.
+
+### Progress Log
+
+**What was built**:
+- `EventFileGame`/`EventFileReader.GameBuilder`: new `StartTime` (`TimeOnly?`) property, populated by a new `starttime` case in `ApplyInfo`'s switch via `TimeOnly.TryParseExact(row[2], "h:mmtt", CultureInfo.InvariantCulture, DateTimeStyles.None, out var startTime)`. Deliberately best-effort — unlike `hometeam`/`visteam`/`date`/`number` (which fail the whole game's `Build()` if missing), a missing or unparseable `starttime` just leaves `StartTime` null; nothing else on this page depends on it.
+- New Contract type `GameEventContext` (`GameId`, `StartTimeLocal: TimeOnly?`) and matching `GameEventContextModel`, mirroring `GameEventGameStatusModel`'s exact shape (shared primary key, doesn't inherit `DbModel`, `HasOne(...).WithOne(...).HasForeignKey<T>(...)` in `RetrosharpContext`) — the two structural constraints flagged in the Suggested Approach (don't touch `Game`, don't overload `GameEventGameStatus`) held up as designed, no surprises.
+- Migration `AddGameEventContext`: exactly one new table, `GameId` PK/FK to `Game`, `StartTimeLocal` as Postgres `time without time zone` (Npgsql mapped `TimeOnly?` cleanly — no `DateTime.Kind` mismatch to work around this time, since `TimeOnly` has no timezone/Kind concept at all, unlike the `DateTime`/`timestamp with time zone` issue Step 8 hit).
+- `GameEventRecord` gained `StartTimeLocal`, set in `GameEventImportService.MapToGameEventRecordAsync` from `game.StartTime`. `GameEventRepository.BulkInsertAsync` persists a `GameEventContext` row only `if (record.StartTimeLocal.HasValue)` — this table is sparse by design, not one row per game unconditionally.
+- New `IGameEventContextRepository`/`GameEventContextRepository` (read-only — writes happen directly in `BulkInsertAsync`, the same split already used for `GameSubstitution`/`GameAdjustment`/`GameComment`, which have their own read-only repositories too despite being written inline elsewhere).
+- `GameSummaryService`/`GameSummary`/`GameSummaryResponse`/`GamesController`: `StartTimeLocal` fetched via the new repository and threaded through to the response, alongside the fields Step 7h already added.
+
+**Discrepancies and decisions made during implementation**: none beyond what the Suggested Approach already anticipated — this step matched its own plan more closely than 7g/7h/7i did.
+
+**Errors encountered**: none.
+
+**Verification performed**:
+- Full solution build: 0 errors, both before and after generating the migration.
+- `dotnet ef migrations add` succeeded without a live database connection, minimal expected diff manually inspected.
+- **Real-fixture test, not just constructed data**: `Retrosharp.Format.Tests`' existing `eventfile_sample.EVN` fixture (5 real games trimmed from the actual `2025SDN.EVN` file) already contains real `info,starttime,...` records for all 5 games. Added a new `[Theory]` asserting `EventFileGame.StartTime` parses correctly for all 5 real values (`1:10PM`, `4:10PM`, `6:40PM`, `1:10PM`, `6:40PM`) — this is the strongest kind of verification available without a live database, since it's real Retrosheet-format data, not a hand-constructed edge case.
+- Full test suite: 130/130 (`Format.Tests`, 125 existing + 5 new) + 10/10 (`Service.Tests`, unchanged) passing.
+- **Not tested**: the tolerance path (malformed/missing `starttime` doesn't fail the game). No existing fixture has a malformed value, and constructing one solely for this would have been disproportionate to the risk — `TryParseExact`'s failure mode (return `false`, leave the `out` parameter at its default) is standard, low-risk .NET behavior, unlike the genuinely novel collapsing/position-resolution algorithms Steps 7g/7i needed dedicated tests for.
+- **Outstanding before this step can be marked Complete**, same limitation as 7g/7h/7i: no reachable Postgres/RabbitMQ in this sandbox, so this step's own Definition of Done (`GET /api/games/{gameId}` returning the correct start time against real imported data) has not been performed.
 
 ---
 
@@ -823,93 +1002,6 @@ A subsequent research pass over the whole `src/` tree (before writing any code) 
 - Live, full end-to-end messaging pipeline: `POST /api/Diagnostics/ping` against the containerized UI.Api produced a message that traveled through the containerized RabbitMQ and was received and logged by the containerized Engine.Console (`Received PingMessage ...`), confirming the whole message bus wiring works correctly under the new infrastructure, not just each piece in isolation.
 - ARM64 image builds succeeded via `docker buildx build --platform linux/arm64` for all three Dockerfiles (verified via QEMU emulation on the x64 dev machine; physical Raspberry Pi hardware verification is explicitly out of reach here and left as a follow-up).
 - The pre-existing standalone `rabbitmq` container (in continuous use throughout Steps 4-7) was temporarily stopped to free its ports for this verification and restarted afterward; the compose stack itself was stopped (not removed) after verification, preserving its Postgres data volume.
-
----
-
-## Step 7g: Team Season Manager History
-
-**Status**: Not Started
-
-**Governing spec**: [api.md](./api.md#team-season-manager-history-is-not-yet-exposed) (new endpoint, response shape), [frontend-prototype.md](./frontend-prototype.md#resolved-multiple-managers-per-season) (consuming page and display rule)
-
-**Depends on**: Step 7e (established the `TeamsController`/`ITeamService` pattern this extends).
-
-**Objective**: Add `GET /api/teams/{franchiseId}/managers?season=`, so the Franchise Detail page can display one or more managers per season, correctly reflecting mid-season changes.
-
-**Why this wasn't caught in Step 7e**: Step 7e scoped team-season *statistics* only. The frontend's originally-open "does the data support multiple managers per season" design question wasn't resolved until the frontend prototyping pass — the answer turned out to be yes (managers are recorded per `Game`, not per team-season), which is exactly why no endpoint exists yet: nothing before this needed to query manager data grouped this way.
-
-**Suggested approach**:
-- New `IGameRepository`/`GameRepository` method (or a `TeamService` addition) that fetches a franchise-season's games ordered by `GameDate`, projecting whichever of `HomeManagerId`/`VisitorManagerId` matches the requested franchise per game.
-- Collapse consecutive games under the same manager into a single `{ personId, name, fromDate, toDate }` entry — a season with no change produces exactly one entry.
-- New `TeamManagerHistoryEntry` response DTO in `Retrosharp.UI.Api/Models/`, following the existing DTO-not-Contract-entity convention.
-- `404` for a non-existent franchise, `400` for a missing `season`, consistent with `teams/{franchiseId}/stats`.
-
-**Definition of done**: endpoint live-verified against real imported game data (same 2025 SDN/SEA reference data used throughout Step 7), including at least one constructed fixture proving a mid-season manager change collapses into two correctly-dated entries rather than one entry per game.
-
----
-
-## Step 7h: Game Summary Enrichment (Starting Pitchers and Line Score)
-
-**Status**: Not Started
-
-**Governing spec**: [api.md](./api.md#game-summary-is-missing-starting-pitchers-and-the-inning-by-inning-line-score) (fields, persistence gap), [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season) (consuming page)
-
-**Depends on**: Step 7f (established `GamesController`/`GameSummaryService`/`GameSummaryResponse`, extended here).
-
-**Objective**: Add each team's starting pitcher and inning-by-inning line score to `GET /api/games/{gameId}`, so the Individual Game page can render a standard box score header without guessing the starter from lineup position (which silently breaks for any DH-era game).
-
-**Why this wasn't caught in Step 7f**: Step 7f scoped game summary against what `GameModel` already stored. Starting pitcher was never in scope because the Game Log Parser (Step 5) parses `VisitorStartingPitcherId`/`HomeStartingPitcherId` off the raw file into `GameLog.cs` but never persists them onto `Game`/`GameModel` — a gap that only surfaced once the frontend prototyping pass specified a page needing them. Line score is a smaller oversight: `Game.VisitorLineScore`/`HomeLineScore` were always stored, just never mapped onto `GameSummaryResponse`.
-
-**Suggested approach**:
-- Add `VisitorStartingPitcherId`/`HomeStartingPitcherId` (nullable FK to `Person`) to `Game`/`GameModel`, mirroring the existing `WinningPitcherId`/`LosingPitcherId`/`SavingPitcherId` pattern. New EF Core migration.
-- Update the Game Log Parser's persistence step to populate these two new columns from the `GameLog.VisitorStartingPitcherId`/`HomeStartingPitcherId` fields it already parses.
-- Add both fields (resolved to `PlayerSearchResult`, matching the existing decision/umpire fields' shape) plus `VisitorLineScore`/`HomeLineScore` (raw strings, or split into an `int[]` of per-inning runs — implementer's choice, whichever is cheaper to render on the frontend) to `GameSummaryResponse`.
-- Backfilling already-imported games: re-running the Game Log Parser for already-imported seasons is idempotent (Step 5), so existing data can be backfilled by re-import rather than a one-off migration script.
-
-**Definition of done**: `GET /api/games/{gameId}` for a real imported game (the existing SDN/SEA 2025 reference data) returns correct starting pitchers for both teams (spot-checked against the source Game Log file) and a correct line score, cross-checked against `VisitorRuns`/`HomeTeamRuns` totals (the line score's own runs must sum to the stored total).
-
----
-
-## Step 7i: Full Game Box Score (All Participants)
-
-**Status**: Not Started
-
-**Governing spec**: [api.md](./api.md#per-game-battingpitching-box-score-all-participants-is-not-yet-exposed) (derivation, response shape), [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season) (consuming page)
-
-**Depends on**: Step 7d (the per-player, per-game classification logic this reuses, just grouped the other way), Step 7h (this step extends the same `GameSummaryResponse`).
-
-**Objective**: Add a per-player batting line and pitching line for every batter and pitcher who appeared in a game — starters and substitutes alike — to `GET /api/games/{gameId}`, so the Individual Game page can render a full box score instead of team totals plus a bare starting lineup.
-
-**Why this wasn't caught in Step 7f**: Step 7f's box score was scoped to team-level totals (`GameBoxScoreBatting`/`GameBoxScorePitching`, summed from `GameBattingStatistics`/`GamePitchingStatistics`) and the *starting* lineup only (`GameLineup`). Nothing before this needed "every participant's individual line for one game" — the only existing per-game-line derivation (Step 7d's `GameBattingLine`/`GamePitchingLine`) was built and grouped the opposite way, for one player's games across a season.
-
-**Suggested approach**:
-- New repository/service methods that group `GameEvent`/`GameEventRunner` rows (batting) and `GameEvent` rows (pitching) by `BatterId`/`PitcherId` for a single `GameId` — the same counting-stat classification Step 6d/7d already established, just grouped by player-within-game instead of game-within-player-season.
-- Reuse `GameBattingLine`/`GamePitchingLine`'s existing field shape rather than inventing a new one, adding batter identity (`PlayerSearchResult`) and defensive position(s) played (from `GameLineup` for starters, `GameSubstitution` for players who entered mid-game).
-- Extend `GameSummaryResponse` with `HomeBattingLines`/`VisitorBattingLines`/`HomePitchingLines`/`VisitorPitchingLines` collections, keeping the whole page servable from one request rather than adding a separate route.
-
-**Definition of done**: `GET /api/games/{gameId}` for a real imported game returns one line per distinct batter and one line per distinct pitcher for both teams, with each team's summed batting lines matching that team's already-verified `GameBoxScoreBatting` totals exactly (a built-in reconciliation check, the same technique Step 6e already uses elsewhere).
-
----
-
-## Step 7j: Game Start Time from Event File `info` Records
-
-**Status**: Not Started
-
-**Governing spec**: [game-event.md](./game-event.md#future-enhancement-phase-1-gap-game-start-time-from-info-records) (parser-level gap, the `Game`-exclusivity and `GameEventGameStatus`-scope constraints on where the fix lives), [api.md](./api.md#game-start-time-is-parsed-and-discarded-not-stored) (response wiring), [frontend-prototype.md](./frontend-prototype.md#individual-game-played-in-a-season) (consuming page)
-
-**Depends on**: Step 6b/6c (extends `EventFileReader`/`EventFileGame` and sits alongside the context tables those steps built), Step 7h (this step's data lands on the same `GameSummaryResponse` fields Step 7h is already extending).
-
-**Objective**: Capture each game's local start time from its event file's `info,starttime,...` record (already read off disk but silently discarded today) and surface it on `GET /api/games/{gameId}`.
-
-**Why this wasn't caught in Step 6**: Step 6's `EventFileReader.ApplyInfo` was scoped to the four `info` fields needed to identify and build an `EventFileGame` (`hometeam`/`visteam`/`date`/`number`) — enough to match games and drive `GameEvent` derivation, which was Step 6's whole objective. Every other `info` field, including `starttime`, was never in scope until the frontend prototyping pass asked for it.
-
-**Suggested approach**:
-- Add a `StartTime` property to `EventFileReader`'s `EventFileGame`/its builder, populated by a new `starttime` case in `ApplyInfo`'s switch, parsed from Retrosheet's `h:mmtt` format (e.g. `"7:44PM"`) into a `TimeOnly?`.
-- New `GameEventContext` table (`GameId` primary key/foreign key to `Game`, `StartTimeLocal` nullable `TimeOnly?`), owned by the Game Event Parser — **not** a new column on `Game`/`GameModel` (would violate the Game Log Parser's exclusive write ownership of `Game`, per game-event.md) and **not** added to `GameEventGameStatus` (a narrow concurrency-control marker, not a general metadata store; conflating the two concerns would make that table's one job — the atomic double-processing guard — harder to reason about).
-- Persist a `GameEventContext` row (when `StartTime` was present in the file) at the same point Step 6c's context tables (`GameSubstitution`/`GameAdjustment`/`GameComment`) are written for a game.
-- Add `StartTimeLocal` to `GameSummaryResponse`, joined from `GameEventContext`, alongside Step 7h's other additions. Null for any game with no imported event file — this is expected, not an error, mirroring play-by-play's own coverage limitation.
-
-**Definition of done**: `GET /api/games/{gameId}` for a real imported game (the existing SDN/SEA 2025 reference data) returns the correct start time, spot-checked against the source event file's `info,starttime` record; a game with no imported event file returns `null` rather than erroring.
 
 ---
 
