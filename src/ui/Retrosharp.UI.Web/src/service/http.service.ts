@@ -1,13 +1,12 @@
-import { Injectable } from '@angular/core';
+import { inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http'
 import { Observable } from 'rxjs';
 
-@Injectable({
-  providedIn: 'root'
-})
 export class HttpService {
 
-  constructor(protected http: HttpClient) {
+  private http: HttpClient = inject(HttpClient)
+
+  constructor() {
     this.isCrossOrigin = false;
   }
 
