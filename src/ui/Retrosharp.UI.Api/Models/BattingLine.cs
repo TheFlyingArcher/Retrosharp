@@ -45,6 +45,12 @@ namespace Retrosharp.UI.Api.Models
 
         public short GroundedIntoDoublePlay { get; set; }
 
+        public short RunsBattedIn { get; set; }
+
+        public short GamesPlayed { get; set; }
+
+        public short GamesStarted { get; set; }
+
         public int TotalBases { get; set; }
 
         public float BattingAverage { get; set; }

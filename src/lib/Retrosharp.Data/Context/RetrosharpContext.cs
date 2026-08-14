@@ -24,6 +24,7 @@ namespace Retrosharp.Data.Context
         public DbSet<BattingModel> Batting { get; set; }
         public DbSet<FieldingModel> Fielding { get; set; }
         public DbSet<FranchiseModel> Franchises { get; set; }
+        public DbSet<FranchiseSeasonStandingModel> FranchiseSeasonStandings { get; set; }
         public DbSet<GameModel> Games { get; set; }
         public DbSet<GameLineupModel> GameLineups { get; set; }
         public DbSet<GameBattingStatisticsModel> GameBattingStatistics { get; set; }
@@ -97,6 +98,21 @@ namespace Retrosharp.Data.Context
                 entity.HasOne(f => f.League)
                     .WithMany(l => l.Franchises)
                     .HasForeignKey(f => f.LeagueId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure FranchiseSeasonStanding entity
+            modelBuilder.Entity<FranchiseSeasonStandingModel>(entity =>
+            {
+                // Recomputation replaces a whole season's rows atomically (see
+                // FranchiseSeasonStandingRepository.ReplaceSeasonAsync), so this only needs to
+                // guard against two concurrent recomputes of the same season producing
+                // duplicate rows -- not an incremental upsert key like Batting/Pitching/Fielding.
+                entity.HasIndex(e => new { e.FranchiseId, e.SeasonYear }).IsUnique();
+
+                entity.HasOne(s => s.Franchise)
+                    .WithMany()
+                    .HasForeignKey(s => s.FranchiseId)
                     .OnDelete(DeleteBehavior.Restrict);
             });
 

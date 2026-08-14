@@ -41,12 +41,23 @@ namespace Retrosharp.Format.PlayByPlay
             GameEventType.Walk, GameEventType.IntentionalWalk, GameEventType.HitByPitch, GameEventType.CatcherInterference
         ];
 
+        /// <param name="startingBatterFranchiseIds">
+        /// Maps each player who started the game in the batting order (a "start" record with a
+        /// nonzero batting order -- see <see cref="Retrosharp.Format.EventFile.StartRecord"/>) to
+        /// the franchise they started for. Optional, and orthogonal to <paramref name="plays"/>: a
+        /// starter who is removed before ever batting or reaching base still needs a Batting row
+        /// with <c>GamesStarted = 1</c>, which the play list alone can't establish. Omitted by
+        /// callers that only need on-demand per-game deltas (<c>PlayerGameLogService</c>,
+        /// <c>GameSummaryService</c>) rather than the persisted season aggregate, in which case
+        /// every delta's <c>GamesStarted</c> is 0.
+        /// </param>
         public static GameStatisticsDelta Resolve(
             int homeFranchiseId,
             int visitorFranchiseId,
             short seasonYear,
             IReadOnlyList<GameEventPlayRecord> plays,
-            IReadOnlyDictionary<int, short> earnedRunsByPitcherId)
+            IReadOnlyDictionary<int, short> earnedRunsByPitcherId,
+            IReadOnlyDictionary<int, int>? startingBatterFranchiseIds = null)
         {
             var batting = new Dictionary<int, BattingAccumulator>();
             var pitching = new Dictionary<int, PitchingAccumulator>();
@@ -69,6 +80,15 @@ namespace Retrosharp.Format.PlayByPlay
 
                 var batterAcc = GetOrAdd(batting, evt.BatterId, battingFranchiseId);
                 ApplyBatterEvent(batterAcc, evt);
+
+                // RBI is credited to this play's batter, not to whichever runner(s) actually
+                // crossed the plate -- e.g. a sac fly's RBI goes to the batter, while the Run
+                // itself (below) goes to the scoring runner. IsRBI already encodes Retrosheet's
+                // own (RBI)/(NORBI)/(NR) annotations, so counting it here is the batter-level
+                // mirror of GameReconciliationResolver's identical team-level count.
+                var rbiCount = play.Runners.Count(r => r.Runner.IsRBI);
+                if (rbiCount > 0)
+                    batterAcc.RunsBattedIn += (short)rbiCount;
 
                 var pitcherAcc = GetOrAdd(pitching, evt.PitcherId, fieldingFranchiseId);
                 ApplyPitcherEvent(pitcherAcc, evt.EventType);
@@ -130,6 +150,12 @@ namespace Retrosharp.Format.PlayByPlay
                     batterAcc.GroundedIntoDoublePlay++;
             }
 
+            if (startingBatterFranchiseIds != null)
+            {
+                foreach (var (personId, franchiseId) in startingBatterFranchiseIds)
+                    GetOrAdd(batting, personId, franchiseId).Started = true;
+            }
+
             foreach (var (personId, pitcherAcc) in pitching)
             {
                 var isStarter = personId == homeStartingPitcherId || personId == visitorStartingPitcherId;
@@ -163,7 +189,10 @@ namespace Retrosharp.Format.PlayByPlay
                 StolenBases = kv.Value.StolenBases,
                 TimesCaughtStealing = kv.Value.TimesCaughtStealing,
                 Runs = kv.Value.Runs,
-                GroundedIntoDoublePlay = kv.Value.GroundedIntoDoublePlay
+                GroundedIntoDoublePlay = kv.Value.GroundedIntoDoublePlay,
+                RunsBattedIn = kv.Value.RunsBattedIn,
+                GamesPlayed = 1,
+                GamesStarted = (short)(kv.Value.Started ? 1 : 0)
             }).ToList();
 
             var pitchingDeltas = pitching.Select(kv => new PitchingDelta
@@ -300,6 +329,8 @@ namespace Retrosharp.Format.PlayByPlay
             public short TimesCaughtStealing;
             public short Runs;
             public short GroundedIntoDoublePlay;
+            public short RunsBattedIn;
+            public bool Started;
         }
 
         private sealed class PitchingAccumulator : IAccumulator

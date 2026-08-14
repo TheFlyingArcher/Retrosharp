@@ -23,7 +23,7 @@ namespace Retrosharp.Format.Tests
 
         private static GameEventRunnerRecord Runner(
             int personId, BaseState startBase, BaseState endBase, bool isOut = false,
-            int? responsiblePitcherId = null, params GameEventFieldingCredit[] credits) =>
+            int? responsiblePitcherId = null, bool isRBI = false, params GameEventFieldingCredit[] credits) =>
             new()
             {
                 Runner = new GameEventRunner
@@ -32,7 +32,8 @@ namespace Retrosharp.Format.Tests
                     StartBase = startBase,
                     EndBase = endBase,
                     IsOut = isOut,
-                    ResponsiblePitcherId = responsiblePitcherId
+                    ResponsiblePitcherId = responsiblePitcherId,
+                    IsRBI = isRBI
                 },
                 FieldingCredits = credits
             };
@@ -320,6 +321,79 @@ namespace Retrosharp.Format.Tests
             var delta = Resolve(play);
 
             Assert.Equal(0, Assert.Single(delta.Pitchings).Saves);
+        }
+
+        [Fact]
+        public void Resolve_RunScoresWithRBI_CreditedToCurrentBatterNotScoringRunner()
+        {
+            // Batter 14 singles, driving in runner 6 from third -- the RBI belongs to the
+            // batter whose plate appearance this is, not to runner 6 (who gets the Run instead).
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 14, PitcherId = 31, EventType = GameEventType.Single };
+            var play = Play(
+                evt,
+                Runner(14, BaseState.BattersBox, BaseState.First),
+                Runner(6, BaseState.Third, BaseState.Home, isRBI: true));
+
+            var delta = Resolve(play);
+
+            var batterBatting = Assert.Single(delta.Battings, b => b.PersonId == 14);
+            Assert.Equal(1, batterBatting.RunsBattedIn);
+
+            var scoringRunnerBatting = Assert.Single(delta.Battings, b => b.PersonId == 6);
+            Assert.Equal(1, scoringRunnerBatting.Runs);
+            Assert.Equal(0, scoringRunnerBatting.RunsBattedIn);
+        }
+
+        [Fact]
+        public void Resolve_MultipleRunnersScoreWithRBIOnSamePlay_AllCreditedToBatter()
+        {
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 15, PitcherId = 25, EventType = GameEventType.Double };
+            var play = Play(
+                evt,
+                Runner(15, BaseState.BattersBox, BaseState.Second),
+                Runner(7, BaseState.First, BaseState.Home, isRBI: true),
+                Runner(8, BaseState.Second, BaseState.Home, isRBI: true));
+
+            var delta = Resolve(play);
+
+            var batterBatting = Assert.Single(delta.Battings, b => b.PersonId == 15);
+            Assert.Equal(2, batterBatting.RunsBattedIn);
+        }
+
+        [Fact]
+        public void Resolve_EveryBatterGetsGamesPlayed()
+        {
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 10, PitcherId = 20, EventType = GameEventType.Single };
+            var play = Play(evt, Runner(10, BaseState.BattersBox, BaseState.First));
+
+            var delta = Resolve(play);
+
+            Assert.Equal(1, Assert.Single(delta.Battings).GamesPlayed);
+        }
+
+        [Fact]
+        public void Resolve_StartingBatterFranchiseIds_SetsGamesStartedOnlyForStarters()
+        {
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 10, PitcherId = 20, EventType = GameEventType.Single };
+            var play = Play(evt, Runner(10, BaseState.BattersBox, BaseState.First));
+
+            var delta = GameStatisticsResolver.Resolve(
+                HomeFranchiseId, VisitorFranchiseId, SeasonYear, [play], new Dictionary<int, short>(),
+                new Dictionary<int, int> { [10] = VisitorFranchiseId, [99] = HomeFranchiseId });
+
+            var starterWhoBatted = Assert.Single(delta.Battings, b => b.PersonId == 10);
+            Assert.Equal(1, starterWhoBatted.GamesStarted);
+
+            // Person 99 started but never appears in any play (e.g. removed before their first
+            // plate appearance) -- they must still get a Battings row with GamesStarted = 1,
+            // since startingBatterFranchiseIds is authoritative independent of the play list.
+            var starterWhoNeverBatted = Assert.Single(delta.Battings, b => b.PersonId == 99);
+            Assert.Equal(1, starterWhoNeverBatted.GamesStarted);
+            Assert.Equal(HomeFranchiseId, starterWhoNeverBatted.FranchiseId);
+            Assert.Equal(0, starterWhoNeverBatted.PlateAppearances);
+
+            // Exactly these two rows -- nobody else was marked as a starter or otherwise involved.
+            Assert.Equal(2, delta.Battings.Count);
         }
     }
 }

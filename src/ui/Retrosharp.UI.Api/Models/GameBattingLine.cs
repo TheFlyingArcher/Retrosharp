@@ -27,6 +27,8 @@ namespace Retrosharp.UI.Api.Models
 
         public short Homeruns { get; set; }
 
+        public short RunsBattedIn { get; set; }
+
         public short BaseOnBalls { get; set; }
 
         public short Strikeouts { get; set; }

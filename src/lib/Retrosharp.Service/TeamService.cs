@@ -1,7 +1,9 @@
 using Retrosharp.Contract.Franchise;
 using Retrosharp.Contract.Game;
 using Retrosharp.Contract.Person;
+using Retrosharp.Contract.Standing;
 using Retrosharp.Data;
+using Retrosharp.Format.Standings;
 using Retrosharp.Service.Interface;
 
 namespace Retrosharp.Service
@@ -14,6 +16,7 @@ namespace Retrosharp.Service
         private readonly IFieldingRepository _fieldingRepository;
         private readonly IPersonRepository _personRepository;
         private readonly IGameRepository _gameRepository;
+        private readonly IFranchiseSeasonStandingRepository _standingRepository;
 
         public TeamService(
             IFranchiseRepository franchiseRepository,
@@ -21,7 +24,8 @@ namespace Retrosharp.Service
             IPitchingRepository pitchingRepository,
             IFieldingRepository fieldingRepository,
             IPersonRepository personRepository,
-            IGameRepository gameRepository)
+            IGameRepository gameRepository,
+            IFranchiseSeasonStandingRepository standingRepository)
         {
             _franchiseRepository = franchiseRepository;
             _battingRepository = battingRepository;
@@ -29,10 +33,25 @@ namespace Retrosharp.Service
             _fieldingRepository = fieldingRepository;
             _personRepository = personRepository;
             _gameRepository = gameRepository;
+            _standingRepository = standingRepository;
         }
 
         public Task<(IEnumerable<Franchise> Items, int TotalCount)> SearchAsync(string? q, string? code, short? season, int limit, int offset) =>
             _franchiseRepository.SearchAsync(q, code, season, limit, offset);
+
+        public async Task<(IEnumerable<FranchiseCareerSummary> Items, int TotalCount)> GetAllTimeSummariesAsync(int limit, int offset)
+        {
+            var franchiseEras = (await _franchiseRepository.GetAllAsync()).ToList();
+            var standings = (await _standingRepository.GetAllAsync()).ToList();
+
+            var summaries = FranchiseCareerSummaryResolver.Resolve(franchiseEras, standings)
+                .OrderBy(s => s.CurrentName)
+                .ToList();
+
+            var page = summaries.Skip(offset).Take(limit).ToList();
+
+            return (page, summaries.Count);
+        }
 
         public Task<Franchise> GetByIdAsync(int id) => _franchiseRepository.GetByIdAsync(id);
 

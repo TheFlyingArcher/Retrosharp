@@ -38,6 +38,7 @@ namespace Retrosharp.Service
             services.AddTransient<IGameSummaryService, GameSummaryService>();
             services.AddTransient<IGamePlayByPlayService, GamePlayByPlayService>();
             services.AddTransient<ISeedDataService, SeedDataService>();
+            services.AddTransient<IStandingsService, StandingsService>();
         }
     }
 }

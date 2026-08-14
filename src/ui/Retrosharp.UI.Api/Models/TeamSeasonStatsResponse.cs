@@ -14,5 +14,11 @@ namespace Retrosharp.UI.Api.Models
         public PitchingLine? Pitching { get; set; }
 
         public FieldingLine? Fielding { get; set; }
+
+        /// <summary>
+        /// Null if standings haven't been computed for this season yet -- see
+        /// <c>POST /api/standings/compute</c>.
+        /// </summary>
+        public FranchiseStandingLine? Standing { get; set; }
     }
 }

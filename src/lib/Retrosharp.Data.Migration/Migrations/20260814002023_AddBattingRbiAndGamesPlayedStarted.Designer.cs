@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Retrosharp.Data.Context;
@@ -11,9 +12,11 @@ using Retrosharp.Data.Context;
 namespace Retrosharp.Data.Migrator.Migrations
 {
     [DbContext(typeof(RetrosharpContext))]
-    partial class RetrosharpContextModelSnapshot : ModelSnapshot
+    [Migration("20260814002023_AddBattingRbiAndGamesPlayedStarted")]
+    partial class AddBattingRbiAndGamesPlayedStarted
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -267,49 +270,6 @@ namespace Retrosharp.Data.Migrator.Migrations
                         .IsUnique();
 
                     b.ToTable("Franchise");
-                });
-
-            modelBuilder.Entity("Retrosharp.Data.Model.FranchiseSeasonStandingModel", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<bool>("DivisionChampion")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("FranchiseId")
-                        .HasColumnType("integer");
-
-                    b.Property<decimal>("GamesBehind")
-                        .HasColumnType("decimal(5,1)");
-
-                    b.Property<bool>("LeagueBestRecord")
-                        .HasColumnType("boolean");
-
-                    b.Property<short>("Losses")
-                        .HasColumnType("smallint");
-
-                    b.Property<byte>("Rank")
-                        .HasColumnType("smallint");
-
-                    b.Property<short>("SeasonYear")
-                        .HasColumnType("smallint");
-
-                    b.Property<short>("Ties")
-                        .HasColumnType("smallint");
-
-                    b.Property<short>("Wins")
-                        .HasColumnType("smallint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("FranchiseId", "SeasonYear")
-                        .IsUnique();
-
-                    b.ToTable("FranchiseSeasonStanding");
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameAdjustmentModel", b =>
@@ -1300,17 +1260,6 @@ namespace Retrosharp.Data.Migrator.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("League");
-                });
-
-            modelBuilder.Entity("Retrosharp.Data.Model.FranchiseSeasonStandingModel", b =>
-                {
-                    b.HasOne("Retrosharp.Data.Model.FranchiseModel", "Franchise")
-                        .WithMany()
-                        .HasForeignKey("FranchiseId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Franchise");
                 });
 
             modelBuilder.Entity("Retrosharp.Data.Model.GameAdjustmentModel", b =>

@@ -100,7 +100,10 @@ namespace Retrosharp.Data
                     TimesCaughtStealing = delta.TimesCaughtStealing,
                     Runs = delta.Runs,
                     Positions = 0,
-                    GroundedIntoDoublePlay = delta.GroundedIntoDoublePlay
+                    GroundedIntoDoublePlay = delta.GroundedIntoDoublePlay,
+                    RunsBattedIn = delta.RunsBattedIn,
+                    GamesPlayed = delta.GamesPlayed,
+                    GamesStarted = delta.GamesStarted
                 });
 
                 await _context.SaveChangesAsync();
@@ -125,7 +128,10 @@ namespace Retrosharp.Data
                     .SetProperty(b => b.StolenBases, b => (short)(b.StolenBases + delta.StolenBases))
                     .SetProperty(b => b.TimesCaughtStealing, b => (short)(b.TimesCaughtStealing + delta.TimesCaughtStealing))
                     .SetProperty(b => b.Runs, b => (short)(b.Runs + delta.Runs))
-                    .SetProperty(b => b.GroundedIntoDoublePlay, b => (short)(b.GroundedIntoDoublePlay + delta.GroundedIntoDoublePlay)));
+                    .SetProperty(b => b.GroundedIntoDoublePlay, b => (short)(b.GroundedIntoDoublePlay + delta.GroundedIntoDoublePlay))
+                    .SetProperty(b => b.RunsBattedIn, b => (short)(b.RunsBattedIn + delta.RunsBattedIn))
+                    .SetProperty(b => b.GamesPlayed, b => (short)(b.GamesPlayed + delta.GamesPlayed))
+                    .SetProperty(b => b.GamesStarted, b => (short)(b.GamesStarted + delta.GamesStarted)));
         }
 
         private async Task ApplyPitchingDeltaAsync(PitchingDelta delta)

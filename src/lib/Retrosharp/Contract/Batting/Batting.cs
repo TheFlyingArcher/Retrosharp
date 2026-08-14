@@ -106,5 +106,21 @@ namespace Retrosharp.Contract.Batting
         /// Total grounded into double plays.
         /// </summary>
         public short GroundedIntoDoublePlay { get; set; }
+
+        /// <summary>
+        /// Total runs batted in.
+        /// </summary>
+        public short RunsBattedIn { get; set; }
+
+        /// <summary>
+        /// Total games played (batted, ran the bases, or reached base in at least one play).
+        /// </summary>
+        public short GamesPlayed { get; set; }
+
+        /// <summary>
+        /// Total games started in the batting order (excludes a non-batting starting pitcher
+        /// in a DH-era game, since they never occupy a batting-order slot).
+        /// </summary>
+        public short GamesStarted { get; set; }
     }
 }

@@ -46,5 +46,11 @@ namespace Retrosharp.Contract.Batting
         public short Runs { get; init; }
 
         public short GroundedIntoDoublePlay { get; init; }
+
+        public short RunsBattedIn { get; init; }
+
+        public short GamesPlayed { get; init; }
+
+        public short GamesStarted { get; init; }
     }
 }

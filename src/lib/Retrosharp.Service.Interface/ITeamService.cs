@@ -1,17 +1,25 @@
 using Retrosharp.Contract.Franchise;
 using Retrosharp.Contract.Game;
 using Retrosharp.Contract.Person;
+using Retrosharp.Contract.Standing;
 
 namespace Retrosharp.Service.Interface
 {
     /// <summary>
     /// Service interface for team (franchise) search, identity detail, roster, and manager
     /// history lookups. See spec/api.md, "GET /teams/search", "GET /teams/{id}",
-    /// "GET /teams/{id}/roster", "GET /teams/{id}/managers".
+    /// "GET /teams/{id}/roster", "GET /teams/{id}/managers", "GET /teams".
     /// </summary>
     public interface ITeamService
     {
         Task<(IEnumerable<Franchise> Items, int TotalCount)> SearchAsync(string? q, string? code, short? season, int limit, int offset);
+
+        /// <summary>
+        /// Gets one all-time career summary per franchise lineage (every era collapsed into one
+        /// row, represented by its most recent name), paginated. Backs the Franchises page. See
+        /// spec/api.md, "GET /teams".
+        /// </summary>
+        Task<(IEnumerable<FranchiseCareerSummary> Items, int TotalCount)> GetAllTimeSummariesAsync(int limit, int offset);
 
         Task<Franchise> GetByIdAsync(int id);
 

@@ -9,8 +9,8 @@ namespace Retrosharp.Service.Tests
     /// Constructed-fixture tests for <see cref="TeamService.GetManagerHistoryAsync"/> (Step 7g,
     /// see spec/phase-1-build-plan.md). Uses hand-written in-memory fakes rather than a real
     /// database or a mocking library -- <see cref="ITeamService"/> has no test project yet, and
-    /// this method only exercises two of TeamService's six constructor dependencies
-    /// (<see cref="IGameRepository"/>/<see cref="IPersonRepository"/>), so the other four are
+    /// this method only exercises two of TeamService's seven constructor dependencies
+    /// (<see cref="IGameRepository"/>/<see cref="IPersonRepository"/>), so the other five are
     /// passed as <c>null!</c> since <see cref="TeamService.GetManagerHistoryAsync"/> never
     /// touches them.
     /// </summary>
@@ -114,7 +114,8 @@ namespace Retrosharp.Service.Tests
                 pitchingRepository: null!,
                 fieldingRepository: null!,
                 personRepository: new FakePersonRepository(people),
-                gameRepository: new FakeGameRepository(games));
+                gameRepository: new FakeGameRepository(games),
+                standingRepository: null!);
 
         private class FakeGameRepository : IGameRepository
         {
@@ -140,6 +141,7 @@ namespace Retrosharp.Service.Tests
             public Task<(int Added, int Skipped)> BulkInsertAsync(IEnumerable<GameLogRecord> records) => throw new NotImplementedException();
             public Task<Game> GetByNaturalKeyAsync(DateTime gameDate, byte gameNumber, int homeFranchiseId, int visitorFranchiseId) => throw new NotImplementedException();
             public Task<(IEnumerable<Game> Items, int TotalCount)> SearchAsync(DateTime? date, short? season, int? franchiseId, int limit, int offset) => throw new NotImplementedException();
+            public Task<IEnumerable<Game>> GetBySeasonAsync(short seasonYear) => throw new NotImplementedException();
         }
 
         private class FakePersonRepository : IPersonRepository

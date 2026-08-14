@@ -66,5 +66,12 @@ namespace Retrosharp.Data
         /// spec/api.md, "GET /teams/{id}/managers".
         /// </summary>
         Task<IEnumerable<Game>> GetByFranchiseSeasonAsync(int franchiseId, short seasonYear);
+
+        /// <summary>
+        /// Retrieves every game played in the given season, across every franchise. Used to
+        /// (re)compute that season's standings in one pass -- see
+        /// spec/frontend-prototype.md's "Resolved: Standings Derivation" note.
+        /// </summary>
+        Task<IEnumerable<Game>> GetBySeasonAsync(short seasonYear);
     }
 }

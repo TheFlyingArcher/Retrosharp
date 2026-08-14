@@ -203,7 +203,10 @@ namespace Retrosharp.Service
             TimesCaughtStealing = b.TimesCaughtStealing,
             Runs = b.Runs,
             Positions = b.Positions,
-            GroundedIntoDoublePlay = b.GroundedIntoDoublePlay
+            GroundedIntoDoublePlay = b.GroundedIntoDoublePlay,
+            RunsBattedIn = b.RunsBattedIn,
+            GamesPlayed = b.GamesPlayed,
+            GamesStarted = b.GamesStarted
         };
 
         private static BattingStatistics SumBatting(IEnumerable<Batting> rows) => new()
@@ -224,7 +227,10 @@ namespace Retrosharp.Service
             TimesCaughtStealing = (short)rows.Sum(b => b.TimesCaughtStealing),
             Runs = (short)rows.Sum(b => b.Runs),
             Positions = (short)rows.Sum(b => b.Positions),
-            GroundedIntoDoublePlay = (short)rows.Sum(b => b.GroundedIntoDoublePlay)
+            GroundedIntoDoublePlay = (short)rows.Sum(b => b.GroundedIntoDoublePlay),
+            RunsBattedIn = (short)rows.Sum(b => b.RunsBattedIn),
+            GamesPlayed = (short)rows.Sum(b => b.GamesPlayed),
+            GamesStarted = (short)rows.Sum(b => b.GamesStarted)
         };
 
         private static PitchingStatistics ToPitchingStatistics(Pitching p) => new()

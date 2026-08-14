@@ -42,6 +42,19 @@ Not found (404) and server errors (500) will be handled gracefully. The user wil
 
 These are common tables that will be used across multiple pages to display statistics for players, franchises, and seasons. The tables will be sortable on all columns and will include pagination to improve performance and usability. These tables may be standalone components or they may be integrated into other tables, depending on the design of the page.
 
+#### Resolved: RBI and Games Played/Started Were Missing from `Batting`
+
+The player-season `Batting` table (and its `BattingDelta`/`BattingLine` mirrors) had no `RunsBattedIn`, `GamesPlayed`, or `GamesStarted` fields at all — RBI existed only at the play level (`GameEventRunner.IsRBI`) and team level (`GameBattingStatistics.RunsBattedIn`), and G/GS for batters didn't exist anywhere (unlike pitchers, who already had both via `Pitching.GamesPitched`/`GamesStarted`). This broke the hitters columns below on every page that uses this shared table.
+
+Fixed by adding all three fields end-to-end (`Batting`/`BattingModel`/`BattingDelta`/`BattingStatistics`/`BattingLine`, plus the box-score and per-game-log DTOs) and deriving them in [`GameStatisticsResolver`](../src/lib/Retrosharp/Format/PlayByPlay/GameStatisticsResolver.cs):
+- **RBI**: summed per batter from `IsRBI` flags on that play's runners — the same rule `GameReconciliationResolver` already uses for the team-level total, just attributed to the current play's batter instead of the batting team.
+- **Games Played**: `1` unconditionally for every person with any batting involvement in the game, mirroring how `Pitching.GamesPitched` is already derived.
+- **Games Started**: sourced from the event file's own "start" records (`BattingOrder` 1-9, which already excludes a non-batting DH-era starting pitcher) — passed into the resolver as an explicit `startingBatterFranchiseIds` map by [`GameEventImportService`](../src/lib/Retrosharp.Service/GameEventImportService.cs), since the pure resolver only sees plays and can't otherwise tell a starter apart from a bench player.
+
+**Scope note**: `GamesStarted` is only correct for the season-aggregate path (`GameEventImportService`, which persists `Batting`), since that's the only caller with access to the game's starting lineup. The on-demand per-game paths (`PlayerGameLogService`, `GameSummaryService`'s box score) don't pass starter data, so `GamesStarted` isn't exposed on `GameBattingLine`/`GameBoxScoreBattingParticipantStats` — only `RunsBattedIn` was added there, since that field is fully self-contained per play regardless of caller.
+
+**Backfill note**: like the Step 7h starting-pitcher/line-score fix, this only affects games processed *after* the fix — `GameEventGameStatus`'s per-game claim prevents already-applied games from being reprocessed, so existing imported seasons need a wipe-and-reimport (or a one-off backfill script) before these three fields are accurate for them.
+
 Columns for hitters:
 
 - Year
@@ -170,6 +183,14 @@ The Franchises page will display a table of all franchises that ever have existe
 - Above .500: The total number of seasons the franchise has finished above a .500 win percentage.
 - Below .500: The total number of seasons the franchise has finished below a .500 win percentage.
 
+#### Resolved: Franchise All-Time Summary
+
+This page needs every franchise's *all-time* totals in one call — not per-season (already covered by the standings work above) and not per-era (a franchise like the Nationals has two `Franchise` rows, Montreal Expos 1969-2004 and Washington Nationals 2005-present, sharing one `FranchiseIdentifier`), but summed across a lineage's entire history and displayed under its current name only, per this page's own "Washington Nationals featured, not Montreal Expos" rule. Nothing computed this shape before.
+
+Fixed with a new pure [`FranchiseCareerSummaryResolver`](../src/lib/Retrosharp/Format/Standings/FranchiseCareerSummaryResolver.cs): groups every `Franchise` era by `FranchiseIdentifier`, picks the most recent era (by `FranchiseStart`) as the representative row (its city/nickname is `CurrentName`; every earlier era's city/nickname becomes a `FormerNames` entry, oldest first — directly backing this page's footnote), and sums every precomputed `FranchiseSeasonStanding` row across *every* era's `FranchiseId` in that lineage, not just the representative era's. `SeasonsAboveFiveHundred`/`SeasonsBelowFiveHundred` count seasons (again, across every era) with win percentage strictly above/below .500 — a season at exactly .500 counts toward neither, and `FirstSeasonYear` is the lineage's earliest era's start year regardless of how many renames happened since.
+
+Exposed as `GET /teams?limit=&offset=` (new bare browse route on `TeamsController`, alongside the existing `teams/search`) — mirrors the Players page's `GET /players?letter=` browse-vs-search split exactly: one route for "browse everything, paginated," a separate one for free-text search. See [api.md](./api.md#franchise-all-time-summaries-are-computed-from-every-era-in-a-lineage-not-just-one) for the full design.
+
 ### Franchise Detail Page
 
 Path: /franchises/[id]
@@ -189,8 +210,20 @@ The franchise detail page will display a table with the following columns:
 	- **NOTE**: After 1969, the finish column will display the ordinal position in the division (e.g. "1st in AL West", "2nd in NL East", etc.)
 - Divisions: The number of times the franchise won the division during that season. This will be blank for seasons prior to 1969.
 - Pennants: The number of times the franchise won the league pennant during that season. Prior to 1969, this will be the number of times the franchise was the best record of the league. After 1969, this will be the number of times the franchise won the league championship series.
-- GB (Games Behind): The number of games the franchise was behind the first place team during that season. Before 1960, this will be the number of games behind the best record in the league. After 1960, this will be the number of games behind the first place team in the division.
+- GB (Games Behind): The number of games the franchise was behind the first place team during that season. Before 1969, this will be the number of games behind the best record in the league. After 1969, this will be the number of games behind the first place team in the division.
 - Manager: The name of the manager of the franchise during that season.
+
+#### Resolved: Standings Derivation
+
+There was no Wins/Losses/standings concept anywhere in the codebase — not in `Contract`, not in `TeamService`/`TeamStatisticsService`, not in api.md — despite Wins, Losses, Win %, Finish, Divisions, Pennants, and GB all appearing as columns here (and, by reuse, on the Franchises and Season Detail pages too). `TeamStatisticsService` only ever computed batting/pitching/fielding counting stats; nothing counted a franchise's game *outcomes*.
+
+Fixed with a new precomputed `FranchiseSeasonStanding` table (one row per franchise-season: `Wins`/`Losses`/`Ties`/`Rank`/`GamesBehind`/`DivisionChampion`/`LeagueBestRecord`, plus a computed `WinPercentage`), derived by a new pure [`StandingsResolver`](../src/lib/Retrosharp/Format/Standings/StandingsResolver.cs) from that season's already-imported `Game` rows (win = more runs, loss = fewer, tie = equal — ties excluded from the win-percentage denominator, the standard convention). Ranking uses each franchise-season's already-era-resolved `Franchise.LeagueId`/`DivisionCode` (no extra era lookup needed, since `Game.HomeFranchiseId`/`VisitorFranchiseId` already point at the correct era) — grouped by division when `DivisionCode` is populated for that era, by league alone otherwise, matching this page's own before/after-1969 rule. `Rank`/`GamesBehind` reflect that grouping; `LeagueBestRecord` is always computed league-wide regardless of division, independent of `DivisionChampion`.
+
+**This is precomputed, not live-queried** — a `POST /api/standings/compute?season=` endpoint recomputes and atomically replaces one season's rows (idempotent: re-running it after importing more of that season's Game Log data just recomputes from whatever games exist now), matching the "precomputed per season" requirement. It's a plain synchronous recompute, not a saga, since it's a fast in-memory aggregation over already-imported data with no external file and no retryable failure mode — see [api.md](./api.md#standings-are-precomputed-not-live-queried) for the full reasoning.
+
+**Scope boundary — "Pennants" post-1969**: this column's own definition splits at 1969 the same way "Finish" does — pre-1969 pennant meant best regular-season record (`LeagueBestRecord`, fully computable), but post-1969 it meant winning the League Championship Series, which requires postseason data this project doesn't import. This is the exact same gap already resolved for the Seasons page's [League Champion](#resolved-league-champion-is-out-of-scope-as-originally-worded) column — `LeagueBestRecord` should **not** be displayed as "Pennants" for a post-1969 season until postseason data is imported; doing so would silently mislabel a regular-season stat as a postseason result.
+
+**Backend dependency still open**: this only covers a single franchise-season (`GET /teams/{id}/stats` now includes a `Standing` field) and a whole season at once (`GET /seasons/{year}/standings`, new). The Franchises page's *all-time* Wins/Losses/Win %/Above-.500/Below-.500 columns aren't covered — those need summing every precomputed season row per franchise across its whole history, which is now cheap to do (the underlying data exists) but is a distinct new endpoint (something like `GET /teams?limit=&offset=` with all-time aggregates, mirroring the Players-page browse-endpoint pattern) not built in this pass.
 
 #### Resolved: Multiple Managers Per Season
 

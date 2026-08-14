@@ -131,6 +131,24 @@ namespace Retrosharp.Data.Model
         [Required]
         public short GroundedIntoDoublePlay { get; set; }
 
+        /// <summary>
+        /// Total runs batted in.
+        /// </summary>
+        [Required]
+        public short RunsBattedIn { get; set; }
+
+        /// <summary>
+        /// Total games played.
+        /// </summary>
+        [Required]
+        public short GamesPlayed { get; set; }
+
+        /// <summary>
+        /// Total games started in the batting order.
+        /// </summary>
+        [Required]
+        public short GamesStarted { get; set; }
+
         // Navigation Properties
 
         /// <summary>

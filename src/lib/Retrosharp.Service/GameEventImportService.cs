@@ -106,8 +106,10 @@ namespace Retrosharp.Service
             var (substitutions, adjustments, comments) = GameContextResolver.Resolve(resolvedGame.Id, game, personIds);
 
             var earnedRunsByPitcherId = ResolveEarnedRunsByPitcherId(game, personIds);
+            var startingBatterFranchiseIds = ResolveStartingBatterFranchiseIds(game, personIds, homeFranchise.Id, visitingFranchise.Id);
             var seasonYear = (short)game.GameDate.Year;
-            var statistics = GameStatisticsResolver.Resolve(homeFranchise.Id, visitingFranchise.Id, seasonYear, plays, earnedRunsByPitcherId);
+            var statistics = GameStatisticsResolver.Resolve(
+                homeFranchise.Id, visitingFranchise.Id, seasonYear, plays, earnedRunsByPitcherId, startingBatterFranchiseIds);
 
             LogPitchersMissingEarnedRunData(statistics, earnedRunsByPitcherId, game);
 
@@ -123,6 +125,25 @@ namespace Retrosharp.Service
                 Statistics = statistics,
                 StartTimeLocal = game.StartTime
             };
+        }
+
+        // A "start" record's BattingOrder is 0 when the player has no batting-order slot (a
+        // non-batting DH-era starting pitcher) -- see LineupRecord. Only players with a real
+        // slot (1-9) count as having started for Batting.GamesStarted purposes.
+        private static IReadOnlyDictionary<int, int> ResolveStartingBatterFranchiseIds(
+            EventFileGame game, IReadOnlyDictionary<string, int> personIds, int homeFranchiseId, int visitorFranchiseId)
+        {
+            var startingBatterFranchiseIds = new Dictionary<int, int>();
+
+            foreach (var start in game.Records.OfType<StartRecord>())
+            {
+                if (start.BattingOrder == 0)
+                    continue;
+
+                startingBatterFranchiseIds[personIds[start.RetrosheetId]] = start.IsHomeTeam ? homeFranchiseId : visitorFranchiseId;
+            }
+
+            return startingBatterFranchiseIds;
         }
 
         private static IReadOnlyDictionary<int, short> ResolveEarnedRunsByPitcherId(EventFileGame game, IReadOnlyDictionary<string, int> personIds)

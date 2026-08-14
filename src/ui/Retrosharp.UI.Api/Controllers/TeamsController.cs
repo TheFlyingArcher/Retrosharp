@@ -18,11 +18,40 @@ namespace Retrosharp.UI.Api.Controllers
 
         private readonly ITeamService _teamService;
         private readonly ITeamStatisticsService _teamStatisticsService;
+        private readonly IStandingsService _standingsService;
 
-        public TeamsController(ITeamService teamService, ITeamStatisticsService teamStatisticsService)
+        public TeamsController(ITeamService teamService, ITeamStatisticsService teamStatisticsService, IStandingsService standingsService)
         {
             _teamService = teamService;
             _teamStatisticsService = teamStatisticsService;
+            _standingsService = standingsService;
+        }
+
+        /// <summary>
+        /// Browses one all-time career summary per franchise lineage (every era collapsed into
+        /// one row, represented by its most recent name), ordered by current name. Backs the
+        /// Franchises page, as opposed to <see cref="Search"/>'s free-text/code search.
+        /// </summary>
+        [HttpGet]
+        public async Task<ActionResult<PagedResult<FranchiseCareerSummaryLine>>> GetAllTimeSummaries(
+            [FromQuery] int limit = DefaultLimit,
+            [FromQuery] int offset = 0)
+        {
+            if (limit <= 0 || limit > MaxLimit)
+                return BadRequest($"limit must be between 1 and {MaxLimit}.");
+
+            if (offset < 0)
+                return BadRequest("offset must be non-negative.");
+
+            var (summaries, totalCount) = await _teamService.GetAllTimeSummariesAsync(limit, offset);
+
+            return new PagedResult<FranchiseCareerSummaryLine>
+            {
+                Items = summaries.Adapt<IEnumerable<FranchiseCareerSummaryLine>>(),
+                TotalCount = totalCount,
+                Limit = limit,
+                Offset = offset
+            };
         }
 
         /// <summary>
@@ -115,11 +144,14 @@ namespace Retrosharp.UI.Api.Controllers
             if (fieldingLine != null)
                 fieldingLine.SeasonYear = season;
 
+            var standing = await _standingsService.GetByFranchiseSeasonAsync(id, season.Value);
+
             return new TeamSeasonStatsResponse
             {
                 Batting = battingLine,
                 Pitching = pitchingLine,
-                Fielding = fieldingLine
+                Fielding = fieldingLine,
+                Standing = standing?.Adapt<FranchiseStandingLine>()
             };
         }
 
