@@ -17,6 +17,9 @@ namespace Retrosharp.UI.Api.Models
 
         public string OpponentFranchiseCode { get; set; } = string.Empty;
 
+        /// <summary>Defensive position(s) played in this game, comma-separated if more than one. Null if unresolvable.</summary>
+        public string? Position { get; set; }
+
         public short GamesStarted { get; set; }
 
         public short GamesFinished { get; set; }

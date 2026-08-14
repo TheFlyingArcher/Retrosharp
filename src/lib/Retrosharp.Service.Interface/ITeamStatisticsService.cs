@@ -32,5 +32,15 @@ namespace Retrosharp.Service.Interface
         /// Null if the franchise has no games recorded for that season.
         /// </summary>
         Task<TeamFieldingStatistics> GetFieldingAsync(int franchiseId, short season);
+
+        /// <summary>
+        /// Gets every participating franchise's batting and pitching summary for one season in a
+        /// single pass -- backs the Season Detail page's two team-stats tables. Independent of
+        /// whether <c>FranchiseSeasonStanding</c> has been computed for this season (games
+        /// played is tallied directly from <c>Game</c>, not read from standings), so this works
+        /// even if standings recomputation hasn't been run yet. See spec/api.md,
+        /// "GET /seasons/{year}/teams/stats".
+        /// </summary>
+        Task<(IReadOnlyList<TeamSeasonBattingSummary> Hitting, IReadOnlyList<TeamSeasonPitchingSummary> Pitching)> GetSeasonSummariesAsync(short season);
     }
 }

@@ -24,6 +24,15 @@ namespace Retrosharp.Contract.GameEvent
 
         public string OpponentFranchiseCode { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Defensive position(s) played in this specific game, comma-separated if more than one
+        /// -- raw Retrosheet position codes (resolved the same way as
+        /// <c>GameSummaryService.ResolvePosition</c>), not display abbreviations. Almost always
+        /// "1" (pitcher) for a Pitching line, but not assumed -- a pitcher can be moved to
+        /// another position mid-game without leaving the game.
+        /// </summary>
+        public string? Position { get; set; }
+
         public required PitchingDelta Stats { get; init; }
     }
 }

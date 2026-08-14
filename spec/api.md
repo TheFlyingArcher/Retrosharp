@@ -110,6 +110,12 @@ The Individual Game page also wants each game's local start time (see [frontend-
 
 project.md's Player Search feature explicitly promises "career statistics and game logs," but Phase 1's schema has no per-game player statistic line — only season aggregates (`Batting`/`Pitching`/`Fielding`) and event-level detail (`GameEvent`/`GameEventRunner`/`GameEventFieldingCredit`). A player's game log is derived per request: group that player's `GameEvent`/`GameEventRunner` rows (as batter) or `GameEvent` rows (as pitcher) by `GameId` within the requested season, and apply the same counting-stat classification Step 6d already uses, just grouped per-game instead of accumulated per-season. This is naturally bounded (one player, one season, at most ~162 games) so performance isn't a concern the way a league-wide query would be.
 
+`PlayerGameBattingLine`/`PlayerGamePitchingLine` also carry a per-game `Position`, resolved by calling `GameSummaryService.ResolvePosition` (built for Step 7i's box score) once per game rather than duplicating its lineup/substitution logic — see [frontend-prototype.md](./frontend-prototype.md#resolved-positions-played-per-game).
+
+### Player search/browse results now surface DeathDate
+
+`PlayerSearchResult` carried `PlayerDebutDate`/`PlayerLastDate` but no `DeathDate`, leaving the Players page's deceased indicator (see [frontend-prototype.md](./frontend-prototype.md#resolved-deceased-indicator)) with nothing to render even though `Person.DeathDate` was already imported. Fixed by adding the matching field — picked up automatically by Mapster's convention-based mapping, same as the earlier burial-location fix on `PlayerDetail`.
+
 ### Response DTOs, not Contract entities, cross the API boundary
 
 Controllers return dedicated response classes (`Retrosharp.UI.Api/Models/`, mirroring how `GameLogImportRequest` already lives alongside its controller), not the `Retrosharp.Contract.*` entities directly. This keeps the JSON shape controllable independent of the data layer (denormalizing a franchise code onto a game summary, flattening rate stats alongside counting stats, omitting internal-only fields) and matches the separation of concerns the repository pattern already establishes for the data layer.
@@ -140,6 +146,16 @@ Fixed with a new pure `FranchiseCareerSummaryResolver`: groups `Franchise` rows 
 
 Exposed as `GET /teams?limit=&offset=` — a bare browse route on `TeamsController`, structurally identical to the Players page's `GET /players?letter=` vs `players/search` split: one route lists everything paginated, the other does free-text search. At Phase 1's scale (~100 franchise lineages total, the same "small, bounded reference set" reasoning `teams/search` already relies on), the whole list fits in a page or two even at the default `limit`.
 
+### "Baseball age" (June 30) is a new, reusable primitive
+
+The Season Detail page needs each team's average batter's/pitcher's age (see [frontend-prototype.md](./frontend-prototype.md#resolved-average-age-as-of-june-30) for the convention decision — age as of June 30 of the season, the standard Baseball-Reference definition). Implemented as `Retrosharp.Format.BaseballAge.ComputeAge(DateTime? birthDate, short seasonYear)`, a pure, independently-testable helper (`SeasonYear - BirthYear`, minus 1 if the birthday falls after June 30 that year; null in, null out, since a missing `Person.BirthDate` is tolerated data the same way `person.md` already tolerates elsewhere) rather than logic embedded in the aggregation loop. A team's average age is the mean of this value across every distinct batter/pitcher who recorded a `Batting`/`Pitching` row for that franchise-season, skipping anyone with no known birth date; 0 if none of them have one.
+
+### Batched team stats for a season
+
+The Season Detail page's two team-stats tables (see [frontend-prototype.md](./frontend-prototype.md#resolved-batched-team-stats-for-a-season)) need every participating franchise's batting and pitching stats for one season at once; only the single-franchise `GET /teams/{id}/stats?season=` existed.
+
+Fixed with `GET /seasons/{year}/teams/stats` (`ITeamStatisticsService.GetSeasonSummariesAsync`), returning both tables in one response. Each team's games-played count (for Runs/Runs-Allowed Per Game) is tallied directly from that season's `Game` rows — the same "don't depend on standings" reasoning as the standings endpoint itself, so this works whether or not `POST /standings/compute` has been run for the season. A person lookup cache is shared across the batting and pitching passes within one request, since a player can appear on both sides (a pre-DH-era pitcher who also batted) or on multiple teams' rosters that season (a trade).
+
 ## API Surface
 
 All routes are `GET`, prefixed `/api`, and return `200 OK` with a JSON body on success, `404 Not Found` for a missing single-resource lookup (player/team/game by ID), and `400 Bad Request` for invalid query parameters.
@@ -160,6 +176,7 @@ All routes are `GET`, prefixed `/api`, and return `200 OK` with a JSON body on s
 | `GET /teams/{franchiseId}/stats?season=` | Team season statistics, counting and rate (see [Considerations](#team-season-statistics-two-different-authoritative-sources-for-two-different-things)), plus that franchise-season's precomputed standing (null if not yet computed — see [Considerations](#standings-are-precomputed-not-live-queried)). |
 | `GET /teams/{franchiseId}/managers?season=` | Manager(s) for a franchise-season, chronologically ordered, collapsing mid-season changes into date-ranged entries (see [Considerations](#team-season-manager-history-is-not-yet-exposed)). **Not yet implemented** — see [phase-1-build-plan.md](./phase-1-build-plan.md#step-7g-team-season-manager-history). |
 | `GET /seasons/{year}/standings` | Every franchise's precomputed standing for one season, ordered by rank (see [Considerations](#standings-are-precomputed-not-live-queried)). |
+| `GET /seasons/{year}/teams/stats` | Every participating franchise's batting and pitching summary for one season — team stats plus average age (as of June 30) and runs/runs-allowed per game (see [Considerations](#batched-team-stats-for-a-season)). |
 | `GET /games/search?date=&season=&franchiseId=&limit=&offset=` | Search games by date, season, and/or participating franchise. |
 | `GET /games/{gameId}` | Game summary: final score, line score, both teams' box-score totals, both starting lineups and starting pitchers, per-player batting/pitching lines for every participant, start time (where available), decisions (winning/losing/saving pitcher), umpires, ballpark. Line score, starting pitchers, per-player lines, and start time **not yet implemented** — see [phase-1-build-plan.md Step 7h](./phase-1-build-plan.md#step-7h-game-summary-enrichment-starting-pitchers-and-line-score), [Step 7i](./phase-1-build-plan.md#step-7i-full-game-box-score-all-participants), and [Step 7j](./phase-1-build-plan.md#step-7j-game-start-time-from-event-file-info-records). |
 | `GET /games/{gameId}/events` | Full play-by-play: `GameEvent` rows (with nested runners and fielding credits) interleaved with `GameSubstitution`/`GameAdjustment`/`GameComment` context records, ordered by `Sequence`. |

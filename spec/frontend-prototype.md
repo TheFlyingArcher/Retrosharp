@@ -115,9 +115,21 @@ Columns for pitchers:
 Path: / or /home
 This is the landing page for the application. It will provide an overview of the application and its features, as well as links to the other pages. The home page will also include a search bar that allows users to quickly find players, franchises, seasons, and games. The search bar will feature type ahead suggestions to help users find what they are looking for more efficiently. Upon selecting either a player, franchise, season, or game from the search results, the user will be redirected to the corresponding detail page.
 
-#### Open Design Question
+#### Resolved: "On This Day in Baseball History" Widget
 
-A single text search bar on the page will leave a lot of space on the page. Can other baseball content be filled on the page such as latest news items from MLB if a feed exists? Or perhaps a list of the most popular players, franchises, seasons, and games? This is an open design question that will be explored during the prototyping phase.
+A single text search bar leaves a lot of empty space on the page. Considered and rejected: pulling in a live MLB news feed (`mlb.com/feeds/news/rss.xml`) or the unofficial `statsapi.mlb.com` — both are external dependencies with their own availability/ToS risk, and both are oriented around the *current* MLB season, which sits awkwardly next to an app whose whole identity is historical Retrosheet data Retrosharp already owns. **Decision: a self-sourced "On this day in baseball history" widget**, using only data already imported by this project — no external API, no ToS risk, works offline in local dev.
+
+**The offseason problem, and why "games played on this day" alone doesn't solve it**: MLB's regular season has historically run roughly April-October, and Retrosharp only imports Retrosheet's *regular-season* Game Logs — postseason isn't imported by any parser (see [project.md](./project.md)'s Second Phase list, postseason import added there as part of this same decision). A calendar-date lookup against `Game.GameDate` for any day between November and March returns zero results in every year, with no exceptions. The same clustering problem rules out `Person.PlayerDebutDate`/`PlayerLastDate` as a fix — debuts and final games happen *during* the season too, so they go just as quiet in the offseason as `Game` does.
+
+**What actually covers the offseason**: `Person.BirthDate` and `Person.DeathDate` aren't clustered by baseball season at all — they're spread roughly uniformly across all 366 calendar days. With ~27,000 people imported by the biofile parser, that's on the order of 70+ people born on any given calendar date, offseason included. "Born on this day" and "died on this day" (matched on birth/death month-and-day against today's date, independent of year) are the widget's year-round backbone. `Game`-sourced entries ("On this day in `year`, `Team A` beat `Team B` `X-Y`") are folded in whenever they exist, giving richer content in-season without the widget depending on them.
+
+**Fallback for a day with no matches at all**: a rotating record-book card not tied to any date — all-time single-season leaders (from `Batting`/`Pitching`), a random Hall of Famer spotlight (`Person.IsHof`), a random franchise history fact (`Franchise.FranchiseStart`/former names, via the franchise all-time summary work), or a notable season from `FranchiseSeasonStanding` (best/worst win percentage, longest droughts). None of these need a date match, so this fallback never runs dry.
+
+**Every player named in the widget links to their player detail page** — a "born on this day" or "died on this day" entry, and any player named within a "games played on this day" entry (batters, pitchers, anyone else surfaced), is a link to `/players/[id]`, giving a one-click path from the home page into that player's full career, consistent with every other player reference elsewhere in this document.
+
+**Tone note**: defaulting to "who died today" every single day may read as morbid for a casual browsing widget even though the data fully supports it — worth a design pass on how prominently death-anniversary entries are surfaced versus births/games, but not a blocker to building this.
+
+**Backend dependency**: no endpoint currently supports a "by calendar month/day, any year" lookup against `Person`/`Game` — every existing search/browse route filters by a specific year or an exact date, not a recurring month-day pattern. This needs new query support before the widget can be built.
 
 ### Players Page
 
@@ -130,6 +142,10 @@ On this page, users will be able to view a list of baseball players grouped by t
 There is no explicit `IsActive` field within the underlying data store. `PlayerLastDate` (sourced from the Retrosheet biofile's `last_p` column) is nullable, and a player is considered active when it is `null`. A player can't have a debut without also having some most-recent game, so a null last-game date for a person with a populated debut can only mean their most recent appearance hasn't been finalized as their last one, i.e. they are still active. Retrosheet's own biofile documentation doesn't explicitly guarantee this interpretation, but it's the only logically consistent one.
 
 Note: the biofile is imported independently of the Game Log/Event pipeline, so `PlayerLastDate` could in principle lag behind the latest season already loaded elsewhere in the database. If that staleness becomes a practical problem, the fallback is to derive "active" from whether the player has any `Batting`/`Pitching`/`Fielding` row in the most recent season year present in the database instead of trusting this field.
+
+#### Resolved: Deceased Indicator
+
+`PlayerSearchResult` (the DTO backing both the browse list and free-text search) had no `DeathDate`, so the "cross next to deceased players" indicator had nothing to render from, even though `Person.DeathDate` already exists. Fixed by adding a matching `DeathDate` property to `PlayerSearchResult` — Mapster's convention-based mapping picks it up automatically, no controller change needed, same as the earlier burial-location fix.
 
 #### Resolved: Browsing by Surname
 
@@ -168,6 +184,12 @@ Table includes the following columns:
 - For position player: Include shared components statistics table for hitters.
 - For pitchers: Include shared components statistics table for pitchers.
 - Position(s) played in the game: The position(s) the player played in that game. If the player played multiple positions in a single game, then all positions will be displayed in a comma separated list.
+
+#### Resolved: Position(s) Played Per Game
+
+The per-game log endpoint (`GET /players/{id}/games`) had no `Position` field on `GameBattingLine`/`GamePitchingLine`, even though the resolution logic already existed — `GameSummaryService.ResolvePosition` (starting lineup slot plus every subsequent substitution-recorded position, de-duplicated) was built for Step 7i's full game box score, just never called from the per-player-per-season path.
+
+Fixed by reusing that same static method from `PlayerGameLogService`, called once per game in the player's log (fetching that game's `GameLineup`/`GameSubstitution` rows the same way `GameSummaryService` already does for a box score) rather than duplicating the position logic. Bounded the same way the rest of this endpoint already is — at most ~162 extra lookups for one player-season.
 
 ### Franchises Page
 
@@ -223,7 +245,7 @@ Fixed with a new precomputed `FranchiseSeasonStanding` table (one row per franch
 
 **Scope boundary — "Pennants" post-1969**: this column's own definition splits at 1969 the same way "Finish" does — pre-1969 pennant meant best regular-season record (`LeagueBestRecord`, fully computable), but post-1969 it meant winning the League Championship Series, which requires postseason data this project doesn't import. This is the exact same gap already resolved for the Seasons page's [League Champion](#resolved-league-champion-is-out-of-scope-as-originally-worded) column — `LeagueBestRecord` should **not** be displayed as "Pennants" for a post-1969 season until postseason data is imported; doing so would silently mislabel a regular-season stat as a postseason result.
 
-**Backend dependency still open**: this only covers a single franchise-season (`GET /teams/{id}/stats` now includes a `Standing` field) and a whole season at once (`GET /seasons/{year}/standings`, new). The Franchises page's *all-time* Wins/Losses/Win %/Above-.500/Below-.500 columns aren't covered — those need summing every precomputed season row per franchise across its whole history, which is now cheap to do (the underlying data exists) but is a distinct new endpoint (something like `GET /teams?limit=&offset=` with all-time aggregates, mirroring the Players-page browse-endpoint pattern) not built in this pass.
+This covers a single franchise-season (`GET /teams/{id}/stats` now includes a `Standing` field) and a whole season at once (`GET /seasons/{year}/standings`). The Franchises page's *all-time* Wins/Losses/Win %/Above-.500/Below-.500 columns are covered too, by a separate all-time summary — see [Resolved: Franchise All-Time Summary](#resolved-franchise-all-time-summary) on the Franchises page above.
 
 #### Resolved: Multiple Managers Per Season
 
@@ -242,8 +264,14 @@ The franchise season detail page will display all the pertient information about
 There will be two sections on the page. First section is for the position players and the second section is for the pitchers. Each section will have a table with the following columns:
 - Player Name: The name of the player. This will also contain a link to the player detail page for that season.
 - Games Played: The total number of games played by the player during that season.
-- For position players: Use shared components statistics table for hitters. Group the top nine players that started the most games at each position. The remaining players will be grouped together in a separate section of the table.
+- For position players: Use shared components statistics table for hitters, sorted by Games Played (descending). **Phase 1 does not group position players by position** — see Resolved note below.
 - For pitchers: Use shared components statistics table for pitchers. Group the top five pitchers that started the most games (the starters). The remaining pitchers will be grouped together in a separate section of the table (the relievers). The relievers will be sorted by the number of games they appeared in during the season. Include a third section highlighting the top three closers for the franchise during that season. The closers will be sorted by the number of saves they recorded during the season.
+
+#### Resolved: Position-Player Grouping Deferred to Phase 2
+
+The original design grouped position players into "the top nine that started the most games at each position," but no data supports this: `Fielding` has no games-played/games-started column at all (only Putouts/Assists/Errors/PassedBalls/DoublePlays/TriplePlays), and `Batting.Positions` is explicitly a scope-excluded placeholder pending the Phase 2 replacement already described in [project.md](./project.md) (Second Phase, item 104) and [game-event.md](./game-event.md#future-enhancement-phase-2-batting-positions-played) — tracking games/innings actually played per position, sourced from `GameLineup`/`GameSubstitution`.
+
+**Decision: scope down for Phase 1, do not pull the Phase 2 tracking forward.** An approximation (for example, ranking by fielding chances) was considered and rejected — it would misrank real players, since a DH accumulates zero putouts/assists despite starting every game, and a backup catcher can rack up more fielding chances per game than an everyday corner outfielder. Rather than ship a grouping that quietly gets some players wrong, Phase 1 lists position players in one flat table sorted by Games Played (using `Batting.GamesPlayed`/`GamesStarted`, both season aggregates already available), with no per-position tiering. The top-nine-by-position grouping is deferred to Phase 2, once real per-position games-started data exists to support it correctly.
 
 ### Franchise Games Per Season
 
@@ -295,9 +323,17 @@ Pitchers:
 - Runs allowed per game (RA/G)
 - Shared components statistics table for pitchers.
 
-**Open Design Question — "average age" as of what date?** A team's roster turns over all season (call-ups, trades, retirements), so "average batter's/pitcher's age" needs an as-of date to mean anything consistent, and nothing in this project has defined one yet. The data to compute it exists (`Person.BirthDate`, already imported by the biofile), but the convention doesn't. The common baseball-reference convention is age as of June 30 of that season; recommend adopting that unless there's a reason not to.
+#### Resolved: "Average Age" as of June 30
 
-**Backend dependency**: there is currently no endpoint that returns every team's stats for a given season in one call — only `GET /teams/{franchiseId}/stats?season=`, one franchise at a time. Populating this page's two tables (one row per team, ~20-30 teams depending on era) would mean either an N-call fan-out from the frontend or a new batched endpoint (e.g. `GET /seasons/{year}/teams/stats`). Flagging this now since it's the same shape of gap as the manager/game-summary items already filed as build-plan steps — not filing it yet unless you want it added.
+A team's roster turns over all season (call-ups, trades, retirements), so "average batter's/pitcher's age" needs a fixed as-of date to mean anything consistent across players and across teams. **Decision: age as of June 30 of that season** — the standard Baseball-Reference "baseball age" convention (already this project's own named design reference), chosen because June 30 is roughly the midpoint of a 162-game season, so it's the single date that best represents how old a player was for most of that season. Computed as `SeasonYear - BirthYear`, minus 1 if the player's birthday falls after June 30 that year. The age is fixed for the whole season regardless of when the player's actual birthday falls — no mid-season change.
+
+The data to compute it already exists (`Person.BirthDate`, imported by the biofile); this only needed the convention decided, not new data. A team's average batter's/pitcher's age for the season is the mean of this fixed per-player age across every position player/pitcher who appeared for that team that season.
+
+#### Resolved: Batched Team Stats for a Season
+
+`GET /seasons/{year}/standings` already returned every team's *standings* for a season in one call, but this page also needs every team's *batting/pitching statistics* for the season in one call — the only existing route, `GET /teams/{franchiseId}/stats?season=`, is one franchise at a time, which would mean a 20-30-call fan-out from the frontend to populate this page's two tables.
+
+Fixed with `GET /seasons/{year}/teams/stats`, a new batched endpoint (`ITeamStatisticsService.GetSeasonSummariesAsync`) that returns both tables — every participating franchise's batting summary and every participating franchise's pitching summary — in one response. Each row also carries this page's other two per-team columns: Runs/Runs-Allowed Per Game (team runs ÷ games played, tallied directly from `Game` so this doesn't depend on standings having been computed first) and the average age decided above (`Person.BirthDate` resolved per distinct batter/pitcher on that team-season, using the new pure [`BaseballAge.ComputeAge`](../src/lib/Retrosharp/Format/BaseballAge.cs) helper, 0 when none of them have a known birth date).
 
 ### Season's Games Played
 

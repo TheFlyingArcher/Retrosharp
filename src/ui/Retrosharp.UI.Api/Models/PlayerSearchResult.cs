@@ -23,6 +23,9 @@ namespace Retrosharp.UI.Api.Models
 
         public DateTime? PlayerLastDate { get; set; }
 
+        /// <summary>Non-null indicates the player is deceased -- see spec/frontend-prototype.md, Players Page.</summary>
+        public DateTime? DeathDate { get; set; }
+
         public bool IsHof { get; set; }
     }
 }

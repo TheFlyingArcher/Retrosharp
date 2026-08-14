@@ -1,6 +1,8 @@
 using Retrosharp.Contract.Game;
+using Retrosharp.Contract.Person;
 using Retrosharp.Contract.Pitching;
 using Retrosharp.Data;
+using Retrosharp.Format;
 using Retrosharp.Format.PlayByPlay;
 using Retrosharp.Service.Interface;
 
@@ -12,6 +14,9 @@ namespace Retrosharp.Service
         private readonly IGameFieldingStatisticsRepository _gameFieldingStatisticsRepository;
         private readonly IGamePitchingStatisticsRepository _gamePitchingStatisticsRepository;
         private readonly IPitchingRepository _pitchingRepository;
+        private readonly IBattingRepository _battingRepository;
+        private readonly IGameRepository _gameRepository;
+        private readonly IPersonRepository _personRepository;
         private readonly IGameEventRepository _gameEventRepository;
         private readonly IFranchiseRepository _franchiseRepository;
         private readonly ILeagueRepository _leagueRepository;
@@ -22,6 +27,9 @@ namespace Retrosharp.Service
             IGameFieldingStatisticsRepository gameFieldingStatisticsRepository,
             IGamePitchingStatisticsRepository gamePitchingStatisticsRepository,
             IPitchingRepository pitchingRepository,
+            IBattingRepository battingRepository,
+            IGameRepository gameRepository,
+            IPersonRepository personRepository,
             IGameEventRepository gameEventRepository,
             IFranchiseRepository franchiseRepository,
             ILeagueRepository leagueRepository,
@@ -31,6 +39,9 @@ namespace Retrosharp.Service
             _gameFieldingStatisticsRepository = gameFieldingStatisticsRepository;
             _gamePitchingStatisticsRepository = gamePitchingStatisticsRepository;
             _pitchingRepository = pitchingRepository;
+            _battingRepository = battingRepository;
+            _gameRepository = gameRepository;
+            _personRepository = personRepository;
             _gameEventRepository = gameEventRepository;
             _franchiseRepository = franchiseRepository;
             _leagueRepository = leagueRepository;
@@ -137,6 +148,92 @@ namespace Retrosharp.Service
             }
 
             return stats;
+        }
+
+        public async Task<(IReadOnlyList<TeamSeasonBattingSummary> Hitting, IReadOnlyList<TeamSeasonPitchingSummary> Pitching)> GetSeasonSummariesAsync(short season)
+        {
+            var games = (await _gameRepository.GetBySeasonAsync(season)).ToList();
+            var gamesPlayedByFranchiseId = TallyGamesPlayed(games);
+
+            // Shared across both loops below so a player who appears on multiple franchises'
+            // rosters that season (a trade) or on both the batting and pitching side
+            // (pre-DH-era pitcher) is only ever looked up once.
+            var personCache = new Dictionary<int, Person>();
+
+            var hitting = new List<TeamSeasonBattingSummary>();
+            var pitching = new List<TeamSeasonPitchingSummary>();
+
+            foreach (var (franchiseId, gamesPlayed) in gamesPlayedByFranchiseId)
+            {
+                var battingStats = await GetBattingAsync(franchiseId, season);
+                if (battingStats != null)
+                {
+                    var batterPersonIds = (await _battingRepository.GetByFranchiseAsync(franchiseId, season))
+                        .Select(b => b.PersonId)
+                        .Distinct();
+
+                    hitting.Add(new TeamSeasonBattingSummary
+                    {
+                        FranchiseId = franchiseId,
+                        Batting = battingStats,
+                        AverageAge = await ComputeAverageAgeAsync(batterPersonIds, season, personCache),
+                        RunsPerGame = gamesPlayed > 0 ? (float)battingStats.Runs / gamesPlayed : 0f
+                    });
+                }
+
+                var pitchingStats = await GetPitchingAsync(franchiseId, season);
+                if (pitchingStats != null)
+                {
+                    var pitcherPersonIds = (await _pitchingRepository.GetByFranchiseAsync(franchiseId, season))
+                        .Select(p => p.PersonId)
+                        .Distinct();
+
+                    pitching.Add(new TeamSeasonPitchingSummary
+                    {
+                        FranchiseId = franchiseId,
+                        Pitching = pitchingStats,
+                        AverageAge = await ComputeAverageAgeAsync(pitcherPersonIds, season, personCache),
+                        RunsAllowedPerGame = gamesPlayed > 0 ? (float)pitchingStats.Runs / gamesPlayed : 0f
+                    });
+                }
+            }
+
+            return (hitting, pitching);
+        }
+
+        // Counts each franchise's game appearances (home or visitor) for the season -- computed
+        // directly from Game, not read from FranchiseSeasonStanding, so this endpoint works
+        // whether or not standings have been (re)computed for this season.
+        private static Dictionary<int, int> TallyGamesPlayed(IEnumerable<Game> games)
+        {
+            var counts = new Dictionary<int, int>();
+
+            foreach (var game in games)
+            {
+                counts[game.HomeFranchiseId] = counts.GetValueOrDefault(game.HomeFranchiseId) + 1;
+                counts[game.VisitorFranchiseId] = counts.GetValueOrDefault(game.VisitorFranchiseId) + 1;
+            }
+
+            return counts;
+        }
+
+        private async Task<float> ComputeAverageAgeAsync(IEnumerable<int> personIds, short season, Dictionary<int, Person> personCache)
+        {
+            var ages = new List<int>();
+
+            foreach (var personId in personIds)
+            {
+                if (!personCache.TryGetValue(personId, out var person))
+                {
+                    person = await _personRepository.GetByIdAsync(personId);
+                    personCache[personId] = person;
+                }
+
+                if (BaseballAge.ComputeAge(person?.BirthDate, season) is { } age)
+                    ages.Add(age);
+            }
+
+            return ages.Count > 0 ? (float)ages.Average() : 0f;
         }
     }
 }

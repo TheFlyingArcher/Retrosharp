@@ -22,6 +22,15 @@ namespace Retrosharp.Contract.GameEvent
 
         public string OpponentFranchiseCode { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Defensive position(s) played in this specific game, comma-separated if more than one
+        /// -- raw Retrosheet position codes (resolved the same way as
+        /// <c>GameSummaryService.ResolvePosition</c>), not display abbreviations. Null if the
+        /// player didn't appear in the starting lineup or any substitution record for this game
+        /// (for example, a pinch runner tracked only via play-by-play).
+        /// </summary>
+        public string? Position { get; set; }
+
         public required BattingDelta Stats { get; init; }
     }
 }

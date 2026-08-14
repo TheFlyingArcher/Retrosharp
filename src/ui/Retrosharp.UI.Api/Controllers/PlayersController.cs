@@ -213,6 +213,7 @@ namespace Retrosharp.UI.Api.Controllers
                     line.IsHome = game.IsHome;
                     line.FranchiseCode = game.FranchiseCode;
                     line.OpponentFranchiseCode = game.OpponentFranchiseCode;
+                    line.Position = game.Position;
                     return line;
                 });
 
@@ -228,6 +229,7 @@ namespace Retrosharp.UI.Api.Controllers
                 line.IsHome = game.IsHome;
                 line.FranchiseCode = game.FranchiseCode;
                 line.OpponentFranchiseCode = game.OpponentFranchiseCode;
+                line.Position = game.Position;
                 line.InningsPitchedDisplay = $"{game.Stats.InningsPitched / 3}.{game.Stats.InningsPitched % 3}";
                 return line;
             });

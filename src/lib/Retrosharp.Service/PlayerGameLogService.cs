@@ -10,15 +10,21 @@ namespace Retrosharp.Service
     {
         private readonly IGameEventRepository _gameEventRepository;
         private readonly IFranchiseRepository _franchiseRepository;
+        private readonly IGameLineupRepository _gameLineupRepository;
+        private readonly IGameSubstitutionRepository _gameSubstitutionRepository;
         private readonly ILogger<PlayerGameLogService> _logger;
 
         public PlayerGameLogService(
             IGameEventRepository gameEventRepository,
             IFranchiseRepository franchiseRepository,
+            IGameLineupRepository gameLineupRepository,
+            IGameSubstitutionRepository gameSubstitutionRepository,
             ILogger<PlayerGameLogService> logger)
         {
             _gameEventRepository = gameEventRepository;
             _franchiseRepository = franchiseRepository;
+            _gameLineupRepository = gameLineupRepository;
+            _gameSubstitutionRepository = gameSubstitutionRepository;
             _logger = logger;
         }
 
@@ -47,6 +53,7 @@ namespace Retrosharp.Service
                     IsHome = isHome,
                     FranchiseCode = await ResolveFranchiseCodeAsync(battingDelta.FranchiseId, franchiseCodesById),
                     OpponentFranchiseCode = await ResolveFranchiseCodeAsync(opponentFranchiseId, franchiseCodesById),
+                    Position = await ResolvePositionAsync(gameId, personId, isHome),
                     Stats = battingDelta
                 });
             }
@@ -82,6 +89,7 @@ namespace Retrosharp.Service
                     IsHome = isHome,
                     FranchiseCode = await ResolveFranchiseCodeAsync(pitchingDelta.FranchiseId, franchiseCodesById),
                     OpponentFranchiseCode = await ResolveFranchiseCodeAsync(opponentFranchiseId, franchiseCodesById),
+                    Position = await ResolvePositionAsync(gameId, personId, isHome),
                     Stats = pitchingDelta
                 });
             }
@@ -99,6 +107,19 @@ namespace Retrosharp.Service
                 (short)game.GameDate.Year,
                 game.Plays,
                 earnedRunsByPitcherId);
+        }
+
+        // Reuses GameSummaryService's own position-resolution logic (starting lineup slot plus
+        // every subsequent substitution-recorded position, de-duplicated) rather than
+        // duplicating it -- same rules, just invoked once per game in a player's log instead of
+        // once per participant in one game's box score. Bounded the same way the rest of this
+        // service already is: at most ~162 games for one player-season.
+        private async Task<string> ResolvePositionAsync(int gameId, int personId, bool isHome)
+        {
+            var lineups = await _gameLineupRepository.GetByGameIdAsync(gameId);
+            var substitutions = await _gameSubstitutionRepository.GetByGameIdAsync(gameId);
+
+            return GameSummaryService.ResolvePosition(personId, isHome ? "H" : "V", lineups, substitutions);
         }
 
         private async Task<string> ResolveFranchiseCodeAsync(int franchiseId, Dictionary<int, string> cache)
