@@ -9,6 +9,8 @@ namespace Retrosharp.UI.Api.Models
 
         public string RetroSheetId { get; set; } = string.Empty;
 
+        public string? Surname { get; set; }
+
         public string? FullName { get; set; }
 
         public string? UseName { get; set; }

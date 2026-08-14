@@ -61,6 +61,34 @@ namespace Retrosharp.UI.Api.Controllers
         }
 
         /// <summary>
+        /// Browses players ordered by surname, optionally restricted to surnames starting with a
+        /// given letter. Backs the Players page's A-Z browse list, as opposed to
+        /// <see cref="Search"/>'s free-text search.
+        /// </summary>
+        [HttpGet]
+        public async Task<ActionResult<PagedResult<PlayerSearchResult>>> Browse(
+            [FromQuery] char? letter,
+            [FromQuery] int limit = DefaultLimit,
+            [FromQuery] int offset = 0)
+        {
+            if (limit <= 0 || limit > MaxLimit)
+                return BadRequest($"limit must be between 1 and {MaxLimit}.");
+
+            if (offset < 0)
+                return BadRequest("offset must be non-negative.");
+
+            var (people, totalCount) = await _personService.BrowseBySurnameAsync(letter, limit, offset);
+
+            return new PagedResult<PlayerSearchResult>
+            {
+                Items = people.Adapt<IEnumerable<PlayerSearchResult>>(),
+                TotalCount = totalCount,
+                Limit = limit,
+                Offset = offset
+            };
+        }
+
+        /// <summary>
         /// Gets a player's identity/biographical detail.
         /// </summary>
         [HttpGet("{id}")]

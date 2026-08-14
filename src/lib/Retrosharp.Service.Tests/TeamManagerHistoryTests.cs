@@ -155,7 +155,7 @@ namespace Retrosharp.Service.Tests
             public Task<Person> UpdateAsync(Person entity) => throw new NotImplementedException();
             public Task DeleteAsync(int id) => throw new NotImplementedException();
             public Task<Person> GetByRetrosheetIdAsync(string retrosheetId) => throw new NotImplementedException();
-            public Task<IEnumerable<Person>> SearchBySurnameAsync(string surname) => throw new NotImplementedException();
+            public Task<(IEnumerable<Person> Items, int TotalCount)> BrowseBySurnameAsync(char? letter, int limit, int offset) => throw new NotImplementedException();
             public Task<(IEnumerable<Person> Items, int TotalCount)> SearchByNameAsync(string searchTerm, int limit, int offset) => throw new NotImplementedException();
             public Task<(int Added, int Updated)> BulkUpsertAsync(IEnumerable<Person> people) => throw new NotImplementedException();
         }

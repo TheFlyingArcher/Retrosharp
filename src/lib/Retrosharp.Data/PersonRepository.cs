@@ -23,17 +23,27 @@ namespace Retrosharp.Data
             return person;
         }
 
-        public async Task<IEnumerable<Person>> SearchBySurnameAsync(string surname)
+        public async Task<(IEnumerable<Person> Items, int TotalCount)> BrowseBySurnameAsync(char? letter, int limit, int offset)
         {
-            if (string.IsNullOrWhiteSpace(surname))
-                return Enumerable.Empty<Person>();
+            var query = Context.People.AsQueryable();
 
-            var people = await Context.People
-                .Where(p => p.Surname.Contains(surname))
+            if (letter != null)
+            {
+                var letterUpper = char.ToUpperInvariant(letter.Value).ToString();
+                query = query.Where(p => p.Surname.ToUpper().StartsWith(letterUpper));
+            }
+
+            var totalCount = await query.CountAsync();
+
+            var people = await query
+                .OrderBy(p => p.Surname)
+                .ThenBy(p => p.UseName)
+                .Skip(offset)
+                .Take(limit)
                 .ProjectToType<Person>()
                 .ToListAsync();
 
-            return people;
+            return (people, totalCount);
         }
 
         public async Task<(IEnumerable<Person> Items, int TotalCount)> SearchByNameAsync(string searchTerm, int limit, int offset)

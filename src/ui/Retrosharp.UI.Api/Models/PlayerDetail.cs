@@ -32,6 +32,16 @@ namespace Retrosharp.UI.Api.Models
 
         public string? DeathCountry { get; set; }
 
+        public string? Cemetery { get; set; }
+
+        public string? CemeteryCity { get; set; }
+
+        public string? CemeteryStateProv { get; set; }
+
+        public string? CemeteryCountry { get; set; }
+
+        public string? CemeteryNote { get; set; }
+
         public string? Bats { get; set; }
 
         public string? Throws { get; set; }

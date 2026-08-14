@@ -57,5 +57,10 @@ namespace Retrosharp.Service
 
             return await _personRepository.SearchByNameAsync(searchTerm, limit, offset);
         }
+
+        public async Task<(IEnumerable<Person> Items, int TotalCount)> BrowseBySurnameAsync(char? letter, int limit, int offset)
+        {
+            return await _personRepository.BrowseBySurnameAsync(letter, limit, offset);
+        }
     }
 }

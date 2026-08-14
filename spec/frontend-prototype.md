@@ -18,7 +18,7 @@ This refers to the application as a whole. Here, common components such as heade
 
 The header will contain the following items:
 - Application name: Retrosharp
-- Navigation links: Home, Players, Franchises, Seasons, Games
+- Navigation links: Home, Players, Franchises, Seasons
 - PHASE TWO: Sign on and sign out buttons as well as a user profile link.
 
 #### Footer
@@ -118,11 +118,21 @@ There is no explicit `IsActive` field within the underlying data store. `PlayerL
 
 Note: the biofile is imported independently of the Game Log/Event pipeline, so `PlayerLastDate` could in principle lag behind the latest season already loaded elsewhere in the database. If that staleness becomes a practical problem, the fallback is to derive "active" from whether the player has any `Batting`/`Pitching`/`Fielding` row in the most recent season year present in the database instead of trusting this field.
 
+#### Resolved: Browsing by Surname
+
+The only player-listing route was `players/search`, which requires a non-empty free-text `q` and `Contains`-matches surname/use name/full name together — there was no way to list every player ordered by surname, or restrict to one starting letter for the A-Z jump nav, and `PlayerSearchResult` didn't even carry `Surname` separately from `FullName`/`UseName`.
+
+Fixed with a dedicated browse route, `GET /players?letter=&limit=&offset=` ([api.md](./api.md#players-page-browse-list-needs-surname-not-just-fulluse-name)), backed by a new `IPersonRepository.BrowseBySurnameAsync(letter, limit, offset)` — orders by surname (then use name), optionally filtered to surnames starting with `letter`, paginated the same way as the other list endpoints. `PlayerSearchResult` now also exposes `Surname`. Each A-Z letter link on this page queries `?letter=X`; the unfiltered `?letter=` (omitted) case powers the plain paginated full list.
+
 ### Player Detail Page
 
 Path: /players/[id]
 
 The detail page will display the details of the player with that ID. The player detail page will include information such as the player's name, position, height, weight, birthdate, birth city, death date, death city, burial location, team, statistics, and related media.
+
+#### Resolved: Burial Location
+
+`Person` already carries burial data (`Cemetery`, `CemeteryCity`, `CemeteryStateProv`, `CemeteryCountry`, `CemeteryNote`), but the `PlayerDetail` response DTO omitted them — burial location was undisplayable via the API despite existing in the data store. Fixed by adding the five matching properties to `PlayerDetail` ([PlayerDetail.cs](../src/ui/Retrosharp.UI.Api/Models/PlayerDetail.cs)); the controller uses Mapster's convention-based `Adapt<PlayerDetail>()`, so no controller change was needed once the DTO had matching property names.
 
 There will be a table containing the following columns based on position:
 - If the player is a pitcher: Use shared components statistics table for pitchers.

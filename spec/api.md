@@ -112,7 +112,11 @@ Controllers return dedicated response classes (`Retrosharp.UI.Api/Models/`, mirr
 
 ### Pagination
 
-List/search endpoints (`players/search`, `teams/search`, `games/search`) accept `limit` (default 25, max 100) and `offset` (default 0) query parameters, and return a `{ items, totalCount, limit, offset }` envelope. No existing convention to follow here — this is the first read/list endpoint shape in the project — so this is a new, deliberately simple convention rather than adopting a heavier standard (cursor pagination, `Link` headers) not otherwise needed at Phase 1's data volumes.
+List/search endpoints (`players`, `players/search`, `teams/search`, `games/search`) accept `limit` (default 25, max 100) and `offset` (default 0) query parameters, and return a `{ items, totalCount, limit, offset }` envelope. No existing convention to follow here — this is the first read/list endpoint shape in the project — so this is a new, deliberately simple convention rather than adopting a heavier standard (cursor pagination, `Link` headers) not otherwise needed at Phase 1's data volumes.
+
+### Players page browse list needs surname, not just full/use name
+
+The Players page (see [frontend-prototype.md](./frontend-prototype.md#players-page)) groups its A-Z browse list by surname and shows only last/first name, but `PlayerSearchResult` only carried `FullName`/`UseName` — no `Surname` — and the only player-listing route, `players/search`, requires a non-empty free-text `q` and does a `Contains` match against three name fields, which can't power a "jump to surnames starting with M, paginated" browse list. Resolved by adding a `Surname` field to `PlayerSearchResult` and a separate `GET /players?letter=&limit=&offset=` browse route (`IPersonRepository.BrowseBySurnameAsync`) that orders by surname and optionally filters by its first letter, independent of the free-text search endpoint.
 
 ## API Surface
 
@@ -121,6 +125,7 @@ All routes are `GET`, prefixed `/api`, and return `200 OK` with a JSON body on s
 | Route | Description |
 |---|---|
 | `GET /players/search?q=&limit=&offset=` | Search players by name (surname, use name, or full name — reuses `IPersonRepository.SearchByNameAsync`). |
+| `GET /players?letter=&limit=&offset=` | Browse players ordered by surname, optionally restricted to surnames starting with `letter`. Backs an A-Z browse list, distinct from the free-text search above (reuses `IPersonRepository.BrowseBySurnameAsync`). |
 | `GET /players/{personId}` | Player identity/biographical detail. |
 | `GET /players/{personId}/batting?season=` | Batting stats — all seasons, or one season (with the combined-total row when applicable), including rate stats. |
 | `GET /players/{personId}/pitching?season=` | Same shape, pitching. |

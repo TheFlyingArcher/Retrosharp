@@ -18,11 +18,15 @@ namespace Retrosharp.Data
         Task<Person> GetByRetrosheetIdAsync(string retrosheetId);
 
         /// <summary>
-        /// Searches for people by surname (case-insensitive partial match).
+        /// Browses people ordered by surname, optionally restricted to surnames starting with a
+        /// given letter (case-insensitive). Used by the Players page's A-Z browse list, as
+        /// opposed to <see cref="SearchByNameAsync"/>'s free-text search.
         /// </summary>
-        /// <param name="surname">The surname or partial surname to search for.</param>
-        /// <returns>A collection of people matching the search criteria.</returns>
-        Task<IEnumerable<Person>> SearchBySurnameAsync(string surname);
+        /// <param name="letter">If provided, only surnames starting with this letter are returned.</param>
+        /// <param name="limit">Maximum number of results to return.</param>
+        /// <param name="offset">Number of matching results to skip.</param>
+        /// <returns>The page of people matching the criteria, and the total number of matches.</returns>
+        Task<(IEnumerable<Person> Items, int TotalCount)> BrowseBySurnameAsync(char? letter, int limit, int offset);
 
         /// <summary>
         /// Searches for people by any name field (surname, use name, full name) with case-insensitive partial matching.
