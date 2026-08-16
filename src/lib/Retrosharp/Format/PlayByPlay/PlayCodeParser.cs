@@ -54,7 +54,7 @@ namespace Retrosharp.Format.PlayByPlay
                 {
                     Contract.GameEvent.BattedBallType.GroundBall => GameEventType.GroundOut,
                     Contract.GameEvent.BattedBallType.LineDrive or Contract.GameEvent.BattedBallType.FlyBall or Contract.GameEvent.BattedBallType.PopUp => GameEventType.FlyOut,
-                    _ => throw new PlayCodeParseException(rawEventText, "Fielded-out code has no trajectory modifier (G/L/F/P/BG/BP) to determine GroundOut vs FlyOut.")
+                    _ => throw new PlayCodeParseException(rawEventText, "Fielded-out code has no trajectory modifier (G/L/F/P/BG/BP/BL) to determine GroundOut vs FlyOut.")
                 };
             }
 
@@ -163,6 +163,8 @@ namespace Retrosharp.Format.PlayByPlay
                     battedBallType ??= Contract.GameEvent.BattedBallType.GroundBall;
                 else if (modifier.StartsWith("BP", StringComparison.Ordinal))
                     battedBallType ??= Contract.GameEvent.BattedBallType.PopUp;
+                else if (modifier.StartsWith("BL", StringComparison.Ordinal))
+                    battedBallType ??= Contract.GameEvent.BattedBallType.LineDrive;
 
                 if (modifier.StartsWith("SH", StringComparison.Ordinal))
                     isSacHit = true;

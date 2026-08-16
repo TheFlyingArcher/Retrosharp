@@ -1,0 +1,47 @@
+.players-nav {
+  margin-top: 1.5rem;
+}
+
+.players-nav .row {
+  row-gap: 0.25rem;
+}
+
+.players-nav .col {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.players-results {
+  margin-top: 1rem;
+}
+
+.players-results .row {
+  margin-bottom: 0.5rem;
+}
+
+.players-group-heading {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.players-group-list {
+  line-height: 1.8;
+}
+
+.players-active {
+  font-weight: 700;
+}
+
+.players-deceased {
+  color: var(--mat-sys-outline, #6b6b6b);
+}
+
+.players-spinner {
+  display: flex;
+  justify-content: center;
+  padding: 2rem 0;
+}
+
+.players-error {
+  color: #b3261e;
+}

@@ -46,7 +46,23 @@ namespace Retrosharp.Engine.Console.Saga
 
             _logger.LogInformation("Starting Game Event import from '{FilePath}'.", message.FilePath);
 
-            var result = await _gameEventImportService.ImportAsync(message.FilePath);
+            GameEventImportResult result;
+            try
+            {
+                result = await _gameEventImportService.ImportAsync(message.FilePath);
+            }
+            catch (Exception ex) when (ImportFailureClassifier.IsUnrecoverable(ex))
+            {
+                // Retrying a mistyped/missing file path can never succeed -- fail the saga here
+                // rather than letting the exception reach NServiceBus's recoverability pipeline,
+                // which can't tell this apart from a transient failure like a dropped DB
+                // connection. See spec/defects.md, "Needless Retrying".
+                _logger.LogWarning(ex,
+                    "Game Event import from '{FilePath}' failed with an unrecoverable error; not retrying.",
+                    message.FilePath);
+                MarkAsComplete();
+                return;
+            }
 
             await context.SendLocal(new GameEventComplete
             {

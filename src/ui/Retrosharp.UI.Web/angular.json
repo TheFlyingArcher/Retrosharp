@@ -72,7 +72,8 @@
           },
           "defaultConfiguration": "development",
           "options": {
-            "port": 64632
+            "port": 64632,
+            "proxyConfig": "proxy.conf.json"
           }
         },
         "test": {

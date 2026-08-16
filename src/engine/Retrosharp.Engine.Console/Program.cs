@@ -50,6 +50,10 @@ namespace Retrosharp.Engine.Console
 
             var persistence = endpointConfiguration.UsePersistence<SqlPersistence>();
             var dialect = persistence.SqlDialect<SqlDialect.PostgreSql>();
+            dialect.JsonBParameterModifier(a => { 
+                var param = (NpgsqlParameter)a;
+                param.NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Jsonb;
+            });
             dialect.Schema(messagingConfig.SqlPersistenceSchema);
             persistence.TablePrefix(messagingConfig.SqlPersistenceTablePrefix);
             persistence.ConnectionBuilder(() => new NpgsqlConnection(config.ConnectionString));

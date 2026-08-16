@@ -1,7 +1,8 @@
-import { inject } from '@angular/core';
+import { inject, Service } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http'
 import { Observable } from 'rxjs';
 
+@Service()
 export class HttpService {
 
   private http: HttpClient = inject(HttpClient)

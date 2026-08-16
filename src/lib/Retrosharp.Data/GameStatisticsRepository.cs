@@ -29,7 +29,7 @@ namespace Retrosharp.Data
                 _context.Set<GameEventGameStatusModel>().Add(new GameEventGameStatusModel
                 {
                     GameId = gameId,
-                    ProcessedUtc = DateTime.UtcNow
+                    ProcessedUtc = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified)
                 });
 
                 await _context.SaveChangesAsync();

@@ -1,0 +1,22 @@
+[
+  {
+    "Name": "Full Stack",
+    "Projects": [
+      {
+        "Path": "engine\\Retrosharp.Engine.Console\\Retrosharp.Engine.Console.csproj",
+        "Action": "Start",
+        "DebugTarget": "Retrosharp.Engine.Console"
+      },
+      {
+        "Path": "ui\\Retrosharp.UI.Api\\Retrosharp.UI.Api.csproj",
+        "Action": "Start",
+        "DebugTarget": "https"
+      },
+      {
+        "Path": "ui\\Retrosharp.UI.Web\\Retrosharp.UI.Web.esproj",
+        "Action": "Start",
+        "DebugTarget": "localhost (Edge)"
+      }
+    ]
+  }
+]

@@ -40,4 +40,8 @@
     <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Retrosharp.Engine.Console.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -471,6 +471,19 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Parse_LineDriveBunt_ResolvesToFlyOutWithLineDriveBattedBallType()
+        {
+            // play,9,1,barrj004,01,LX,1/BL1S -- docs/csv/2025ARI.EVN. "BL" (line drive bunt) is
+            // the third documented bunt-trajectory modifier alongside BG/BP; a fielded out whose
+            // only modifier is "BL..." was throwing PlayCodeParseException for lacking a
+            // trajectory modifier before this was recognized.
+            var result = PlayCodeParser.Parse("1/BL1S", "01", "LX");
+
+            Assert.Equal(GameEventType.FlyOut, result.EventType);
+            Assert.Equal(BattedBallType.LineDrive, result.BattedBallType);
+        }
+
+        [Fact]
         public void Parse_NoRbiAnnotation_DeniesTheDefaultRbi()
         {
             var result = PlayCodeParser.Parse("S9/G34.3-H(NR);1-2", "22", "BX");
