@@ -258,6 +258,53 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Parse_BareStrikeout_CreditsCatcherWithPutout()
+        {
+            // Regression test for spec/defects.md's "Missing catcher putout on strikeouts": a
+            // bare "K" carries no fielder digits, but standard scoring still credits the catcher
+            // (position 2) with the putout -- confirmed missing against real data in
+            // docs/csv/2025HOU.EVA, where every bare "K" undercounted GameFieldingStatistics.
+            // Putouts by exactly one relative to the Game Log Parser's independently-sourced
+            // totals.
+            var result = PlayCodeParser.Parse("K", "32", "CBFBS");
+
+            var batter = Assert.Single(result.Runners);
+            Assert.Equal(
+                new[] { (2, FieldingCreditType.Putout, 1) },
+                batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_DroppedThirdStrikeThrownOut_DoesNotDoubleCreditCatcherPutout()
+        {
+            // play,4,0,nimmb001,22,BSSBF*S,K.BX1(23) -- docs/csv/2025HOU.EVA: a dropped third
+            // strike where the batter is thrown out at first by the catcher(2)-to-first-
+            // baseman(3) relay. The explicit fielder chain from the advance segment is the real
+            // disposition; the implicit catcher-putout-on-strikeout rule must not also fire and
+            // give the catcher a second, phantom putout.
+            var result = PlayCodeParser.Parse("K.BX1(23)", "22", "BSSBF*S");
+
+            var batter = Assert.Single(result.Runners);
+            Assert.True(batter.IsOut);
+            Assert.Equal(
+                new[] { (2, FieldingCreditType.Assist, 1), (3, FieldingCreditType.Putout, 2) },
+                batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_StrikeoutWithWildPitchBatterReachesSafely_NoCatcherPutout()
+        {
+            // play,3,1,parei001,12,CB>F.S,K+WP.1-2;B-1 -- docs/csv/2025HOU.EVA: strikeout on a
+            // wild pitch where the batter reaches first safely. IsOut ends up false via the
+            // explicit "B-1" advance, so there's genuinely no putout on this play at all.
+            var result = PlayCodeParser.Parse("K+WP.1-2;B-1", "12", "CB>F.S");
+
+            var batter = Assert.Single(result.Runners, r => r.StartBase == BaseState.BattersBox);
+            Assert.False(batter.IsOut);
+            Assert.Empty(batter.FieldingCredits);
+        }
+
+        [Fact]
         public void Parse_BareErrorCode_BatterSafeWithErrorCredit()
         {
             // play,4,0,turnj001,12,CBSFX,E5/G56.B-1

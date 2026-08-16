@@ -333,4 +333,92 @@ import rather than skipping just that one play. That's a real gap against the or
 "Unable to parse a play code" defect's expected behavior, but a larger architectural change than
 either item resolved in this entry.
 
+## Missing catcher putout on strikeouts
+
+Actual:
+Importing `D:\Code\TheFlyingArcher\Retrosharp\docs\csv\2025HOU.EVA` produced reconciliation
+warnings (not exceptions -- the parse succeeded) for every game in the file:
+
+```text
+Retrosharp.Service.GameEventImportService: Warning: Game '2251', Franchise '122': GameFieldingStatistics.Putouts = 24, but play-by-play derives 19.
+Retrosharp.Service.GameEventImportService: Warning: Game '2266', Franchise '122': GameFieldingStatistics.Putouts = 24, but play-by-play derives 18.
+Retrosharp.Service.GameEventImportService: Warning: Game '2266', Franchise '58': GameFieldingStatistics.Putouts = 27, but play-by-play derives 16.
+Retrosharp.Service.GameEventImportService: Warning: Game '2281', Franchise '58': GameFieldingStatistics.Putouts = 27, but play-by-play derives 22.
+Retrosharp.Service.GameEventImportService: Warning: Game '2281', Franchise '122': GameFieldingStatistics.Putouts = 24, but play-by-play derives 15.
+Retrosharp.Service.GameEventImportService: Warning: Game '2305', Franchise '58': GameFieldingStatistics.Putouts = 27, but play-by-play derives 19.
+Retrosharp.Service.GameEventImportService: Warning: Game '2305', Franchise '107': GameFieldingStatistics.Putouts = 27, but play-by-play derives 16.
+Retrosharp.Service.GameEventImportService: Warning: Game '2320', Franchise '58': GameFieldingStatistics.Putouts = 27, but play-by-play derives 18.
+Retrosharp.Service.GameEventImportService: Warning: Game '2320', Franchise '107': GameFieldingStatistics.Putouts = 27, but play-by-play derives 16.
+Retrosharp.Service.GameEventImportService: Warning: Game '2336', Franchise '58': GameFieldingStatistics.Putouts = 27, but play-by-play derives 20.
+Retrosharp.Service.GameEventImportService: Warning: Game '2336', Franchise '107': GameFieldingStatistics.Putouts = 27, but play-by-play derives 22.
+```
+
+Expected:
+Determine whether this is missing/erroneous Retrosheet data or a Retrosharp defect, and whether
+it affects downstream statistics.
+
+Status: **Root cause confirmed, fix implemented and unit-tested; live backfill pending**
+
+Level: Medium (no exception, data quietly wrong -- not a blocker, but affects a persisted stat)
+
+Root cause:
+Not missing or erroneous Retrosheet data -- a confirmed parser gap. `PlayCodeParser.ParseSingleCode`'s
+`"K"` case (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`) marks the batter out but
+never assigns a `FieldingCredit`. Standard scoring credits the catcher (position 2) with the
+putout on an uncomplicated strikeout, the same way "63" credits the shortstop and second
+baseman on a ground out -- but a bare `"K"` carries no fielder digits in Retrosheet's own
+notation, so nothing in the code was filling that credit in.
+
+Verified quantitatively against every warning in this report, not just inferred: joined
+`GameEventFieldingCredit` (derived) against `GameFieldingStatistics` (Game Log Parser's
+independently-sourced totals) and against a count of `GameEvent` rows with `EventType = 7`
+(Strikeout) per fielding side, for all six games/franchise pairs in the warning list. 9 of 11
+matched the reported gap exactly, one-for-one. The two that didn't were fully explained, not
+loose ends:
+- Game 2305, Franchise 58: gap was 8, bare-K count was 10 -- 2 of those 10 were actually
+  `K.BX1(23)` (a dropped third strike where the batter is thrown out at first by the catcher-to-
+  first-baseman relay), which already carries its own correct fielder-chain credit via
+  `ApplyAdvanceSegment`. Only the other 8 bare `K`s were genuinely creditless.
+- Game 2336, Franchise 107: gap was 5, bare-K count was 6 -- 1 of those 6 was `K+WP.1-2;B-1` (a
+  strikeout on a wild pitch where the batter reaches first safely), which has no putout at all
+  since nobody is actually out on that play.
+
+Both of those already-correct cases (thrown out elsewhere via an explicit fielder chain; safe
+via an explicit advance overriding `IsOut`) confirmed the fix needs to check the *final* resolved
+state of the batter's runner, not just "was the primary code a K".
+
+Downstream impact (this is real, not cosmetic):
+`GameStatisticsResolver` sums `Fielding.Putouts` directly from `GameEventFieldingCredit` rows
+(`src/lib/Retrosharp/Format/PlayByPlay/GameStatisticsResolver.cs:140`), and
+`GameStatisticsRepository.ApplyFieldingDeltaAsync` accumulates that delta straight into the
+persisted **season** `Fielding` table -- this isn't confined to the per-game reconciliation
+warning. Queried the database directly: as of this report, **729 games** across every file
+imported so far (not just `2025HOU.EVA`) have at least one affected strikeout, totaling
+**12,274 missing `GameEventFieldingCredit` Putout rows**. Every catcher's season `Fielding.Putouts`
+total is undercounted by however many strikeouts they caught. Confirmed this is scoped
+precisely to catcher Putouts: `Batting.Strikeouts` and `Pitching.Strikeouts` are computed
+independently from `EventType` directly (not from `FieldingCredits`), so those, `Assists`,
+`Errors`, and every other stat are unaffected.
+
+Fix:
+In `PlayCodeParser.Parse`, after modifiers and advances are fully applied (so the batter's
+runner reflects its final resolved state, not just what the primary "K" code implied), credit
+the catcher (position 2) with a Putout if the event is a Strikeout, the batter's own runner is
+still out, and it has no fielding credits yet -- i.e., nothing else (a dropped-third-strike
+throw-out, a wild-pitch reached-base override) already gave it a different disposition
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`). Added three regression tests using
+real plays from `2025HOU.EVA`: a bare `"K"` gets the catcher putout; `"K.BX1(23)"` does *not*
+get a second, phantom putout on top of its real fielder-chain credit; `"K+WP.1-2;B-1"` gets no
+putout at all, since the batter reached safely
+(`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`).
+
+Verification so far:
+All 157 tests in `Retrosharp.Format.Tests` pass (190 across the full solution). Live end-to-end
+re-verification and backfill of the 729 already-affected games is intentionally **not** done yet
+-- `GameEventRepository.BulkInsertAsync`'s per-game idempotency check means simply re-running
+these import files again would just skip every already-present game rather than correct its
+stored data, so fixing the already-persisted season `Fielding.Putouts` totals needs a deliberate
+backfill decision (e.g. delete and re-import affected games, or a one-off reconciliation script)
+rather than a routine re-run. Awaiting direction on that before touching the live database.
+
 Level: High (blocks parsing)

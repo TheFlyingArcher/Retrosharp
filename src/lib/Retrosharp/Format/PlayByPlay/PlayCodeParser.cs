@@ -64,6 +64,30 @@ namespace Retrosharp.Format.PlayByPlay
                     ApplyAdvanceSegment(segment, rawEventText, runners);
             }
 
+            // A bare strikeout carries no explicit fielder digits -- unlike "63" or "8", nothing
+            // in the play code itself says who caught the third strike -- but standard scoring
+            // credits the catcher (position 2) with the putout unless something else disposed of
+            // the batter differently (a dropped third strike thrown out elsewhere, already
+            // credited via ApplyAdvanceSegment's fielder chain; or the batter reaching safely on
+            // a wild pitch/passed ball, already reflected by IsOut=false via the advance
+            // section). Checked last, after every modifier/advance has had its say, so it only
+            // fires for the genuinely uncomplicated case. Confirmed missing against real data
+            // (docs/csv/2025HOU.EVA): every bare "K" was undercounting GameFieldingStatistics.
+            // Putouts by exactly one relative to the Game Log Parser's independently-sourced
+            // totals -- see spec/defects.md, "Missing catcher putout on strikeouts".
+            if (eventType == GameEventType.Strikeout
+                && runners.TryGetValue(BaseState.BattersBox, out var batterRunner)
+                && batterRunner.IsOut
+                && batterRunner.FieldingCredits.Count == 0)
+            {
+                batterRunner.FieldingCredits.Add(new ParsedFieldingCredit
+                {
+                    Position = 2,
+                    CreditType = FieldingCreditType.Putout,
+                    Sequence = 1
+                });
+            }
+
             return new ParsedPlay
             {
                 EventType = eventType,
