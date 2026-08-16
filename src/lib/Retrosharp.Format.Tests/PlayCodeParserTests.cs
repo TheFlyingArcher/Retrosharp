@@ -580,6 +580,34 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Parse_WildPitchAdvanceAnnotation_DoesNotThrowAndLeavesRunnerUnaffected()
+        {
+            // play,9,0,lee-b002,22,BFB2C>B,SB3.1-2(WP) -- docs/csv/2025TEX.EVA:12992. "(WP)" is a
+            // documented Retrosheet advance annotation ("an alternative way of indicating wild
+            // pitches and passed balls"), purely informational -- it must not throw, and must not
+            // affect IsRBI/IsEarnedRun/fielding credits any differently than a plain "1-2" would.
+            var result = PlayCodeParser.Parse("SB3.1-2(WP)", "22", "BFB2C>B");
+
+            var advanced = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
+            Assert.Equal(BaseState.Second, advanced.EndBase);
+            Assert.False(advanced.IsOut);
+            Assert.Empty(advanced.FieldingCredits);
+        }
+
+        [Fact]
+        public void Parse_PassedBallAdvanceAnnotation_DoesNotThrow()
+        {
+            // (synthetic -- no real "(PB)" advance annotation observed in the reference files,
+            // but it's documented alongside "(WP)" as the same kind of informational tag and
+            // shares the same code path).
+            var result = PlayCodeParser.Parse("S7/G6.2-3(PB)", "10", "BX");
+
+            var advanced = Assert.Single(result.Runners, r => r.StartBase == BaseState.Second);
+            Assert.Equal(BaseState.Third, advanced.EndBase);
+            Assert.False(advanced.IsOut);
+        }
+
+        [Fact]
         public void Parse_PitchSequence_CountsFoulBallsOnlyAfterTwoStrikes()
         {
             // play,1,1,arral001,32,LBBSBFFX,63/G6S.1-2 -- L (bunt foul, strike), B, B, S

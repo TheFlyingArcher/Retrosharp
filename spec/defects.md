@@ -481,7 +481,7 @@ cannot be parsed because of genuinely erroneous Retrosheet data, it should be ha
 existing policy for that case (see "Unable to parse a play code in event file" and "Needless
 Retrying" above), not crash the whole file's import.
 
-Status: Open
+Status: **Resolved**
 
 Level: Low (exactly 1 occurrence across all 10 currently-imported event files, confirmed via
 `grep -c "(WP)\|(PB)" docs/csv/*.EV{N,A}` -- every file returns 0 except `2025TEX.EVA`, which
@@ -501,9 +501,20 @@ spec), purely informational tags on *why* the runner advanced. They don't change
 `IsEarnedRun`, or fielding credits -- the same "no-op, already consumed" treatment the code
 already gives a bare digit-prefixed annotation.
 
-Not fixed yet -- logged per request. Straightforward fix, following the existing pattern: add
-`WP`/`PB` as recognized annotations that fall through without altering the runner (mirroring the
-digit-prefix case's `// Already consumed...` branch), and add a regression test using the real
-play from `2025TEX.EVA:12992`.
+Fix:
+Added `WP`/`PB` as recognized annotations that fall through without altering the runner, mirroring
+the existing digit-prefix case's `// Already consumed...` branch
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`). Added two regression tests: the real
+play from `2025TEX.EVA:12992` for `(WP)`, and a synthetic `(PB)` case since no real occurrence
+exists in the currently-imported files but it shares the exact same code path
+(`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`).
 
-Level: High (blocks parsing)
+Verification:
+All 159 tests in `Retrosharp.Format.Tests` pass (192 across the full solution). `2025TEX.EVA` had
+never been successfully imported before (its own home games were absent from the DB -- it only
+showed up indirectly as an opponent in other teams' home-game files during the putout backfill).
+Imported it for real end to end (API -> NServiceBus -> engine saga -> Postgres): "81 games
+inserted, 0 games skipped, 81 games' statistics applied" with zero exceptions. Confirmed in the
+database that game 2357's `SB3.1-2(WP)` play resolved correctly: the stolen-base runner
+(Second -> Third) and the `(WP)`-annotated advance (First -> Second) are both present with
+`IsOut = false`, matching Retrosheet's documented semantics.

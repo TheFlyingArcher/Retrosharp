@@ -834,6 +834,16 @@ namespace Retrosharp.Format.PlayByPlay
                 {
                     // Already consumed as the out fielder chain above.
                 }
+                else if (annotation is "WP" or "PB")
+                {
+                    // "1-2(WP)"/"1-2(PB)" -- an alternative way of indicating the advance was
+                    // caused by a wild pitch or passed ball, per Retrosheet's own documentation
+                    // ("Advance parameters provide an alternative way of indicating wild pitches
+                    // and passed balls"). Purely informational, like a fielder-chain annotation
+                    // already consumed elsewhere -- it doesn't change IsRBI, IsEarnedRun, or
+                    // fielding credits. Confirmed against a real play, "SB3.1-2(WP)"
+                    // (docs/csv/2025TEX.EVA:12992).
+                }
                 else
                 {
                     throw new PlayCodeParseException(rawEventText, $"Unrecognized advance annotation '({annotation})' in '{segment}'.");
