@@ -704,5 +704,70 @@ namespace Retrosharp.Format.Tests
         {
             Assert.Throws<PlayCodeParseException>(() => PlayCodeParser.Parse("ZZZ", "00", ""));
         }
+
+        [Fact]
+        public void Parse_RunnerInterferenceAdvanceAnnotation_DoesNotThrow()
+        {
+            // (synthetic -- no real "(fielder/INT)" advance annotation observed in the reference
+            // files, but it's Retrosheet's own documented alternate notation for runner
+            // interference: "S/L9S.3-H;2X3(5/INT);1-2" -- "An alternative way of writing this is
+            // (5/INT)." Confirmed crashing ParseFielderChain on the '/' before this fix.
+            var result = PlayCodeParser.Parse("S/L9S.3-H;2X3(5/INT);1-2", "00", "X");
+
+            var thrownOut = Assert.Single(result.Runners, r => r.StartBase == BaseState.Second);
+            Assert.Equal(BaseState.Third, thrownOut.EndBase);
+            Assert.True(thrownOut.IsOut);
+            Assert.Equal(
+                new[] { (5, FieldingCreditType.Putout, 1) },
+                thrownOut.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_DroppedThirdStrikeThrownToFirst_CreditsCatcherAssistAndFirstBasePutout()
+        {
+            // play,6,1,wynnm001,22,..BBFCFS,K23 -- Retrosheet's own worked example: "A dropped
+            // third strike with a putout at first base is given by the event K23." Before this
+            // fix, code.StartsWith("K") matched "K23" the same as a bare "K", silently dropping
+            // the "23" suffix and letting the catcher be wrongly credited an unassisted putout.
+            var result = PlayCodeParser.Parse("K23", "22", "..BBFCFS");
+
+            Assert.Equal(GameEventType.Strikeout, result.EventType);
+            var batter = Assert.Single(result.Runners);
+            Assert.True(batter.IsOut);
+            Assert.Equal(
+                new[] { (2, FieldingCreditType.Assist, 1), (3, FieldingCreditType.Putout, 2) },
+                batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_BareStrikeout_StillCreditsCatcherUnassistedPutout()
+        {
+            // Regression guard for the K23 fix above: a plain "K" (no fielder-chain suffix) must
+            // still fall through to Parse()'s existing fallback and get the catcher's unassisted
+            // putout, unchanged.
+            var result = PlayCodeParser.Parse("K", "22", "CFBS");
+
+            var batter = Assert.Single(result.Runners);
+            Assert.Equal(
+                new[] { (2, FieldingCreditType.Putout, 1) },
+                batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_UnknownPlayPlaceholder99_ProducesNoFieldingCredits()
+        {
+            // (synthetic -- no real "99" placeholder observed in the reference files, which are
+            // all modern (2025) data; this is Retrosheet's documented marker for very old/
+            // incomplete games with unrecorded fielders: "the double digit combination 99, which
+            // cannot arise in play, is used to code unknown plays... No assist or putout credits
+            // are given." Before this fix, "99" was treated as two real fielder-9 (right field)
+            // credits -- an assist and a putout.
+            var result = PlayCodeParser.Parse("99/G", "00", "X");
+
+            Assert.Equal(GameEventType.GroundOut, result.EventType);
+            var batter = Assert.Single(result.Runners);
+            Assert.True(batter.IsOut);
+            Assert.Empty(batter.FieldingCredits);
+        }
     }
 }

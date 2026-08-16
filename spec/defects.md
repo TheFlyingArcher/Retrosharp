@@ -781,3 +781,131 @@ games' statistics applied" with zero exceptions and, notably, zero `PlateAppeara
 reconciliation warnings anywhere in the whole file (only the already-known Errors/EarnedRuns/
 Assists noise categories) -- confirmed in the database that all 4 fresh `FLE` plays landed with
 `EventType = 23` and zero runners, exactly as designed.
+
+## Spec/triple-play audit: five parser gaps
+
+Actual:
+Proactive audit, not triggered by an import warning or exception. Fetched Retrosheet's full
+event-file specification (retrosheet.org/eventfile.htm) and its complete 2000-2025 triple-play
+log (retrosheet.org/TriplePlays.htm, ~90 real plays) and cross-referenced both against
+`PlayCodeParser.cs` line by line. Five distinct gaps found, none triggered by any file in
+`docs/csv/` today (confirmed by grep -- none of the five patterns below occur in any currently
+available file), so none of these were caught by the reconciliation-warning mechanism the way
+every earlier defect in this document was.
+
+Expected:
+Log all five; fix the ones with real stat/crash impact first.
+
+Status: **3 Resolved (items 1, 2, 4), 2 open (items 3, 5)**
+
+Level: Mixed -- item 1 is Critical (aborts the whole file), items 2 and 4 are Medium
+(stat-corrupting, no crash), items 3 and 5 are Low (item 3 is rare; item 5 has no stat impact,
+only a descriptive-data one -- see each item).
+
+### Item 1 (Resolved): Runner-interference advance annotation crashes the parser
+
+Retrosheet's own documented example: `S/L9S.3-H;2X3(5/INT);1-2` -- "Interference can be indicated
+with an advance parameter... An alternative way of writing this is (5/INT)."
+`ApplyAdvanceSegment` (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`) picked `"5/INT"`
+as the out's fielder chain and handed it straight to `ParseFielderChain`, which throws on the
+`/` (`"Unexpected character '/' in fielder chain"`). Any file containing this documented shape
+would abort entirely (parse-everything-then-write architecture -- zero games from that file
+would import). Same class of gap as the already-fixed `(E5/TH)` case, one directory over
+(`/INT` instead of `/TH`), never covered.
+
+Fix: strip a trailing `/<tag>` suffix from the fielder-chain annotation before parsing it,
+mirroring the error annotation's existing `slash >= 0 ? annotation[1..slash] : annotation[1..]`
+handling (`ApplyAdvanceSegment`, `src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`). Added
+`Parse_RunnerInterferenceAdvanceAnnotation_DoesNotThrow` using Retrosheet's own documented
+example verbatim (`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`).
+
+### Item 2 (Resolved): `K##` dropped-third-strike putout misattributed to catcher
+
+Retrosheet's own documented example, verbatim: "A dropped third strike with a putout at first
+base is given by the event `K23`." `ParseSingleCode`'s `"K"` branch
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`) matched on `code.StartsWith("K")`,
+which is also true for `"K23"`, and never looked at the trailing digits -- so `K23` was treated
+identically to a bare `K`. The fallback logic from the earlier "Missing catcher putout on
+strikeouts" fix then unconditionally credited the catcher with an *unassisted* putout, when the
+real play is catcher **assist** + first baseman **putout**. Inflated catcher Putouts and
+undercounted the relay fielder's Putouts on every dropped-third-strike-thrown-elsewhere play.
+
+Fix: the `"K"` branch now parses any trailing digit suffix as a real fielder chain via the
+existing `ParseFielderChain`, only falling back to the bare-K unassisted-catcher-putout default
+(unchanged) when there is no suffix (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`).
+Added `Parse_DroppedThirdStrikeThrownToFirst_CreditsCatcherAssistAndFirstBasePutout` (Retrosheet's
+own `K23` example) and a regression guard, `Parse_BareStrikeout_StillCreditsCatcherUnassistedPutout`,
+confirming the existing bare-`K` behavior is unchanged
+(`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`).
+
+### Item 3 (Open, not fixed): Phantom assist on unassisted multi-out plays
+
+Real example, 5/29/2000 (the first entry in Retrosheet's own triple-play log, flagged `[1]`
+unassisted): `4(B)4(2)4(1)/LTP` -- Randy Velarde (2B) catches a liner and retires all three
+runners himself, no throw ever happens. `AssignFieldedOutGroup`'s carry-over logic
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`) -- designed for genuine relay plays
+like `64(1)3`, where the previous group's finishing fielder really did throw the ball to enable
+the next out -- has no way to tell that apart from the same fielder appearing again with no
+throw involved, so it manufactures a phantom assist for him on group 2 and group 3, inflating his
+season Assists by 2 for this one play. Lower priority than items 1/2/4: genuinely unassisted
+double/triple plays are rare, and this specific primary-code-parenthetical-group notation for
+them is rarer still (most modern unassisted plays in Retrosheet's own log are instead recorded
+via the advance section, which doesn't have this bug -- see item 5 below). Not fixed in this
+pass; logged for future work.
+
+### Item 4 (Resolved): `"99"` unknown-play placeholder miscredited to right fielder
+
+Retrosheet's own documented text, verbatim: "the double digit combination 99, which cannot arise
+in play, is used to code unknown plays including forms that otherwise describe force outs and
+the double plays... No assist or putout credits are given." `ParseFieldedOutGroups` had no
+special case for it -- `"99"` ran through the ordinary digit-chain path and generated a real
+assist + putout credited to **position 9 (right field)**, even though `9` here is explicitly a
+"fielder unknown" placeholder, not an actual position. Would corrupt the right fielder's Putouts
+and Assists whenever this placeholder appears (chiefly older/incomplete games; not present in
+any currently-imported 2025 file).
+
+Fix: `AssignFieldedOutGroup` now skips generating fielding credits when a group's own digit
+chain is exactly `"99"`, still marking the runner out but with zero credits, per Retrosheet's
+own "no assist or putout credits are given" rule
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`). Scoped narrowly to a group's own raw
+digits (not the carry-over-prefixed chain), since carry-over represents a real fielder from an
+earlier group in the same play, unrelated to an unconnected group happening to be the `"99"`
+placeholder -- noted as a residual, unconfirmed edge case (a `"99"` group immediately followed by
+a real fielder group in the same play) not chased further since no real occurrence of even the
+simple case exists yet to validate against. Added
+`Parse_UnknownPlayPlaceholder99_ProducesNoFieldingCredits`
+(`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`).
+
+### Item 5 (Open, not fixed): Wrong `EndBase` on non-forced primary-code out groups
+
+`AssignFieldedOutGroup` always sets `EndBase = NextBase(StartBase)` for a primary-code
+parenthetical out-group, which is correct for a genuine force (confirmed by the `/FO` modifier's
+own documented meaning) but wrong when the group represents a runner doubled/tripled off *their
+own* base on a caught line drive or fly -- no force exists there. Confirmed by two real games
+using the identical string `3(B)3(1)5(3)/LTP` (07/29/2020 CHN@CIN, 04/17/2021 CLE@CIN): the `(1)`
+group's fielder is `3` (first baseman) -- physically standing at first base, so that runner is
+retired *at* first, not advanced to second; likewise the `(3)` group's fielder `5` (third
+baseman) retires the runner *at* third, not home. Retrosheet's notation doesn't encode an ending
+base for these groups at all (only who's out and who fielded it) -- the true ending base is
+context-dependent (which base the credited fielder plausibly covers) and isn't mechanically
+derivable from the digits the way a `"startXend"` advance-section entry is. Checked
+`GameStatisticsResolver` (`src/lib/Retrosharp/Format/PlayByPlay/GameStatisticsResolver.cs:108`):
+`EndBase` is only consulted for `EndBase == Home && !IsOut` (run scoring), which never fires for
+an out, so this corrupts the stored play-by-play detail (`GameEventRunner.EndBase`) but not any
+counting stat. Lower priority than items 1/2/4 for that reason. Not fixed in this pass -- would
+need the same "defer the decision until enough context is known" pattern already used for
+GroundOut-vs-FlyOut (`isFieldedOutPendingTrajectory`), keyed off the `/FO` modifier's presence,
+and the correct default for the non-forced case is still an open question (same-base is the
+overwhelmingly common real pattern, but not universal -- see the McGwire triple play
+`8(B)2(3)6(2)/TP` from 5/31/2000, where the `(3)` group's fielder is the catcher, which can only
+mean the runner from third was retired at home, not doubled off at third). Logged for future
+work, not chased to a fix without more real examples to validate against.
+
+Verification (items 1, 2, 4):
+All 168 tests in `Retrosharp.Format.Tests` pass (201 across the full solution: 168 + 10
+`Retrosharp.Service.Tests` + 23 `Retrosharp.Engine.Console.Tests`). No live-import verification
+was possible or necessary: none of the three fixed patterns occur in any currently-available
+event file (confirmed by grep across `docs/csv/*.EV*` before writing the fixes), so there is
+nothing to backfill and no real file to re-import -- these are implemented per Retrosheet's own
+documented spec ahead of ever being observed in real data, the same way the bare `"C"` (catcher's
+interference) case was implemented earlier this session.

@@ -471,7 +471,21 @@ namespace Retrosharp.Format.PlayByPlay
 
             if (code.StartsWith("K", StringComparison.Ordinal))
             {
-                AddBatterRunner(runners, BaseState.First, isOut: true);
+                var runner = AddBatterRunner(runners, BaseState.First, isOut: true);
+
+                // "K23" -- a dropped third strike where the catcher throws to a fielder (here,
+                // the first baseman) to complete the putout, per Retrosheet's own documentation:
+                // "A dropped third strike with a putout at first base is given by the event
+                // K23." Unlike a bare "K" (an unassisted catcher putout, credited later by
+                // Parse()'s fallback once every runner's final disposition is known), the
+                // trailing digits here are a real fielder chain -- the catcher gets an assist,
+                // not the putout. Confirmed missing: code.StartsWith("K") matched "K23"
+                // identically to a bare "K", silently discarding the "23" suffix and letting the
+                // fallback wrongly credit the catcher an unassisted putout instead.
+                var suffix = code[1..];
+                if (suffix.Length > 0 && suffix.All(char.IsDigit))
+                    runner.FieldingCredits.AddRange(ParseFielderChain(suffix, rawEventText));
+
                 return (GameEventType.Strikeout, false);
             }
 
@@ -767,12 +781,23 @@ namespace Retrosharp.Format.PlayByPlay
             if (digits.Length == 0)
                 throw new PlayCodeParseException(rawEventText, "Fielded-out group has no fielder digits.");
 
-            var fullDigits = carryOverFielder is { } carry ? carry + digits : digits;
-
             var runner = GetOrAddRunner(runners, startBase);
             runner.EndBase = NextBase(startBase);
             runner.IsOut = true;
-            runner.FieldingCredits.AddRange(ParseFielderChain(fullDigits, rawEventText));
+
+            // "99" is Retrosheet's own documented placeholder for a completely unknown play --
+            // "the double digit combination 99, which cannot arise in play, is used to code
+            // unknown plays... No assist or putout credits are given." Unlike every other
+            // two-digit chain, this does NOT mean fielder 9 (right field) assisted fielder 9;
+            // it means the real fielders were never recorded, so no fielding credit should be
+            // generated at all. Checked against this group's own digits only (not the
+            // carry-over-prefixed chain) -- carry-over is a real fielder from an earlier group
+            // in the same play, unaffected by an unrelated group being the "99" placeholder.
+            if (digits != "99")
+            {
+                var fullDigits = carryOverFielder is { } carry ? carry + digits : digits;
+                runner.FieldingCredits.AddRange(ParseFielderChain(fullDigits, rawEventText));
+            }
 
             return digits[^1];
         }
@@ -841,8 +866,16 @@ namespace Retrosharp.Format.PlayByPlay
                 if (fielderGroup is null)
                     throw new PlayCodeParseException(rawEventText, $"Out advance '{segment}' is missing its fielder chain.");
 
+                // "(5/INT)" -- Retrosheet's own documented alternate notation for runner
+                // interference on an out advance (e.g. "2X3(5/INT)": "An alternative way of
+                // writing this is (5/INT)"). The same shape as "(E5/TH)" already strips a
+                // trailing "/TH" from the fielder digits -- here the suffix is "/INT" instead;
+                // either way it's informational and not part of the fielder chain itself.
+                var slash = fielderGroup.IndexOf('/');
+                var fielderChain = slash >= 0 ? fielderGroup[..slash] : fielderGroup;
+
                 runner.FieldingCredits.Clear();
-                runner.FieldingCredits.AddRange(ParseFielderChain(fielderGroup, rawEventText));
+                runner.FieldingCredits.AddRange(ParseFielderChain(fielderChain, rawEventText));
 
                 // "1X2(4E6)" -- an "X" advance whose fielder chain's last credit is an error
                 // rather than a putout means the throw that would have completed the out was
