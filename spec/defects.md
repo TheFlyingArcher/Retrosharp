@@ -458,4 +458,52 @@ the original SQL "affected games" query now returns 0 games / 0 missing credits;
 reconciliation check for all 6 games/11 franchise-pairs from the original warning report --
 every gap is now 0.
 
+## Unrecognized "(WP)"/"(PB)" advance annotation
+
+Actual:
+Surfaced while re-deriving play-by-play for the "Missing catcher putout on strikeouts" backfill
+(not via a live import through the API): parsing game 2357's play-by-play from
+`D:\Code\TheFlyingArcher\Retrosharp\docs\csv\2025TEX.EVA` throws
+
+```text
+Retrosharp.Format.PlayByPlay.PlayCodeParseException: Unrecognized advance annotation '(WP)' in '1-2(WP)'. Raw play code: 'SB3.1-2(WP)'.
+   at Retrosharp.Format.PlayByPlay.PlayCodeParser.ApplyAdvanceSegment(String segment, String rawEventText, IDictionary`2 runners) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\PlayCodeParser.cs
+   at Retrosharp.Format.PlayByPlay.PlayCodeParser.Parse(String rawEventText, String countField, String pitchSequence) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\PlayCodeParser.cs
+   at Retrosharp.Format.PlayByPlay.GameEventResolver.ResolvePlay(...) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\GameEventResolver.cs
+```
+
+The exact source line: `docs/csv/2025TEX.EVA:12992` --
+`play,9,0,lee-b002,22,BFB2C>B,SB3.1-2(WP)`.
+
+Expected:
+All documented Retrosheet advance annotations should parse without throwing. If a play code
+cannot be parsed because of genuinely erroneous Retrosheet data, it should be handled per the
+existing policy for that case (see "Unable to parse a play code in event file" and "Needless
+Retrying" above), not crash the whole file's import.
+
+Status: Open
+
+Level: Low (exactly 1 occurrence across all 10 currently-imported event files, confirmed via
+`grep -c "(WP)\|(PB)" docs/csv/*.EV{N,A}` -- every file returns 0 except `2025TEX.EVA`, which
+returns 1; this is the only known real-world occurrence, and it doesn't overlap with any
+already-imported game's data)
+
+Root cause (same class of gap as "BL" in the resolved play-code defect -- a documented Retrosheet
+shape the parser was never extended to cover, not erroneous source data):
+`ApplyAdvanceSegment`'s annotation loop (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`)
+recognizes `E$` (error), `NR`/`NORBI` (deny RBI), `UR`/`TUR` (deny earned run), and a bare digit
+prefix (already-consumed fielder chain for an out) -- anything else throws
+`PlayCodeParseException`. Confirmed against Retrosheet's own event-file documentation
+(retrosheet.org/eventfile.htm): "Advance parameters provide an alternative way of indicating wild
+pitches and passed balls" -- `(WP)` and `(PB)` are both documented, legitimate advance
+annotations (`1-2(WP)` and `1-2(E5/TH)` are both given as example syntax in Retrosheet's own
+spec), purely informational tags on *why* the runner advanced. They don't change `IsRBI`,
+`IsEarnedRun`, or fielding credits -- the same "no-op, already consumed" treatment the code
+already gives a bare digit-prefixed annotation.
+
+Not fixed yet -- logged per request. Straightforward fix, following the existing pattern: add
+`WP`/`PB` as recognized annotations that fall through without altering the runner (mirroring the
+digit-prefix case's `// Already consumed...` branch), and add a regression test using the real
+play from `2025TEX.EVA:12992`.
+
 Level: High (blocks parsing)
