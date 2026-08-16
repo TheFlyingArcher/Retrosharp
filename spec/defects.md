@@ -679,3 +679,77 @@ Verification:
 stolen-base credit for the one affected player (PersonId 573, Franchise 25/BOS, season 2025) went
 from 5 to 4. Re-ran the exact reconciliation check for all three Errors-discrepancy games -- every
 gap is now 0.
+
+## PlateAppearances/AtBats overcounted on a foul ball dropped for an error
+
+Actual:
+Importing `D:\Code\TheFlyingArcher\Retrosharp\docs\csv\2025NYA.EVA` produced these warnings:
+
+```text
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '1257', Franchise '87': GameBattingStatistics.PlateAppearances = 44, but play-by-play derives 45.
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '1257', Franchise '87': GameBattingStatistics.AtBats = 34, but play-by-play derives 35.
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '1257', Franchise '94': GameFieldingStatistics.Errors = 3, but play-by-play derives 2.
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '2355', Franchise '28': GameFieldingStatistics.Assists = 10, but play-by-play derives 11.
+```
+
+Expected:
+PlateAppearances/AtBats should match. Errors treated as likely official-scorer-judgment noise
+per the earlier "EarnedRuns" precedent, not investigated here. Assists discrepancy (game 2355,
+Franchise 28/CHA) checked for the same error-annotation patterns behind prior Assists/Errors
+bugs and found none -- doesn't look related to the bug below; needs its own separate
+investigation, not chased further per priority.
+
+Status: **Root cause confirmed, not yet fixed**
+
+Level: Medium (parses successfully; affects a persisted stat used in statistical calculations,
+confirmed to already exist in 20 already-imported games, not an isolated occurrence)
+
+Root cause:
+`GameEventType.Error` is overloaded to mean two structurally different things.
+`PlayCodeParser.ParseSingleCode`'s `FLE<n>` case (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`)
+-- a foul ball dropped for an error -- returns `GameEventType.Error` with its own comment stating
+"the plate appearance continues... the batter never becomes a runner at all." But
+`GameStatisticsResolver.PlateAppearanceEndingEvents`
+(`src/lib/Retrosharp/Format/PlayByPlay/GameStatisticsResolver.cs`) includes `Error`
+unconditionally, with no way to distinguish "the play code that returned Error" -- so every
+`FLE$` gets counted as a full plate appearance (and, since `Error` isn't in `NonAtBatEvents`
+either, a full at-bat too), on top of whatever event *actually* ends that same plate appearance
+a few pitches later.
+
+Traced game 1257 exactly: NYA's `goldp001` fouls one off for an error (`FLE2`, confirmed zero
+`GameEventRunner` rows for that play -- the batter never reached base), then the same plate
+appearance genuinely ends two pitches later with a flyout (`7/F7`). Both get counted, double-
+counting that one plate appearance -- exactly matching the reported gap (PA 44->45, AB 34->35,
+both off by exactly 1).
+
+Not isolated to this game: queried every currently-imported `GameEvent` row with
+`RawEventText LIKE 'FLE%'` -- **20 occurrences across 18 games**, every single one with zero
+`GameEventRunner` rows, all hitting the same overcounting bug. Every game with a foul-ball-error
+in it has (or will have, once reconciliation runs) an inflated PlateAppearances/AtBats total for
+that batter.
+
+Also affected, not yet confirmed against a live example: `PitcherEventAggregateResolver.IsAtBat`
+(`src/lib/Retrosharp/Format/PlayByPlay/PitcherEventAggregateResolver.cs`) explicitly mirrors
+`GameStatisticsResolver`'s at-bat rule ("Mirrors GameStatisticsResolver.ApplyBatterEvent's at-bat
+rule exactly") against the *same* `PlateAppearanceEndingEvents`/`NonAtBatEvents` sets -- but it
+operates on `PitcherGameEventRecord`, a flat DB projection with no runner information at all, so
+the same "does the batter have a runner row" check that would fix `GameStatisticsResolver` isn't
+directly available there.
+
+Recommended fix (not yet implemented):
+The batter-runner-presence check is a workable fix for `GameStatisticsResolver` alone, but doesn't
+extend to `PitcherEventAggregateResolver` without adding runner information to
+`PitcherGameEventRecord`'s DB projection. The architecturally cleaner fix is likely a distinct
+`GameEventType` for this case (e.g. `FoulBallError`) instead of reusing `Error` -- both resolvers
+would then exclude it from `PlateAppearanceEndingEvents` by construction, with no inference
+needed. Would need: a new enum value, updating `PlayCodeParser`'s `FLE<n>` case to return it,
+and auditing every other `EventType == GameEventType.Error` check in the codebase (spot-checked
+`ApplyPitcherEvent` -- `Error` isn't one of its cases, so pitcher ERA-adjacent stats are
+unaffected) to confirm none of them need the same split. Backfilling the 20 already-imported
+`FLE` rows' `EventType` and correcting the resulting season PlateAppearances/AtBats overcounts
+would need the same care as the earlier StolenBases backfill (precise deltas, not a season
+recompute).
