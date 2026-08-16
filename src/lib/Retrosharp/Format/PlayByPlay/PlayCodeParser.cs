@@ -40,7 +40,7 @@ namespace Retrosharp.Format.PlayByPlay
             BattedBallType? battedBallType = null;
             var isSacHit = false;
             var isSacFly = false;
-            ApplyModifiers(modifiers, ref battedBallType, ref isSacHit, ref isSacFly);
+            ApplyModifiers(modifiers, runners, ref battedBallType, ref isSacHit, ref isSacFly);
 
             if (isFieldedOutPendingTrajectory)
             {
@@ -164,7 +164,12 @@ namespace Retrosharp.Format.PlayByPlay
             return fouls;
         }
 
-        private static void ApplyModifiers(IReadOnlyList<string> modifiers, ref BattedBallType? battedBallType, ref bool isSacHit, ref bool isSacFly)
+        private static void ApplyModifiers(
+            IReadOnlyList<string> modifiers,
+            IDictionary<BaseState, MutableRunner> runners,
+            ref BattedBallType? battedBallType,
+            ref bool isSacHit,
+            ref bool isSacFly)
         {
             foreach (var modifier in modifiers)
             {
@@ -194,6 +199,25 @@ namespace Retrosharp.Format.PlayByPlay
                     isSacHit = true;
                 else if (modifier.StartsWith("SF", StringComparison.Ordinal))
                     isSacFly = true;
+
+                // "C/E2" -- catcher's interference where the catcher also committed a fielding
+                // error (e.g. an errant throw) recovering the ball. Unlike a primary "E<n>"
+                // code or an advance segment's "(E<n>)" annotation, this appears as a bare
+                // modifier -- observed exclusively on Catcher's Interference plays across every
+                // currently-imported file (always "C/E2..."), confirmed missing against real
+                // data in docs/csv/2025BOS.EVA (GameFieldingStatistics.Errors undercounted by
+                // exactly 1 in every affected game). Credited to the batter's own runner row,
+                // which is guaranteed to exist on a "C" play.
+                if (modifier.Length >= 2 && modifier[0] == 'E' && char.IsDigit(modifier[1])
+                    && runners.TryGetValue(BaseState.BattersBox, out var batterRunner))
+                {
+                    batterRunner.FieldingCredits.Add(new ParsedFieldingCredit
+                    {
+                        Position = (byte)(modifier[1] - '0'),
+                        CreditType = FieldingCreditType.Error,
+                        Sequence = batterRunner.FieldingCredits.Count + 1
+                    });
+                }
             }
         }
 
@@ -204,6 +228,18 @@ namespace Retrosharp.Format.PlayByPlay
             public bool IsOut { get; set; }
             public bool IsRBI { get; set; }
             public bool IsEarnedRun { get; set; }
+
+            /// <summary>
+            /// True only when this specific runner's own disposition was produced by an "SB"
+            /// sub-code -- not merely "any runner present in a play whose overall EventType is
+            /// StolenBase." A steal's throw can go awry and let a *different* runner advance or
+            /// score as a side effect (e.g. "SB2.3-H(E2/TH)(NR)(UR);1-3" -- the runner who
+            /// started at Third just scores off the error; they didn't steal anything). See
+            /// GameStatisticsResolver's StolenBases counting, confirmed overcounting against
+            /// real data in docs/csv/2025BOS.EVA.
+            /// </summary>
+            public bool IsStolenBase { get; set; }
+
             public List<ParsedFieldingCredit> FieldingCredits { get; } = new();
 
             public ParsedRunnerAdvance ToParsedRunnerAdvance() => new()
@@ -213,6 +249,7 @@ namespace Retrosharp.Format.PlayByPlay
                 IsOut = IsOut,
                 IsRBI = IsRBI,
                 IsEarnedRun = IsEarnedRun,
+                IsStolenBase = IsStolenBase,
                 FieldingCredits = FieldingCredits
             };
         }
@@ -523,6 +560,7 @@ namespace Retrosharp.Format.PlayByPlay
                 var runner = GetOrAddRunner(runners, startBase);
                 runner.EndBase = NextBase(startBase);
                 runner.IsOut = false;
+                runner.IsStolenBase = true;
                 return (GameEventType.StolenBase, false);
             }
 
@@ -583,18 +621,39 @@ namespace Retrosharp.Format.PlayByPlay
                 throw new PlayCodeParseException(rawEventText, $"Caught-stealing code '{code}' is missing its fielder chain.");
 
             var parenEnd = rest.IndexOf(')', parenStart);
-            runner.FieldingCredits.AddRange(ParseFielderChain(rest[(parenStart + 1)..parenEnd], rawEventText));
+            var annotation = rest[(parenStart + 1)..parenEnd];
 
-            // "K+CS3(2E5)" -- a caught-stealing/pickoff-caught-stealing attempt whose fielder
-            // chain's last credit is an error rather than a putout means the throw that would
-            // have completed the out was itself misplayed, so the runner is actually safe. Same
-            // rule ApplyAdvanceSegment already applies to explicit "X" advances (see its own
-            // "1X2(4E6)" comment) -- confirmed against a real play in docs/csv/2025ATH.EVA
-            // ("K+CS3(2E5).1-2" followed two plays later by "S7/L7S.3-H(UR);2-H(UR);1-3", which
-            // requires a runner on Third that this method was incorrectly marking out and
-            // dropping from the tracker instead of placing safely).
-            if (runner.FieldingCredits.Count > 0 && runner.FieldingCredits[^1].CreditType == FieldingCreditType.Error)
+            if (annotation.Length >= 2 && annotation[0] == 'E' && char.IsDigit(annotation[1]))
+            {
+                // "CS2(E1/TH)" -- a structured error annotation (the throw on the attempt was
+                // itself the error), not a raw fielder-digit chain -- the same grammar PO
+                // already handles for its own "(E1/TH)" case (see the comment there).
+                // Treating this as a raw chain crashes ParseFielderChain on the non-digit '/',
+                // 'T', 'H' characters. Confirmed against a real play in docs/csv/2025BAL.EVA
+                // ("CS2(E1/TH).1-3").
                 runner.IsOut = false;
+                runner.FieldingCredits.Add(new ParsedFieldingCredit
+                {
+                    Position = (byte)(annotation[1] - '0'),
+                    CreditType = FieldingCreditType.Error,
+                    Sequence = 1
+                });
+            }
+            else
+            {
+                runner.FieldingCredits.AddRange(ParseFielderChain(annotation, rawEventText));
+
+                // "K+CS3(2E5)" -- a caught-stealing/pickoff-caught-stealing attempt whose fielder
+                // chain's last credit is an error rather than a putout means the throw that would
+                // have completed the out was itself misplayed, so the runner is actually safe. Same
+                // rule ApplyAdvanceSegment already applies to explicit "X" advances (see its own
+                // "1X2(4E6)" comment) -- confirmed against a real play in docs/csv/2025ATH.EVA
+                // ("K+CS3(2E5).1-2" followed two plays later by "S7/L7S.3-H(UR);2-H(UR);1-3", which
+                // requires a runner on Third that this method was incorrectly marking out and
+                // dropping from the tracker instead of placing safely).
+                if (runner.FieldingCredits.Count > 0 && runner.FieldingCredits[^1].CreditType == FieldingCreditType.Error)
+                    runner.IsOut = false;
+            }
         }
 
         /// <summary>

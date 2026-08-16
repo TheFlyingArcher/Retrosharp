@@ -31,6 +31,13 @@ namespace Retrosharp.Format.PlayByPlay
         /// </summary>
         public bool IsEarnedRun { get; init; }
 
+        /// <summary>
+        /// True only when this specific runner's own disposition came from an "SB" sub-code --
+        /// not merely "some runner present in a play whose overall EventType is StolenBase."
+        /// See <see cref="Retrosharp.Contract.GameEvent.GameEventRunner.IsStolenBase"/>.
+        /// </summary>
+        public bool IsStolenBase { get; init; }
+
         public required IReadOnlyList<ParsedFieldingCredit> FieldingCredits { get; init; }
     }
 }

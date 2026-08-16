@@ -518,3 +518,164 @@ inserted, 0 games skipped, 81 games' statistics applied" with zero exceptions. C
 database that game 2357's `SB3.1-2(WP)` play resolved correctly: the stolen-base runner
 (Second -> Third) and the `(WP)`-annotated advance (First -> Second) are both present with
 `IsOut = false`, matching Retrosheet's documented semantics.
+
+## PlayCodeParseException: 2025BAL.EVA
+
+Actual:
+
+```text
+Retrosharp.Format.PlayByPlay.PlayCodeParseException: Unexpected character '/' in fielder chain 'E1/TH'. Raw play code: 'CS2(E1/TH).1-3'.
+   at Retrosharp.Format.PlayByPlay.PlayCodeParser.ParseFielderChain(String chain, String rawEventText) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\PlayCodeParser.cs:line 256
+   at Retrosharp.Format.PlayByPlay.PlayCodeParser.ParseCaughtStealingLike(String code, String prefix, String rawEventText, IDictionary`2 runners) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\PlayCodeParser.cs:line 586
+   at Retrosharp.Format.PlayByPlay.PlayCodeParser.ParseSingleCode(String code, String rawEventText, IDictionary`2 runners) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\PlayCodeParser.cs:line 462
+   at Retrosharp.Format.PlayByPlay.PlayCodeParser.ParsePrimaryCode(String primaryCode, String rawEventText, IDictionary`2 runners) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\PlayCodeParser.cs:line 346
+   at Retrosharp.Format.PlayByPlay.PlayCodeParser.Parse(String rawEventText, String countField, String pitchSequence) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\PlayCodeParser.cs:line 38
+   at Retrosharp.Format.PlayByPlay.GameEventResolver.ResolvePlay(Int32 gameId, Int32 sequence, Int32 recordIndex, PlayRecord play, TeamLineupState visitingTeam, TeamLineupState homeTeam, IReadOnlyDictionary`2 personIdsByRetrosheetId, Dictionary`2 baserunners) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\GameEventResolver.cs:line 107
+   at Retrosharp.Format.PlayByPlay.GameEventResolver.Resolve(Int32 gameId, EventFileGame game, IReadOnlyDictionary`2 personIdsByRetrosheetId) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\GameEventResolver.cs:line 81
+   at Retrosharp.Service.GameEventImportService.MapToGameEventRecordAsync(EventFileGame game) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp.Service\GameEventImportService.cs:line 105
+   at Retrosharp.Service.GameEventImportService.ImportAsync(String filePath) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp.Service\GameEventImportService.cs:line 56
+   at Retrosharp.Engine.Console.Saga.GameEventSaga.Handle(GameEventStart message, IMessageHandlerContext context) in D:\Code\TheFlyingArcher\Retrosharp\src\engine\Retrosharp.Engine.Console\Saga\GameEventSaga.cs:line 52
+```
+
+Expected:
+The play code is parsed correctly. Sounds like has something to do with an error on the pitcher
+
+Status: **Resolved**
+
+Level: High (blocks parsing this file)
+
+Root cause:
+Same class of gap as the already-fixed `K+CS3(2E5)` issue, in the same method.
+`ParseCaughtStealingLike` (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`)
+unconditionally treated the parenthetical as a raw fielder-digit chain and handed it to
+`ParseFielderChain`, which throws on the non-digit `/`, `T`, `H` characters in `E1/TH`. The `PO`
+(pickoff) code path already handles this exact shape correctly -- it checks whether the
+parenthetical starts with `E<digit>` and, if so, treats it as a structured error annotation
+(runner safe, single error credit to that fielder) rather than a raw chain. `ParseCaughtStealingLike`
+(shared by `CS` and `POCS`) never got the same treatment. Confirms the user's own hunch ("Sounds
+like has something to do with an error on the pitcher") exactly -- `E1` is the pitcher.
+
+Fix:
+Applied the same structured-error-annotation check `PO` already uses to `ParseCaughtStealingLike`,
+checked before falling back to the raw fielder-chain parse (which still handles the pre-existing
+"K+CS3(2E5)" error-negates-out case). Added a regression test using the real play from
+`2025BAL.EVA:6476` (`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`).
+
+Verification:
+All 163 tests in `Retrosharp.Format.Tests` pass (196 across the full solution). `2025BAL.EVA` had
+never been successfully imported before (0 games -- the exception aborted the whole file before
+any writes, per the same "parse everything first" architecture as every other `PlayCodeParseException`
+defect). Imported it for real end to end: "81 games inserted, 0 games skipped, 81 games'
+statistics applied" with zero exceptions. Confirmed in the database that game `CS2(E1/TH).1-3`
+resolved correctly: `StartBase=First`, `EndBase=Third`, `IsOut=false`, with an Error credit to
+position 1 (the pitcher).
+
+## Discrepancy Issues in 2025BOS.EVA
+
+Actual:
+
+```text
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '151', Franchise '25': GameFieldingStatistics.Errors = 2, but play-by-play derives 1.
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '559', Franchise '122': GameBattingStatistics.GroundedIntoDoublePlay = 2, but play-by-play derives 1.
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '772', PersonId '6286': Pitching.EarnedRuns = 4 (from 'data,er,...'), but play-by-play independently derives 3 earned runs.
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '772', PersonId '17591': Pitching.EarnedRuns = 1 (from 'data,er,...'), but play-by-play independently derives 2 earned runs.
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '1236', Franchise '25': GameBattingStatistics.StolenBases = 2, but play-by-play derives 3.
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '1370', PersonId '171': Pitching.EarnedRuns = 1 (from 'data,er,...'), but play-by-play independently derives 0 earned runs.
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '2093', Franchise '25': GameFieldingStatistics.Errors = 1, but play-by-play derives 0.
+warn: Retrosharp.Service.GameEventImportService[0]
+      Game '2210', Franchise '25': GameFieldingStatistics.Errors = 3, but play-by-play derives 2.
+```
+
+Expected:
+Possibly related to the [Missing catcher putout on strikeouts](#missing-catcher-putout-on-strikeouts). Needs evaluation. Possibly a missed error/earned run in parsing the play codes. May need retroactive backfilling as before
+
+Status: **Resolved** (Errors and StolenBases discrepancies; GIDP and EarnedRuns are separate, see below)
+
+Level: Medium (parses successfully, but data discrepancies)
+
+Evaluation:
+Traced each discrepancy against the real source data individually rather than assuming a single
+shared cause -- they turned out to be two distinct, unrelated bugs, plus two categories that
+aren't bugs at all:
+
+- **Errors undercount (games 151, 2093, 2210) -- confirmed root cause.** Every case traces to a
+  `"C/E2..."` play (Catcher's Interference where the catcher also commits a subsequent throwing
+  error recovering the ball, e.g. `C/E2.2-3;1-2;B-1`). `E2` here is a bare **modifier** (after
+  `/`), not a primary code or an advance annotation -- `ApplyModifiers`
+  (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`) had no case for `E<digit>` at all, so
+  the credit was silently dropped. Verified directly: game 151's `C/E2...` play had zero fielding
+  credits in the database before the fix, while the game's other error plays (primary-code `E7`,
+  `E5`) were already correctly recorded.
+
+- **StolenBases overcount (game 1236) -- confirmed root cause, different file location entirely.**
+  `GameStatisticsResolver.cs` credited a `StolenBase` to *every non-batter runner present in a
+  play whose `EventType` is `StolenBase`*, not just the runner who actually stole. Play
+  `SB2.3-H(E2/TH)(NR)(UR);1-3` has two runners: the actual stealer (First->Third) and a runner
+  who merely *scored* off the ensuing error. Both were credited, overcounting by 1.
+
+- **GIDP undercount (game 559) -- investigated, not a bug.** Confirmed the two ground-ball-DP
+  plays: the first is a genuine batter GIDP (correctly counted). The second
+  (`54(1)6(2)/GDP/G56.B-1`) forces out two *other* runners while the batter reaches safely on the
+  fielder's choice -- by the standard rule (GIDP requires the batter himself to be retired),
+  that's correctly *not* a batter GIDP. Left open as a separate note, not re-opened here, since
+  it isn't part of the two confirmed bugs and the "official" Game Log figure may be using a
+  different definition -- not chasing further without more evidence.
+
+- **EarnedRuns mismatches (games 772, 1370) -- not a bug.** Same "official `data,er` figure vs.
+  independently-derived" category seen as an expected, accepted discrepancy in nearly every game
+  imported this session -- genuine subjective official-scorer judgment that can't be mechanically
+  re-derived from play-by-play.
+
+Fix (Errors):
+Added a case to `ApplyModifiers` for a bare `E<digit>` modifier, crediting the batter's own
+runner row (guaranteed to exist on a `C` play) with an Error at that position
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`).
+
+Fix (StolenBases):
+Added `IsStolenBase` to `MutableRunner`/`ParsedRunnerAdvance` (parser-internal) and to the
+`GameEventRunner` contract type (transient -- not a persisted column; `GameEventRunnerModel` has
+no matching property), set `true` only where `ParseSingleCode`'s `"SB"` case itself creates or
+updates a runner -- including multi-steal (`;`) and bundled (`+`) combinators, which route
+through the same code path. `GameStatisticsResolver`'s `StolenBases` counting now checks
+`runner.IsStolenBase` directly instead of inferring from the whole play's `EventType`
+(`src/lib/Retrosharp/Format/PlayByPlay/GameStatisticsResolver.cs`).
+
+Tests:
+Three new `PlayCodeParserTests` (real plays from `2025BOS.EVA:625` and `2025BOS.EVA` line for the
+`SB2.3-H(E2/TH)...` play) plus a new `GameStatisticsResolverTests` case exercising a
+StolenBase-typed play with a bystander runner. All 163 tests in `Retrosharp.Format.Tests` pass
+(196 across the full solution).
+
+Backfill (completed):
+`2025BOS.EVA` was already imported (81 games) before both fixes landed. Built a one-off tool
+(`BosBackfill`, scratch-only, not part of the repo -- same pattern as the earlier putout
+backfill: re-derives play-by-play with the fixed parser, reusing the real `GameEventResolver`/
+`PlayCodeParser` rather than reimplementing lineup/error logic) to correct exactly what each fix
+touches, nothing else:
+- **Errors**: purely additive, same pattern as the putout backfill -- insert the missing
+  `GameEventFieldingCredit` row only where the DB row currently has zero credits, increment
+  season `Fielding.Errors` by the same count.
+- **StolenBases**: *not* a season recompute-and-overwrite -- first attempt at that produced
+  nonsense deltas (e.g. persisted=19/correct=2) because a season `Batting.StolenBases` row is fed
+  by every team's file a player appears in, not just BOS's own, so "recompute from BOS's file
+  alone" is comparing a partial total against a season-wide one. Corrected to a **precise
+  subtractive delta**: for each `StolenBase`-typed play, identify exactly which specific runner
+  the *old* buggy logic would have phantom-credited (non-batter, `IsStolenBase = false`) and
+  subtract exactly 1 from that runner's own season row -- safe regardless of how many other files
+  also feed that row, since it only removes exactly what BOS's own import incorrectly added.
+- Hard safety gate before any write: dry-run counts had to match the independently-verified
+  baseline (grepped directly against `docs/csv/2025BOS.EVA`: exactly 3 `"C/E2"` occurrences,
+  exactly 1 `SB` play with a secondary advance) before `--commit` was allowed to proceed.
+
+Verification:
+`GameEventFieldingCredit` row count increased by exactly 3 (63,587 -> 63,590); the phantom
+stolen-base credit for the one affected player (PersonId 573, Franchise 25/BOS, season 2025) went
+from 5 to 4. Re-ran the exact reconciliation check for all three Errors-discrepancy games -- every
+gap is now 0.

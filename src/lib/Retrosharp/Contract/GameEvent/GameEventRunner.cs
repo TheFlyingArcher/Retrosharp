@@ -51,5 +51,16 @@ namespace Retrosharp.Contract.GameEvent
         /// (accounts for inherited runners). Null unless the runner scores.
         /// </summary>
         public int? ResponsiblePitcherId { get; set; }
+
+        /// <summary>
+        /// True only when this specific runner's own disposition on the play came from an "SB"
+        /// sub-code, not merely "some runner present in a play whose overall EventType is
+        /// StolenBase" -- a steal's throw going awry can let a *different* runner advance or
+        /// score as a side effect without themselves having stolen anything. Transient: used by
+        /// <see cref="Format.PlayByPlay.GameStatisticsResolver"/> to derive
+        /// Batting.StolenBases correctly; not a persisted column (GameEventRunnerModel has no
+        /// matching property).
+        /// </summary>
+        public bool IsStolenBase { get; set; }
     }
 }

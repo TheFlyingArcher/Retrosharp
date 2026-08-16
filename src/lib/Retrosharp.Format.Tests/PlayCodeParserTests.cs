@@ -414,6 +414,69 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Parse_CaughtStealingWithStructuredErrorAnnotation_RunnerSafeNotOut()
+        {
+            // play,1,0,wallt003,21,1CBB1N,CS2(E1/TH).1-3 -- docs/csv/2025BAL.EVA. "(E1/TH)" is a
+            // structured error annotation (the pitcher's throw on the attempt was itself the
+            // error), not a raw fielder-digit chain -- the same grammar PO already handled for
+            // its own "(E1/TH)" case. Before this was fixed, ParseCaughtStealingLike always
+            // treated the parenthetical as a raw chain and crashed on the non-digit '/', 'T',
+            // 'H' characters.
+            var result = PlayCodeParser.Parse("CS2(E1/TH).1-3", "21", "1CBB1N");
+
+            Assert.Equal(GameEventType.CaughtStealing, result.EventType);
+
+            var runner = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
+            Assert.Equal(BaseState.Third, runner.EndBase);
+            Assert.False(runner.IsOut);
+            Assert.Equal(
+                new[] { (1, FieldingCreditType.Error, 1) },
+                runner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_CatcherInterferenceWithErrorModifier_CreditsCatcherError()
+        {
+            // play,1,0,sprig001,01,CX,C/E2.2-3;1-2;B-1 -- docs/csv/2025BOS.EVA. "E2" here is a
+            // bare modifier (after "/", not a primary code and not an advance segment's "(E$)"
+            // annotation) -- Catcher's Interference where the catcher also committed a
+            // subsequent throwing error. ApplyModifiers had no case for "E<digit>" at all, so
+            // this credit was silently dropped, undercounting GameFieldingStatistics.Errors by
+            // exactly 1 in every affected game.
+            var result = PlayCodeParser.Parse("C/E2.2-3;1-2;B-1", "01", "CX");
+
+            Assert.Equal(GameEventType.CatcherInterference, result.EventType);
+
+            var batter = Assert.Single(result.Runners, r => r.StartBase == BaseState.BattersBox);
+            Assert.Equal(
+                new[] { (2, FieldingCreditType.Error, 1) },
+                batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_StolenBaseWithBystanderRunnerScoringOnError_OnlyStealerFlagged()
+        {
+            // play,3,1,abrew002,02,CS.>B,SB2.3-H(E2/TH)(NR)(UR);1-3 -- docs/csv/2025BOS.EVA. The
+            // steal's throw gets away, letting a *different* runner (who started at Third) score
+            // as a side effect. Regression test for spec/defects.md's "Discrepancy Issues in
+            // 2025BOS.EVA": only the runner whose own disposition actually came from the "SB"
+            // code should carry IsStolenBase -- GameStatisticsResolver previously credited
+            // Batting.StolenBases to *every* non-batter runner in a StolenBase-typed play,
+            // overcounting whenever a bystander runner merely advanced alongside the steal.
+            var result = PlayCodeParser.Parse("SB2.3-H(E2/TH)(NR)(UR);1-3", "02", "CS.>B");
+
+            Assert.Equal(GameEventType.StolenBase, result.EventType);
+
+            var stealer = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
+            Assert.Equal(BaseState.Third, stealer.EndBase);
+            Assert.True(stealer.IsStolenBase);
+
+            var scorer = Assert.Single(result.Runners, r => r.StartBase == BaseState.Third);
+            Assert.Equal(BaseState.Home, scorer.EndBase);
+            Assert.False(scorer.IsStolenBase);
+        }
+
+        [Fact]
         public void Parse_WildPitch_NoInherentRunnerImplication()
         {
             // (synthetic -- neither reference file has a standalone WP with no baserunner)

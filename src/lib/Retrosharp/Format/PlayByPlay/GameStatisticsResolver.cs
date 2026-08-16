@@ -114,16 +114,21 @@ namespace Retrosharp.Format.PlayByPlay
                     }
 
                     // Checking SecondaryEventType too (not just EventType) is what makes a
-                    // bundled "K+SB2"/"K+CS2(24)" count at all -- EventType alone can only ever
-                    // be Strikeout/Walk for those plays. The StartBase != BattersBox guard keeps
+                    // bundled "K+CS2(24)" count at all -- EventType alone can only ever be
+                    // Strikeout/Walk for those plays. The StartBase != BattersBox guard keeps
                     // this correct now that a bundled play's Runners can include the batter
-                    // (from the primary K/W) alongside the actual base-stealer (from the
-                    // secondary SB/CS) -- a real steal is never the batter's own row.
-                    var isStolenBaseEvent = evt.EventType == GameEventType.StolenBase || evt.SecondaryEventType == GameEventType.StolenBase;
+                    // (from the primary K/W) alongside the actual caught-stealing runner.
                     var isCaughtStealingEvent = evt.EventType is GameEventType.CaughtStealing or GameEventType.PickoffCaughtStealing
                         || evt.SecondaryEventType is GameEventType.CaughtStealing or GameEventType.PickoffCaughtStealing;
 
-                    if (isStolenBaseEvent && runner.StartBase != BaseState.BattersBox)
+                    // runner.IsStolenBase (not "the play's EventType is StolenBase") -- a play
+                    // whose primary code is "SB2" can still carry a *second* runner in
+                    // play.Runners who merely advanced or scored as a side effect of the
+                    // ensuing wild throw (e.g. "SB2.3-H(E2/TH)(NR)(UR);1-3" -- the runner
+                    // starting at Third just scores off the error, they didn't steal anything).
+                    // Crediting every non-batter runner in a StolenBase-typed play overcounted
+                    // Batting.StolenBases -- confirmed against real data in docs/csv/2025BOS.EVA.
+                    if (runner.IsStolenBase)
                     {
                         GetOrAdd(batting, runner.PersonId, battingFranchiseId).StolenBases++;
                     }

@@ -23,7 +23,8 @@ namespace Retrosharp.Format.Tests
 
         private static GameEventRunnerRecord Runner(
             int personId, BaseState startBase, BaseState endBase, bool isOut = false,
-            int? responsiblePitcherId = null, bool isRBI = false, params GameEventFieldingCredit[] credits) =>
+            int? responsiblePitcherId = null, bool isRBI = false, bool isStolenBase = false,
+            params GameEventFieldingCredit[] credits) =>
             new()
             {
                 Runner = new GameEventRunner
@@ -33,7 +34,8 @@ namespace Retrosharp.Format.Tests
                     EndBase = endBase,
                     IsOut = isOut,
                     ResponsiblePitcherId = responsiblePitcherId,
-                    IsRBI = isRBI
+                    IsRBI = isRBI,
+                    IsStolenBase = isStolenBase
                 },
                 FieldingCredits = credits
             };
@@ -114,7 +116,7 @@ namespace Retrosharp.Format.Tests
         {
             // The runner (5) steals while a different player (13) is at the plate.
             var evt = new GameEvent { TeamAtBat = "V", BatterId = 13, PitcherId = 23, EventType = GameEventType.StolenBase };
-            var play = Play(evt, Runner(5, BaseState.First, BaseState.Second));
+            var play = Play(evt, Runner(5, BaseState.First, BaseState.Second, isStolenBase: true));
 
             var delta = Resolve(play);
 
@@ -137,7 +139,7 @@ namespace Retrosharp.Format.Tests
             var play = Play(
                 evt,
                 Runner(13, BaseState.BattersBox, BaseState.First, isOut: true),
-                Runner(5, BaseState.First, BaseState.Second));
+                Runner(5, BaseState.First, BaseState.Second, isStolenBase: true));
 
             var delta = Resolve(play);
 
@@ -148,6 +150,30 @@ namespace Retrosharp.Format.Tests
             // share the play with the actual base-stealer.
             var batterRow = Assert.Single(delta.Battings, b => b.PersonId == 13);
             Assert.Equal(0, batterRow.StolenBases);
+        }
+
+        [Fact]
+        public void Resolve_StolenBaseWithBystanderRunner_OnlyCreditsTheActualStealer()
+        {
+            // Regression test for spec/defects.md's "Discrepancy Issues in 2025BOS.EVA":
+            // "SB2.3-H(E2/TH)(NR)(UR);1-3" -- a steal of second whose throw gets away, letting a
+            // *different* runner (who started at Third) score as a side effect. Only the runner
+            // whose own disposition actually came from the "SB" code (IsStolenBase = true)
+            // should count -- crediting every non-batter runner in a StolenBase-typed play
+            // overcounted Batting.StolenBases.
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 13, PitcherId = 23, EventType = GameEventType.StolenBase };
+            var play = Play(
+                evt,
+                Runner(5, BaseState.First, BaseState.Third, isStolenBase: true),
+                Runner(9, BaseState.Third, BaseState.Home));
+
+            var delta = Resolve(play);
+
+            var stealerBatting = Assert.Single(delta.Battings, b => b.PersonId == 5);
+            Assert.Equal(1, stealerBatting.StolenBases);
+
+            var bystanderBatting = Assert.Single(delta.Battings, b => b.PersonId == 9);
+            Assert.Equal(0, bystanderBatting.StolenBases);
         }
 
         [Fact]
