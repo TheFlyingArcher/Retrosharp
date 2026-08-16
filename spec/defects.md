@@ -357,7 +357,7 @@ Expected:
 Determine whether this is missing/erroneous Retrosheet data or a Retrosharp defect, and whether
 it affects downstream statistics.
 
-Status: **Root cause confirmed, fix implemented and unit-tested; live backfill pending**
+Status: **Resolved**
 
 Level: Medium (no exception, data quietly wrong -- not a blocker, but affects a persisted stat)
 
@@ -412,13 +412,50 @@ get a second, phantom putout on top of its real fielder-chain credit; `"K+WP.1-2
 putout at all, since the batter reached safely
 (`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`).
 
-Verification so far:
-All 157 tests in `Retrosharp.Format.Tests` pass (190 across the full solution). Live end-to-end
-re-verification and backfill of the 729 already-affected games is intentionally **not** done yet
--- `GameEventRepository.BulkInsertAsync`'s per-game idempotency check means simply re-running
-these import files again would just skip every already-present game rather than correct its
-stored data, so fixing the already-persisted season `Fielding.Putouts` totals needs a deliberate
-backfill decision (e.g. delete and re-import affected games, or a one-off reconciliation script)
-rather than a routine re-run. Awaiting direction on that before touching the live database.
+Verification:
+All 157 tests in `Retrosharp.Format.Tests` pass (190 across the full solution).
+
+Backfill (completed):
+Considered and rejected delete-and-reimport: `GameStatisticsRepository.ApplyBattingDeltaAsync`/
+`ApplyPitchingDeltaAsync`/`ApplyFieldingDeltaAsync` are pure additive accumulators (`SetProperty(f
+=> f.Putouts, f => f.Putouts + delta.Putouts)`) with no per-game ledger, and the only thing gating
+re-application is `GameEventGameStatus.GameId`'s uniqueness. Deleting a game's event data and its
+`GameEventGameStatus` claim row and re-importing would have re-applied the *entire* statistics
+delta a second time -- doubling Hits, AtBats, Runs, Strikeouts, Assists, Errors, etc. for every
+player in every affected game, not just fixing Putouts. Since the bug is scoped exclusively to
+catcher Putouts, did a targeted backfill instead: a one-off tool
+(`PutoutBackfill`, not part of the repo -- built in scratch, referencing the real
+`Retrosharp`/`Retrosharp.Data` assemblies so it reuses the actual fixed `GameEventResolver`/
+`PlayCodeParser` rather than reimplementing "who was catching" logic) re-derived play-by-play for
+every event file, matched each Strikeout's batter runner to its persisted `GameEventRunner` row
+by `(GameId, Sequence)`, and inserted a `GameEventFieldingCredit` **only** where the DB row
+currently had zero credits -- `GameEvent`, `GameEventRunner`, `Batting`, `Pitching`, and
+`GameEventGameStatus` were never touched.
+
+Discovered along the way: the original 7-file list (used for this defect's earlier investigation)
+was incomplete -- `docs/csv/` also has `2025ANA.EVA`, `2025SEA.EVA`, `2025TEX.EVA`, each a team's
+own *home*-game file (a specific game is recorded once, under the home team's file only, not
+duplicated across both participants' files -- confirmed empirically: zero shared-game double
+encounters across all 10 files). Re-deriving from only 7 files found 567 games / 9,340 credits;
+adding all 10 found exactly 729 games / 12,274 credits -- a 1:1 match against the independently-
+run SQL baseline (`SELECT COUNT(DISTINCT "GameId")... WHERE "EventType" = 7 AND "IsOut" = true AND
+NOT EXISTS (...credit...)`), confirmed as a hard safety gate in the tool before allowing any write.
+
+Also surfaced, out of scope, not touched: re-deriving all 10 files hit 1,329 plays across 80 other
+games with no matching persisted `GameEvent` row at the expected `(GameId, Sequence)` (their
+source files were very likely edited/regenerated after their original import, so current content
+no longer lines up with what's persisted), one unrelated already-correct play misclassified by a
+too-narrow tool heuristic (a caught-stealing error credit, not a strikeout gap), and one genuinely
+new parser gap (`PlayCodeParseException: Unrecognized advance annotation '(WP)'` on
+`SB3.1-2(WP)` in `2025TEX.EVA`, game 2357 -- an advance annotation shape `ApplyAdvanceSegment`
+doesn't recognize). Confirmed **zero overlap** between these 82 games and the 729 verified-affected
+games before proceeding, so none of this affected the backfill's correctness -- flagging the
+`(WP)` annotation gap here for future investigation, not fixing it as part of this defect.
+
+Post-backfill verification: `GameEventFieldingCredit` row count increased by exactly 12,274
+(39,650 -> 51,924); season `Fielding.Putouts` sum increased by exactly 12,274 (26,588 -> 38,862);
+the original SQL "affected games" query now returns 0 games / 0 missing credits; re-ran the exact
+reconciliation check for all 6 games/11 franchise-pairs from the original warning report --
+every gap is now 0.
 
 Level: High (blocks parsing)
