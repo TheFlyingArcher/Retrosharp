@@ -135,7 +135,23 @@ A single text search bar leaves a lot of empty space on the page. Considered and
 
 Path: /players
 
-On this page, users will be able to view a list of baseball players grouped by the player's last name. To reduce the amount of data coming through only the player's last name and first name will be displayed in the list. Clicking on a player's name will take the user to the player detail page. There is also on top of the page the alphabet A-Z in which a user can click a letter and it drops them down to the players whose last name starts with that letter. The list of players will be paginated to improve performance and usability. Bold text will indicate the player is currently active in MLB. A cross next to their name will indicate the player is deceased.
+On this page, users will be able to view a table of baseball players grouped by the player's last name.
+There is on top of the page the alphabet A-Z in which a user can click a letter and a table will load with players whose last name starts with that letter. Clicking on a player's name will take the user to the player detail page. The table of players will be paginated to improve performance and usability. Bold text will indicate the player is currently active in MLB. A cross next to their name will indicate the player is deceased.
+
+The table contains the following columns:
+
+- Name ("UseName Surname", with the aforementioned requirements)
+- Birth Date
+- Death Date
+- Age(d)
+- Birth Place ("BirthCity, BirthStateProvince, BirthCountry" e.g. "San Diego, California, USA" or "Cienfuegos, Cuba" if no state province)
+- Death Place (follows same formatting as Birth Place)
+- Bats
+- Throws
+- Height (in "[ft]' [in]" format)
+- Weight (in lbs)
+- Player Debut
+- Player Last
 
 #### Resolved: Determining "Is Active"
 
