@@ -68,6 +68,27 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Resolve_FoulBallErrorFollowedByRealOut_CountsOnlyOnePlateAppearance()
+        {
+            // Regression test for spec/defects.md's "PlateAppearances/AtBats overcounted on a
+            // foul ball dropped for an error": "FLE2" (a foul ball dropped for an error) doesn't
+            // end the plate appearance -- confirmed against a real play in docs/csv/2025NYA.EVA,
+            // game 1257, where the same batter's PA genuinely ended two pitches later on a
+            // flyout. GameEventType.FoulBallError (distinct from Error) must not be counted as
+            // its own plate appearance/at-bat on top of the play that actually ends it.
+            var foulBallError = new GameEvent { TeamAtBat = "H", BatterId = 13, PitcherId = 23, EventType = GameEventType.FoulBallError };
+            var flyOut = new GameEvent { TeamAtBat = "H", BatterId = 13, PitcherId = 23, EventType = GameEventType.FlyOut };
+
+            var delta = Resolve(
+                Play(foulBallError),
+                Play(flyOut, Runner(13, BaseState.BattersBox, BaseState.First, isOut: true)));
+
+            var batting = Assert.Single(delta.Battings);
+            Assert.Equal(1, batting.PlateAppearances);
+            Assert.Equal(1, batting.AtBats);
+        }
+
+        [Fact]
         public void Resolve_Walk_CountsPlateAppearanceButNotAtBat()
         {
             var evt = new GameEvent { TeamAtBat = "H", BatterId = 11, PitcherId = 21, EventType = GameEventType.Walk };

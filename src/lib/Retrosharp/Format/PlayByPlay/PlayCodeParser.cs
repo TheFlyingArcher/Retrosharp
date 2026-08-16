@@ -408,8 +408,13 @@ namespace Retrosharp.Format.PlayByPlay
             {
                 // A foul ball dropped for an error (e.g. "FLE5") -- the plate appearance
                 // continues, so unlike a bare "E<n>" the batter never becomes a runner at all;
-                // there's no base-state change to record, just the error itself.
-                return (GameEventType.Error, false);
+                // there's no base-state change to record, just the error itself. Distinct
+                // GameEventType.FoulBallError (not Error) so this doesn't get counted as its
+                // own plate appearance/at-bat on top of whatever event actually ends the same
+                // PA later -- confirmed against real data (docs/csv/2025NYA.EVA, game 1257:
+                // "FLE2" was inflating PlateAppearances/AtBats by 1 alongside the flyout that
+                // genuinely ended that same plate appearance two pitches later).
+                return (GameEventType.FoulBallError, false);
             }
 
             if (code.StartsWith("HR", StringComparison.Ordinal))

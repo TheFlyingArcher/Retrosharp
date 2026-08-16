@@ -38,6 +38,20 @@ namespace Retrosharp.Contract.GameEvent
         /// <summary>
         /// OA -- a baserunning advance not otherwise classified by one of the other event types.
         /// </summary>
-        OtherAdvance
+        OtherAdvance,
+
+        /// <summary>
+        /// "FLE$" -- a foul ball dropped for an error. Distinct from <see cref="Error"/>
+        /// (a genuine reached-on-error play): per Retrosheet's own "FLE$ Error on foul fly
+        /// ball" definition and PlayCodeParser's handling, the batter never becomes a runner
+        /// and the plate appearance continues -- unlike <see cref="Error"/>, which always ends
+        /// it. Kept as its own value (appended, not inserted, so existing persisted rows'
+        /// integer values are unaffected) specifically so
+        /// GameStatisticsResolver.PlateAppearanceEndingEvents can exclude it by construction
+        /// instead of needing to infer "was this Error actually a foul ball" after the fact.
+        /// See spec/defects.md, "PlateAppearances/AtBats overcounted on a foul ball dropped for
+        /// an error."
+        /// </summary>
+        FoulBallError
     }
 }

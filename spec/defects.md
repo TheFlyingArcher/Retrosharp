@@ -703,7 +703,7 @@ Franchise 28/CHA) checked for the same error-annotation patterns behind prior As
 bugs and found none -- doesn't look related to the bug below; needs its own separate
 investigation, not chased further per priority.
 
-Status: **Root cause confirmed, not yet fixed**
+Status: **Resolved**
 
 Level: Medium (parses successfully; affects a persisted stat used in statistical calculations,
 confirmed to already exist in 20 already-imported games, not an isolated occurrence)
@@ -740,16 +740,44 @@ operates on `PitcherGameEventRecord`, a flat DB projection with no runner inform
 the same "does the batter have a runner row" check that would fix `GameStatisticsResolver` isn't
 directly available there.
 
-Recommended fix (not yet implemented):
-The batter-runner-presence check is a workable fix for `GameStatisticsResolver` alone, but doesn't
-extend to `PitcherEventAggregateResolver` without adding runner information to
-`PitcherGameEventRecord`'s DB projection. The architecturally cleaner fix is likely a distinct
-`GameEventType` for this case (e.g. `FoulBallError`) instead of reusing `Error` -- both resolvers
-would then exclude it from `PlateAppearanceEndingEvents` by construction, with no inference
-needed. Would need: a new enum value, updating `PlayCodeParser`'s `FLE<n>` case to return it,
-and auditing every other `EventType == GameEventType.Error` check in the codebase (spot-checked
-`ApplyPitcherEvent` -- `Error` isn't one of its cases, so pitcher ERA-adjacent stats are
-unaffected) to confirm none of them need the same split. Backfilling the 20 already-imported
-`FLE` rows' `EventType` and correcting the resulting season PlateAppearances/AtBats overcounts
-would need the same care as the earlier StolenBases backfill (precise deltas, not a season
-recompute).
+Fix:
+Added a distinct `GameEventType.FoulBallError` (appended after `OtherAdvance`, so every existing
+persisted row's integer value is unaffected) instead of reusing `Error`
+(`src/lib/Retrosharp/Contract/GameEvent/GameEventType.cs`). `PlayCodeParser`'s `FLE<n>` case now
+returns it (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`). Neither
+`GameStatisticsResolver.PlateAppearanceEndingEvents` nor `PitcherEventAggregateResolver.IsAtBat`
+needed any code change -- `FoulBallError` is excluded by construction simply by never being added
+to that set, which also confirms the earlier suspicion that `PitcherEventAggregateResolver` shared
+the same bug: it's fixed by the same one-line root change, no separate fix needed. Audited every
+other `GameEventType.Error` reference in the codebase (`PlayCodeParser`'s two genuine-error sites,
+`GameStatisticsResolver`'s `PlateAppearanceEndingEvents` set, and three test assertions) --
+confirmed none of them needed to change; only the `FLE<n>` site was reclassified. Updated one
+test in `GameEventResolverTests.cs` whose zero-runner allowlist referenced `Error` (only true
+because of `FLE` plays, which no longer map to it) to reference `FoulBallError` instead, and
+`PlayCodeParserTests.cs`'s existing FLE test to assert the new type. Added a new
+`GameStatisticsResolverTests` case modeling the exact bug shape (an `FLE`-typed play followed by
+the real event that actually ends the same plate appearance) confirming only one PA/AB is
+counted.
+
+Backfill (completed):
+`2025NYA.EVA` (and 17 other files) were already imported with the old code. Applied a precise,
+fully-verified SQL transaction (not a C# tool, given the small bounded scope of 20 already-
+identified rows): updated all 20 already-persisted `FLE` `GameEvent` rows' `EventType` from
+`Error` (10) to `FoulBallError` (verified programmatically via a throwaway console app rather
+than trusting manual enum counting: `23`), then subtracted exactly 1 `PlateAppearances`/`AtBats`
+per affected `(BatterId, battingFranchiseId, SeasonYear)` from the season `Batting` table (2 for
+one batter who had two separate `FLE` plays that season) -- confirmed all 20 rows have
+`IsSacHit = IsSacFly = false`, so every one was a clean +1/+1 overcount with no sacrifice
+exclusion to account for.
+
+Verification:
+All 164 tests in `Retrosharp.Format.Tests` pass (197 across the full solution). Snapshotted
+before/after: `GameEvent` rows with `RawEventText LIKE 'FLE%'` went from 20-at-`EventType=10` to
+0-at-`EventType=10`/20-at-`EventType=23`; all 19 affected `Batting` rows decreased by exactly the
+expected delta. Re-ran the exact per-game reconciliation for game 1257/Franchise 87: `PlateAppearances`
+44/44, `AtBats` 34/34 -- exact match. Also imported `2025NYN.EVN` fresh (never previously
+imported, contains 4 of its own `FLE` plays) end to end: "81 games inserted, 0 games skipped, 81
+games' statistics applied" with zero exceptions and, notably, zero `PlateAppearances`/`AtBats`
+reconciliation warnings anywhere in the whole file (only the already-known Errors/EarnedRuns/
+Assists noise categories) -- confirmed in the database that all 4 fresh `FLE` plays landed with
+`EventType = 23` and zero runners, exactly as designed.

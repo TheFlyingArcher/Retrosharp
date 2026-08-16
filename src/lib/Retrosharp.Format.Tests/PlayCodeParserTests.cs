@@ -339,10 +339,13 @@ namespace Retrosharp.Format.Tests
         public void Parse_DroppedFoulError_NoRunnerRecorded()
         {
             // play,1,0,thoml002,11,SBF,FLE2 -- a foul ball dropped for an error; the batter
-            // never becomes a runner at all, unlike a bare "E<n>".
+            // never becomes a runner at all, unlike a bare "E<n>". Distinct
+            // GameEventType.FoulBallError (not Error) so GameStatisticsResolver doesn't count
+            // this as its own plate appearance/at-bat -- see spec/defects.md,
+            // "PlateAppearances/AtBats overcounted on a foul ball dropped for an error."
             var result = PlayCodeParser.Parse("FLE2", "11", "SBF");
 
-            Assert.Equal(GameEventType.Error, result.EventType);
+            Assert.Equal(GameEventType.FoulBallError, result.EventType);
             Assert.Empty(result.Runners);
         }
 
