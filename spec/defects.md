@@ -10,7 +10,7 @@ I initiated the request by sending a POST to `https://localhost:7017/api/gameeve
 
 ```json
 {
-    "filePath":"D:\\Code\\TheFlyingArcher\\Retrosharp\\docs\\csv\\2025SDN.EVN"
+    "filePath":"D:\Code\TheFlyingArcher\Retrosharp\docs\csv\2025SDN.EVN"
 }
 ```
 
@@ -177,7 +177,7 @@ Posting to `https://localhost:7017/api/gamelog/import`, I mistyped the filename.
 Expected:
 Sagas should gracefully fail on unrecoverable errors like file not found exceptions. Recoverable errors are those like connection timeouts.
 
-Status: **Resolved**
+Status: **Re-opened**
 
 Level: Medium
 
@@ -213,3 +213,124 @@ this would have retried 3 times immediately plus 5 more times over about a minut
 `GameLogSaga`'s NServiceBus persistence table that no orphaned/incomplete saga row was left behind
 for the failed request -- `MarkAsComplete()` cleaned it up the same as a normal successful run,
 i.e. a genuine graceful failure rather than a silently swallowed retry loop.
+
+Re-opening reason:
+Exceptions thrown like `InvalidOperationException` in `Retrosharp.Format.PlayByPlay.GameEventResolver.ResolvePlay` will still cause the saga to needlessly retry on unrecoverable errors. `Retrosharp.Engine.Console.Saga.ImportFailureClassifier.IsUnrecoverable` is far too narrow in scope. `FileNotFoundException` are not the only exceptions that are unrecoverable.
+
+Re-opening expected:
+`InvalidOperationException` is added as "unrecoverable" as is `PlayCodeParseException`. That exception is the result of bad Retrosheet data and cannot be recovered.
+
+Status: **Resolved**
+
+Fix:
+Widened `ImportFailureClassifier.IsUnrecoverable`
+(`src/engine/Retrosharp.Engine.Console/Saga/ImportFailureClassifier.cs`) to also match
+`InvalidOperationException` and `PlayCodeParseException`, as requested. Verified every
+`InvalidOperationException` throw site in the codebase first (11 across `GameLogImportService`,
+`GameEventImportService`, `GameEventResolver`, `GameContextResolver`, `PersonImportService` via
+`BaseRepository`) -- all are deterministic "no matching franchise/game/person/lineup slot for
+this input" conditions, none transient. The one exception that ISN'T one of these,
+`FailingPingMessageHandler`'s deliberate diagnostic failure (used to exercise the retry/backoff
+path itself), is unaffected: it's a plain message handler, not one of the three sagas this
+classifier is scoped to, so widening it has no effect there.
+
+Verification:
+Added `IsUnrecoverable_KnownUnrecoverableTypes_ReturnsTrue`/`IsUnrecoverable_PlayCodeParseException_ReturnsTrue`
+to `ImportFailureClassifierTests.cs`, plus a new saga-level regression test,
+`Handle_Start_InvalidOperationException_MarksSagaCompleteWithoutSendingComplete`, in
+`GameEventSagaTests.cs`. All pass. This also fixed the retry storm for the
+"InvalidOperationException on base runners" defect below once that defect's own root cause was
+fixed -- see that entry for the full end-to-end verification (81 games imported from
+`2025ATH.EVA` with zero exceptions and zero retries).
+
+## InvalidOperationException on base runners
+
+Actual:
+Importing `D:\Code\TheFlyingArcher\Retrosharp\docs\csv\2025ATH.EVA` produced this exception
+
+```text
+System.InvalidOperationException: Play 'S7/L7S.3-H(UR);2-H(UR);1-3' (inning 5) references a runner on Third that the resolver has no record of -- a preceding play or substitution was missed. Current baserunners: [Second=dubom001(slot8), First=penaj004(slot1)]
+   at Retrosharp.Format.PlayByPlay.GameEventResolver.ResolvePlay(Int32 gameId, Int32 sequence, Int32 recordIndex, PlayRecord play, TeamLineupState visitingTeam, TeamLineupState homeTeam, IReadOnlyDictionary`2 personIdsByRetrosheetId, Dictionary`2 baserunners)
+   at Retrosharp.Format.PlayByPlay.GameEventResolver.Resolve(Int32 gameId, EventFileGame game, IReadOnlyDictionary`2 personIdsByRetrosheetId)
+   at Retrosharp.Service.GameEventImportService.MapToGameEventRecordAsync(EventFileGame game) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp.Service\GameEventImportService.cs:line 105
+   at Retrosharp.Service.GameEventImportService.ImportAsync(String filePath) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp.Service\GameEventImportService.cs:line 56
+   at Retrosharp.Engine.Console.Saga.GameEventSaga.Handle(GameEventStart message, IMessageHandlerContext context) in D:\Code\TheFlyingArcher\Retrosharp\src\engine\Retrosharp.Engine.Console\Saga\GameEventSaga.cs:line 52
+   at NServiceBus.InvokeHandlerTerminator.Terminate(IInvokeHandlerContext context) in /_/src/NServiceBus.Core/Pipeline/Incoming/InvokeHandlerTerminator.cs:line 31
+   at NServiceBus.SagaPersistenceBehavior.Invoke(IInvokeHandlerContext context, Func`2 next) in /_/src/NServiceBus.Core/Sagas/SagaPersistenceBehavior.cs:line 95
+   at NServiceBus.LoadHandlersConnector.Invoke(IIncomingLogicalMessageContext context, Func`2 stage) in /_/src/NServiceBus.Core/Pipeline/Incoming/LoadHandlersConnector.cs:line 59
+   at NServiceBus.LoadHandlersConnector.Invoke(IIncomingLogicalMessageContext context, Func`2 stage) in /_/src/NServiceBus.Core/Pipeline/Incoming/LoadHandlersConnector.cs:line 80
+   at NServiceBus.DeserializeMessageConnector.Invoke(IIncomingPhysicalMessageContext context, Func`2 stage) in /_/src/NServiceBus.Core/Pipeline/Incoming/DeserializeMessageConnector.cs:line 38
+   at NServiceBus.InvokeAuditPipelineBehavior.Invoke(IIncomingPhysicalMessageContext context, Func`2 next) in /_/src/NServiceBus.Core/Audit/InvokeAuditPipelineBehavior.cs:line 21
+   at NServiceBus.ProcessingStatisticsBehavior.Invoke(IIncomingPhysicalMessageContext context, Func`2 next) in /_/src/NServiceBus.Core/Performance/Statistics/ProcessingStatisticsBehavior.cs:line 27
+   at NServiceBus.TransportReceiveToPhysicalMessageConnector.Invoke(ITransportReceiveContext context, Func`2 next) in /_/src/NServiceBus.Core/Pipeline/Incoming/TransportReceiveToPhysicalMessageConnector.cs:line 39
+   at NServiceBus.TransportReceiveToPhysicalMessageConnector.Invoke(ITransportReceiveContext context, Func`2 next) in /_/src/NServiceBus.Core/Pipeline/Incoming/TransportReceiveToPhysicalMessageConnector.cs:line 45
+   at NServiceBus.RetryAcknowledgementBehavior.Invoke(ITransportReceiveContext context, Func`2 next) in /_/src/NServiceBus.Core/ServicePlatform/Retries/RetryAcknowledgementBehavior.cs:line 25
+   at NServiceBus.MainPipelineExecutor.Invoke(MessageContext messageContext, CancellationToken cancellationToken) in /_/src/NServiceBus.Core/Pipeline/MainPipelineExecutor.cs:line 54
+   at NServiceBus.MainPipelineExecutor.Invoke(MessageContext messageContext, CancellationToken cancellationToken) in /_/src/NServiceBus.Core/Pipeline/MainPipelineExecutor.cs:line 82
+   at NServiceBus.LogWrappedMessageReceiver.<>c__DisplayClass12_0.<<Initialize>g__ScopedOnMessage|0>d.MoveNext() in /_/src/NServiceBus.Core/Receiving/LogWrappedMessageReceiver.cs:line 36
+```
+
+Expected:
+Possible Retrosheet erroneous data entry. However, because game plays determine the statistics, this cannot be ignored otherwise statistics will not be accurate to what is published. Parsing is halted and rolled back.
+
+Status: **Resolved**
+
+Level: High (blocks parsing)
+
+Root cause:
+Not erroneous Retrosheet data -- a confirmed parser bug, the same class of gap as the resolved
+"Unable to parse a play code" defect. Traced the actual top of the 5th inning in
+`docs/csv/2025ATH.EVA` (lines 6250-6257) play by play up to the failing play:
+
+```
+S5/G56S            smitc010 -> 1st
+W.1-2              dubom001 walk, smitc010 -> 2nd        [1st=dubom001, 2nd=smitc010]
+K+CS3(2E5).1-2     strikeout + caught-stealing at 3rd, fielder chain "2E5" (catcher throws, 3B *errors*)
+```
+
+`K+CS3(2E5)` routes through `ParseCaughtStealingLike`
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`), which unconditionally set
+`runner.IsOut = true` without ever inspecting the fielder chain. But the chain ends in an
+*error* (`E5`) -- the relay throw was misplayed, so per Retrosheet convention the runner is
+actually safe at third. The parser dropped `smitc010` from the baserunner tracker entirely
+instead of placing him on third. The exact same "an out chain ending in an error means the
+runner is actually safe" rule already existed elsewhere in the same file --
+`ApplyAdvanceSegment` explicitly checks for a trailing `Error` credit and flips `IsOut = false`
+(confirmed against a real play, `1X2(4E6)`, in `2025SDN.EVN`) -- but `ParseCaughtStealingLike`
+(shared by both `CS` and `POCS`) never got the same treatment.
+
+Two plays later, `S7/L7S.3-H(UR);2-H(UR);1-3` explicitly requires a runner on Third and threw
+the reported exception with baserunners `[Second=dubom001, First=penaj004]`, matching this trace
+exactly. The `(UR)` unearned-run tags on both scoring advances corroborate this: Retrosheet's
+own official scoring already reflects a fielding error upstream, consistent with that runner
+having reached safely rather than being retired.
+
+On "Parsing is halted and rolled back": this already held structurally, no change needed.
+`GameEventImportService.ImportAsync` parses every game in the file into an in-memory list
+*before* calling `BulkInsertAsync`, so this exception always fired during in-memory resolution,
+before any transaction opened or any row was written. Nothing to roll back because nothing was
+ever written.
+
+Fix:
+In `ParseCaughtStealingLike`, after adding the fielder credits, apply the same check
+`ApplyAdvanceSegment` already uses: if the last credit is an `Error`, set `IsOut = false`
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`). Added a regression test,
+`Parse_CaughtStealingWithErrorOnRelay_RunnerSafeNotOut`, using the real play from
+`2025ATH.EVA` line 6255 (`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`).
+
+Verification:
+All 154 tests in `Retrosharp.Format.Tests` pass. Re-ran the full import of `2025ATH.EVA` end to
+end (API -> NServiceBus -> engine saga -> Postgres): "81 games inserted, 0 games skipped, 81
+games' statistics applied" with zero exceptions. Confirmed in the database that
+`GameEventRunner` for the `K+CS3(2E5).1-2` play now shows `smitc010` with `StartBase=Second`,
+`EndBase=Third`, `IsOut=false` -- exactly the fix -- and the following `S7/L7S...` play resolved
+without error since the runner was correctly on Third.
+
+Related gap noted, not in scope here: `PlayCodeParseException`'s own doc comment says callers
+should "catch this per-play, log it, and continue with the rest of the file" (per spec/parser.md),
+but no code anywhere actually does that -- an unparseable code still aborts the whole file's
+import rather than skipping just that one play. That's a real gap against the original
+"Unable to parse a play code" defect's expected behavior, but a larger architectural change than
+either item resolved in this entry.
+
+Level: High (blocks parsing)

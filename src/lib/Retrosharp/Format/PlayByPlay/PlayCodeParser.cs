@@ -560,6 +560,17 @@ namespace Retrosharp.Format.PlayByPlay
 
             var parenEnd = rest.IndexOf(')', parenStart);
             runner.FieldingCredits.AddRange(ParseFielderChain(rest[(parenStart + 1)..parenEnd], rawEventText));
+
+            // "K+CS3(2E5)" -- a caught-stealing/pickoff-caught-stealing attempt whose fielder
+            // chain's last credit is an error rather than a putout means the throw that would
+            // have completed the out was itself misplayed, so the runner is actually safe. Same
+            // rule ApplyAdvanceSegment already applies to explicit "X" advances (see its own
+            // "1X2(4E6)" comment) -- confirmed against a real play in docs/csv/2025ATH.EVA
+            // ("K+CS3(2E5).1-2" followed two plays later by "S7/L7S.3-H(UR);2-H(UR);1-3", which
+            // requires a runner on Third that this method was incorrectly marking out and
+            // dropping from the tracker instead of placing safely).
+            if (runner.FieldingCredits.Count > 0 && runner.FieldingCredits[^1].CreditType == FieldingCreditType.Error)
+                runner.IsOut = false;
         }
 
         /// <summary>

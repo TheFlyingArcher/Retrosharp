@@ -339,6 +339,34 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Parse_CaughtStealingWithErrorOnRelay_RunnerSafeNotOut()
+        {
+            // play,5,0,hummc001,32,CFVB*B.>C,K+CS3(2E5).1-2 -- docs/csv/2025ATH.EVA. The fielder
+            // chain "2E5" ends in an error (fielder 5's throw), meaning the runner reached third
+            // safely rather than being retired -- the same rule ApplyAdvanceSegment already
+            // applies to explicit "X" advances (see its "1X2(4E6)" test). Before this was fixed,
+            // ParseCaughtStealingLike unconditionally marked the runner out and dropped him from
+            // the tracker, which two plays later threw PlayCodeParseException-adjacent
+            // InvalidOperationException: a following play required a runner on Third the
+            // resolver no longer had any record of.
+            var result = PlayCodeParser.Parse("K+CS3(2E5).1-2", "32", "CFVB*B.>C");
+
+            Assert.Equal(GameEventType.Strikeout, result.EventType);
+            Assert.Equal(GameEventType.CaughtStealing, result.SecondaryEventType);
+
+            var caughtStealingRunner = Assert.Single(result.Runners, r => r.StartBase == BaseState.Second);
+            Assert.Equal(BaseState.Third, caughtStealingRunner.EndBase);
+            Assert.False(caughtStealingRunner.IsOut);
+            Assert.Equal(
+                new[] { (2, FieldingCreditType.Assist, 1), (5, FieldingCreditType.Error, 2) },
+                caughtStealingRunner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+
+            var advancingRunner = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
+            Assert.Equal(BaseState.Second, advancingRunner.EndBase);
+            Assert.False(advancingRunner.IsOut);
+        }
+
+        [Fact]
         public void Parse_WildPitch_NoInherentRunnerImplication()
         {
             // (synthetic -- neither reference file has a standalone WP with no baserunner)

@@ -63,6 +63,26 @@ namespace Retrosharp.Engine.Console.Tests
         }
 
         [Fact]
+        public async Task Handle_Start_InvalidOperationException_MarksSagaCompleteWithoutSendingComplete()
+        {
+            // Regression test for spec/defects.md's "Needless Retrying" re-open: a play code
+            // resolution failure (bad Retrosheet data or a resolver gap, e.g. "InvalidOperationException
+            // on base runners") is just as unrecoverable-by-retrying as a missing file.
+            var importService = new FakeGameEventImportService
+            {
+                ExceptionToThrow = new InvalidOperationException(
+                    "Play 'S7/L7S.3-H(UR);2-H(UR);1-3' (inning 5) references a runner on Third that the resolver has no record of.")
+            };
+            var saga = CreateSaga(importService);
+            var context = new TestableMessageHandlerContext();
+
+            await saga.Handle(new GameEventStart { RequestId = Guid.NewGuid(), FilePath = "2025ATH.EVA" }, context);
+
+            Assert.True(saga.Completed);
+            Assert.Empty(context.SentMessages);
+        }
+
+        [Fact]
         public async Task Handle_Start_RecoverableException_PropagatesAndLeavesSagaIncomplete()
         {
             var importService = new FakeGameEventImportService
