@@ -976,3 +976,81 @@ unrelated reconciliation warnings (GroundedIntoDoublePlay, StolenBases, TimesCau
 PitchersUsed, and Assists discrepancies across five different games, all Franchise 119). Not
 chased here since none relate to `BINT` parsing; flagging for a future defect if they turn out
 not to be official-scorer-judgment noise.
+
+## Partial import: 2025PHI.EVN (18 of 81 games)
+
+Actual:
+Asked to list franchises with 2025 game events imported. PHI (Philadelphia Phillies, Franchise
+99) showed only 18 of 81 home games with `GameEvent` data -- every other franchise with any home
+games imported had all 81. The 18 successful games were exactly the file's first 18 by date
+(chronological order, matching how Retrosheet orders games within a team's own file); game 489
+(the 18th, May 3rd) had `GameEvent` rows but no `GameEventGameStatus` claim row; every game after
+it (503 onward) had neither.
+
+Expected:
+Either all-or-nothing for a successfully-parsed file, or a clear, diagnosable reason for a
+partial result.
+
+Status: **Resolved**
+
+Level: High (blocks recovery from any interrupted import, not just this one file)
+
+Root cause:
+Initially assumed to be a simple interrupted process (crash, kill, restart) mid-file, since
+`GameEventRepository.BulkInsertAsync` commits each game's events in its own transaction --
+consistent with "some prefix of games fully done, the rest untouched." Re-running the import to
+test that theory instead surfaced a **second, distinct, and more serious bug**: the re-run made
+*zero* additional progress and, after exhausting NServiceBus's full retry policy, moved the
+message to the `Retrosharp.Engine.Errors` queue.
+
+Root cause of the re-run's failure: `GameStatisticsRepository.TryApplyGameStatisticsAsync`
+(`src/lib/Retrosharp.Data/GameStatisticsRepository.cs`) adds a `GameEventGameStatusModel`,
+calls `SaveChangesAsync()`, and on a unique-constraint violation (meaning the game was already
+claimed -- the expected, designed-for "already done" case) calls
+`RollbackTransactionAsync()` and returns `false`. But `RollbackTransactionAsync()` only undoes
+the *database* transaction -- it does nothing to EF Core's in-memory change tracker, which still
+holds that `GameEventGameStatusModel` as `Added`. `GameEventRepository.BulkInsertAsync` reuses
+one `DbContext` across every game in the file (`TryApplyGameStatisticsAsync` is called once per
+game inside its loop), so that stale entity sits in the tracker until the *next* unrelated
+`SaveChangesAsync()` call on the same context -- which turned out to be `BulkInsertAsync`'s own
+per-game event-insert step for whatever game came next. That flush re-submits the same already-
+rejected insert, fails with the identical `PK_GameEventGameStatus` violation, but this time with
+no catch block expecting it -- crashing the entire import.
+
+Confirmed by direct trace of the re-run's log: 68 occurrences of the `PK_GameEventGameStatus`
+violation (one EF diagnostic-log entry per already-claimed game hit, all otherwise harmless), but
+the *escaped, uncaught* copy of the exception's stack trace ran through
+`Retrosharp.Data.GameEventRepository.BulkInsertAsync` -- not
+`GameStatisticsRepository.TryApplyGameStatisticsAsync` at all -- exactly matching this mechanism.
+This isn't specific to PHI or to this particular partial-import scenario: it means **any** re-run
+of a partially-completed file, or re-POSTing an already-fully-imported file by accident, was
+guaranteed to crash the same way. The original interruption that first left PHI at 18/81 games is
+still unexplained (no log survives from whatever process ran it), but is no longer the operative
+problem -- this change-tracker bug is what actually blocked recovery.
+
+Fix:
+`TryApplyGameStatisticsAsync` now keeps a reference to the `GameEventGameStatusModel` it adds and,
+in the "already claimed" catch block, explicitly sets `_context.Entry(statusModel).State =
+EntityState.Detached` after the transaction rollback -- undoing the `Add` from the change
+tracker's point of view, not just the database's
+(`src/lib/Retrosharp.Data/GameStatisticsRepository.cs`). No dedicated test project exists for the
+repository/EF layer (`Retrosharp.Format.Tests`, `Retrosharp.Service.Tests`, and
+`Retrosharp.Engine.Console.Tests` are the only test projects, none of which exercise a real
+Postgres unique-constraint violation), and this bug specifically requires one to trigger the
+`Npgsql.PostgresException` the catch filter matches on -- so this was verified via a live
+end-to-end re-import rather than a synthetic unit test, the same way the very first defect in
+this document (the `DateTime` `Kind=UTC` repository bug) was verified.
+
+Verification:
+All 203 tests across the solution still pass (no regression). Rebuilt and re-ran the full import
+of `2025PHI.EVN` end to end (API -> NServiceBus -> engine saga -> Postgres): "63 games inserted,
+18 games skipped, 64 games' statistics applied, 17 games' statistics already claimed" -- the
+previously-stuck game 489 and all 63 never-attempted games (503 onward) completed successfully,
+with zero uncaught exceptions and zero retries this time (confirmed
+`GameEventRepository.BulkInsertAsync` no longer appears in any exception stack trace in the new
+run's log). Confirmed in the database: all 81 of PHI's 2025 home games now have both `GameEvent`
+rows and a `GameEventGameStatus` claim row.
+
+Noted, not investigated (out of scope for this defect): the completed import produced four
+unrelated reconciliation warnings (Assists x2, Errors, GroundedIntoDoublePlay across four
+different games). Not chased here for the same reason as the `2025TBA.EVA` note above.

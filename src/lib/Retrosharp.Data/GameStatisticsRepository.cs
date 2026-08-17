@@ -24,21 +24,36 @@ namespace Retrosharp.Data
         {
             await _context.Database.BeginTransactionAsync();
 
+            var statusModel = new GameEventGameStatusModel
+            {
+                GameId = gameId,
+                ProcessedUtc = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified)
+            };
+            _context.Set<GameEventGameStatusModel>().Add(statusModel);
+
             try
             {
-                _context.Set<GameEventGameStatusModel>().Add(new GameEventGameStatusModel
-                {
-                    GameId = gameId,
-                    ProcessedUtc = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified)
-                });
-
                 await _context.SaveChangesAsync();
             }
             catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
             {
                 // Another process already claimed this game -- expected under concurrent
                 // processing (see spec/game-event.md, Considerations), not a bug.
+                //
+                // RollbackTransactionAsync only undoes the *database* transaction --
+                // statusModel is still tracked by this DbContext's change tracker as Added.
+                // Left alone, it gets swept up into whatever SaveChangesAsync call happens
+                // next on this same context (this repository is called once per game inside
+                // GameEventRepository.BulkInsertAsync's loop, which reuses one context across
+                // every game in the file), retrying the exact same insert -- which fails again,
+                // this time with no catch expecting it, crashing the entire import. Confirmed
+                // against a real re-run of an interrupted docs/csv/2025PHI.EVN import: 17
+                // already-claimed games each left their own stray tracked entity behind, and
+                // the 18th game's own ordinary event-insert SaveChangesAsync (a completely
+                // unrelated call, in GameEventRepository.cs) was the one that blew up. Detaching
+                // is what actually undoes the "Add" from this method's own point of view.
                 await _context.Database.RollbackTransactionAsync();
+                _context.Entry(statusModel).State = EntityState.Detached;
                 return false;
             }
 
