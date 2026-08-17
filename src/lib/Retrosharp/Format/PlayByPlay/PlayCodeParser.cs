@@ -310,14 +310,32 @@ namespace Retrosharp.Format.PlayByPlay
             }
 
             var credits = new List<ParsedFieldingCredit>(tokens.Count);
+            var creditedAssistPositions = new HashSet<byte>();
+            var sequence = 1;
             for (var index = 0; index < tokens.Count; index++)
             {
                 var (position, isError) = tokens[index];
-                var creditType = isError
-                    ? FieldingCreditType.Error
-                    : index == tokens.Count - 1 ? FieldingCreditType.Putout : FieldingCreditType.Assist;
 
-                credits.Add(new ParsedFieldingCredit { Position = position, CreditType = creditType, Sequence = index + 1 });
+                if (isError)
+                {
+                    credits.Add(new ParsedFieldingCredit { Position = position, CreditType = FieldingCreditType.Error, Sequence = sequence++ });
+                }
+                else if (index == tokens.Count - 1)
+                {
+                    credits.Add(new ParsedFieldingCredit { Position = position, CreditType = FieldingCreditType.Putout, Sequence = sequence++ });
+                }
+                else if (creditedAssistPositions.Add(position))
+                {
+                    // A real rundown can send the ball back through the same fielder more than
+                    // once (e.g. "POCS2(134634)" -- pitcher to 1B to 2B to SS to 1B to 2B), but
+                    // official scoring credits a fielder at most one assist per play no matter
+                    // how many times he touches the ball. HashSet.Add returns false for a
+                    // position already seen among this chain's non-final tokens, so a repeat
+                    // fielder here is silently skipped rather than double-credited -- confirmed
+                    // against real data (docs/csv/2025TBA.EVA, game 2133): the persisted Assists
+                    // total was exactly 1 lower than what crediting every repeat produced.
+                    credits.Add(new ParsedFieldingCredit { Position = position, CreditType = FieldingCreditType.Assist, Sequence = sequence++ });
+                }
             }
 
             return credits;
@@ -445,6 +463,27 @@ namespace Retrosharp.Format.PlayByPlay
                 // PA later -- confirmed against real data (docs/csv/2025NYA.EVA, game 1257:
                 // "FLE2" was inflating PlateAppearances/AtBats by 1 alongside the flyout that
                 // genuinely ended that same plate appearance two pitches later).
+                //
+                // The error itself still needs crediting to the named fielder.
+                // GameEventFieldingCredit.GameEventRunnerId is NOT NULL, so there's no way to
+                // record a fielding credit without *some* runner row to attach it to -- this
+                // creates one for the batter with StartBase == EndBase == BattersBox (no actual
+                // base movement, IsOut = false), purely to carry the error credit; it's excluded
+                // from base-occupancy tracking by GameEventResolver the same way every other
+                // BattersBox-only advance already is. Confirmed missing against real data: every
+                // currently-imported FLE play was undercounting GameFieldingStatistics.Errors by
+                // exactly 1 for that game (this was noted, but explicitly left out of scope, when
+                // FoulBallError was originally split out -- see spec/defects.md).
+                var runner = GetOrAddRunner(runners, BaseState.BattersBox);
+                runner.EndBase = BaseState.BattersBox;
+                runner.IsOut = false;
+                runner.FieldingCredits.Add(new ParsedFieldingCredit
+                {
+                    Position = (byte)(code[3] - '0'),
+                    CreditType = FieldingCreditType.Error,
+                    Sequence = 1
+                });
+
                 return (GameEventType.FoulBallError, false);
             }
 
@@ -806,8 +845,12 @@ namespace Retrosharp.Format.PlayByPlay
         /// dropping that second credit entirely, only ever assigning the batter's row the
         /// trailing "3" with no assist -- see spec/phase-1-build-plan.md Step 6e.
         /// </summary>
-        /// <returns>This group's own last fielder digit, to carry forward into the next group.</returns>
-        private static char AssignFieldedOutGroup(IDictionary<BaseState, MutableRunner> runners, BaseState startBase, string digits, char? carryOverFielder, string rawEventText)
+        /// <returns>
+        /// This group's own last fielder digit, to carry forward into the next group -- or
+        /// <see langword="null"/> if this group turned out to be a "self-repeat" (see below),
+        /// since no throw happened here either, so there's nothing left to carry forward.
+        /// </returns>
+        private static char? AssignFieldedOutGroup(IDictionary<BaseState, MutableRunner> runners, BaseState startBase, string digits, char? carryOverFielder, string rawEventText)
         {
             if (digits.Length == 0)
                 throw new PlayCodeParseException(rawEventText, "Fielded-out group has no fielder digits.");
@@ -815,6 +858,20 @@ namespace Retrosharp.Format.PlayByPlay
             var runner = GetOrAddRunner(runners, startBase);
             runner.EndBase = NextBase(startBase);
             runner.IsOut = true;
+
+            // A single digit that exactly repeats the fielder who completed the *previous*
+            // group is Retrosheet's way of saying "yes, this same guy, unassisted, did it
+            // again" -- not "he threw to himself." Crediting a fielder an assist to himself is
+            // incoherent, so this group is treated as its own fresh, unassisted putout: no
+            // carry-over prefix here, and (since no throw happened in this group either)
+            // nothing to carry forward to whatever group comes after it. Confirmed against real
+            // data: "3(B)3(1)/GDP/G3" (game 330 -- 1B unassisted on the batter, then separately
+            // doubles a runner off 1st with no throw between them) was crediting a phantom
+            // assist to fielder 3 on the second out; the game's own Assists reconciliation
+            // (persisted 5, derived 6) confirms removing exactly that one phantom credit is
+            // correct. Same shape as "4(1)4/GDP" (games 270/1411 -- 2B forces the runner
+            // unassisted, then separately also retires the batter, again with no throw).
+            var isSelfRepeat = digits.Length == 1 && carryOverFielder == digits[0];
 
             // "99" is Retrosheet's own documented placeholder for a completely unknown play --
             // "the double digit combination 99, which cannot arise in play, is used to code
@@ -826,11 +883,12 @@ namespace Retrosharp.Format.PlayByPlay
             // in the same play, unaffected by an unrelated group being the "99" placeholder.
             if (digits != "99")
             {
-                var fullDigits = carryOverFielder is { } carry ? carry + digits : digits;
+                var effectiveCarry = isSelfRepeat ? null : carryOverFielder;
+                var fullDigits = effectiveCarry is { } carry ? carry + digits : digits;
                 runner.FieldingCredits.AddRange(ParseFielderChain(fullDigits, rawEventText));
             }
 
-            return digits[^1];
+            return isSelfRepeat ? null : digits[^1];
         }
 
         private static void AssignFieldedOutErrorGroup(IDictionary<BaseState, MutableRunner> runners, string assistDigits, char errorFielderDigit, string rawEventText)

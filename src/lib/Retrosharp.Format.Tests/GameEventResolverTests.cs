@@ -302,12 +302,12 @@ namespace Retrosharp.Format.Tests
                 var plays = GameEventResolver.Resolve(gameId: 1, game, personIds);
 
                 Assert.Equal(game.Records.OfType<PlayRecord>().Count(), plays.Count);
-                // "NP" (no play) records, and a dropped foul ball caught for an error ("FLE<n>",
-                // EventType.FoulBallError -- see PlayCodeParser's documented "produces zero
-                // runners" behavior), legitimately produce zero runners; every other play
-                // involves at least the batter.
+                // "NP" (no play) records legitimately produce zero runners; every other play
+                // involves at least the batter -- including a dropped foul ball caught for an
+                // error ("FLE<n>", EventType.FoulBallError), which carries a zero-base-movement
+                // batter runner row purely to attach the fielder's error credit to.
                 Assert.All(plays, p => Assert.True(
-                    p.Runners.Count > 0 || p.Event.EventType is GameEventType.NoPlay or GameEventType.FoulBallError));
+                    p.Runners.Count > 0 || p.Event.EventType is GameEventType.NoPlay));
             }
         }
     }

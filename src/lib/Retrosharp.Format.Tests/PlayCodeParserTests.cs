@@ -336,17 +336,27 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
-        public void Parse_DroppedFoulError_NoRunnerRecorded()
+        public void Parse_DroppedFoulError_NoBaseMovementButCreditsFielderError()
         {
             // play,1,0,thoml002,11,SBF,FLE2 -- a foul ball dropped for an error; the batter
-            // never becomes a runner at all, unlike a bare "E<n>". Distinct
+            // never becomes a runner (no base movement) at all, unlike a bare "E<n>". Distinct
             // GameEventType.FoulBallError (not Error) so GameStatisticsResolver doesn't count
             // this as its own plate appearance/at-bat -- see spec/defects.md,
-            // "PlateAppearances/AtBats overcounted on a foul ball dropped for an error."
+            // "PlateAppearances/AtBats overcounted on a foul ball dropped for an error." The
+            // error itself still needs a runner row to attach a fielding credit to
+            // (GameEventFieldingCredit.GameEventRunnerId is NOT NULL) -- see spec/defects.md,
+            // "Discrepancy warnings from remaining 2025 imports: Errors undercounted by FLE
+            // plays."
             var result = PlayCodeParser.Parse("FLE2", "11", "SBF");
 
             Assert.Equal(GameEventType.FoulBallError, result.EventType);
-            Assert.Empty(result.Runners);
+            var runner = Assert.Single(result.Runners);
+            Assert.Equal(BaseState.BattersBox, runner.StartBase);
+            Assert.Equal(BaseState.BattersBox, runner.EndBase);
+            Assert.False(runner.IsOut);
+            Assert.Equal(
+                new[] { (2, FieldingCreditType.Error, 1) },
+                runner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
         }
 
         [Fact]
@@ -840,6 +850,71 @@ namespace Retrosharp.Format.Tests
             var toSecond = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
             Assert.Equal(BaseState.Second, toSecond.EndBase);
             Assert.False(toSecond.IsOut);
+        }
+
+        [Fact]
+        public void Parse_UnassistedBatterThenUnassistedRunner_NoPhantomAssist()
+        {
+            // play,?,?,?,?,?,3(B)3(1)/GDP/G3 -- docs/csv/2025ATL.EVN, game 330. 1B catches/fields
+            // the batter unassisted, then *separately* (no throw) also retires the runner off
+            // 1st unassisted -- before this fix, the carry-over logic credited fielder 3 a
+            // phantom assist on the second out (as if he'd thrown to himself). Confirmed against
+            // the game's own Assists reconciliation (persisted 5, derived 6 before the fix).
+            var result = PlayCodeParser.Parse("3(B)3(1)/GDP/G3", "00", "X");
+
+            var batter = Assert.Single(result.Runners, r => r.StartBase == BaseState.BattersBox);
+            Assert.Equal(
+                new[] { (3, FieldingCreditType.Putout, 1) },
+                batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+
+            var forcedRunner = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
+            Assert.Equal(
+                new[] { (3, FieldingCreditType.Putout, 1) },
+                forcedRunner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_UnassistedForceThenSameFielderTrailingPutout_NoPhantomAssist()
+        {
+            // play,?,?,?,?,?,4(1)4/GDP/G34 -- docs/csv/2025ATL.EVN, game 270/1411. 2B forces the
+            // runner at 2nd unassisted, then *separately* also retires the batter unassisted
+            // (not a throw to himself) -- same shape as the explicitly-parenthesized case above,
+            // but via the implicit trailing-digit form. Before this fix, the trailing group
+            // inherited the carry-over fielder even though it was identical to its own digit.
+            var result = PlayCodeParser.Parse("4(1)4/GDP/G34", "00", "X");
+
+            var forcedRunner = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
+            Assert.Equal(
+                new[] { (4, FieldingCreditType.Putout, 1) },
+                forcedRunner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+
+            var batter = Assert.Single(result.Runners, r => r.StartBase == BaseState.BattersBox);
+            Assert.Equal(
+                new[] { (4, FieldingCreditType.Putout, 1) },
+                batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_PickoffCaughtStealingRundownWithRepeatedFielder_OnlyOneAssistPerFielder()
+        {
+            // play,6,0,?,?,?,POCS2(134634) -- docs/csv/2025TBA.EVA, game 2133. A rundown where
+            // fielders 1 (P), 3 (1B), 4 (2B), 6 (SS) pass the ball back and forth -- 3 and 4 each
+            // touch it twice. Before this fix, every touch was credited a separate assist,
+            // inflating the game's Assists total by exactly 1 more than the persisted Game Log
+            // baseline (9 persisted, 10 derived).
+            var result = PlayCodeParser.Parse("POCS2(134634)", "00", "1");
+
+            var runner = Assert.Single(result.Runners);
+            Assert.Equal(
+                new[]
+                {
+                    (1, FieldingCreditType.Assist, 1),
+                    (3, FieldingCreditType.Assist, 2),
+                    (4, FieldingCreditType.Assist, 3),
+                    (6, FieldingCreditType.Assist, 4),
+                    (4, FieldingCreditType.Putout, 5)
+                },
+                runner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
         }
     }
 }

@@ -1167,3 +1167,168 @@ exactly.
 With both fixed, every currently-available 2025 `.EVN`/`.EVA` file in `docs/csv/` has now been
 successfully imported -- all 30 MLB franchises have their full 2025 home schedule (81 games each)
 in the database.
+
+## Discrepancy warnings from remaining 2025 imports
+
+Actual:
+Evaluated every reconciliation warning saved (not logged at the time) from the recent import
+batch -- `2025TBA.EVA`, `2025PHI.EVN`, and the 11-file batch (ATL/CHA/CHN/CIN/CLE/DET/KCA/MIL/
+MIN/PIT/SLN) -- 209 warnings total. Investigated each category against real data.
+
+Expected:
+Determine which are real bugs vs. official-scorer-judgment noise; fix the highest-confidence,
+highest-impact ones first.
+
+Status: **Assists and Errors Resolved; GIDP and EarnedRuns confirmed not bugs (same class as
+earlier-established precedents); StolenBases/TimesCaughtStealing, WildPitches, PitchersUsed, and
+Putouts evaluated and logged, not yet fixed**
+
+### Assists (18 of 209 warnings, always exactly "+1" in derived) -- Resolved
+
+Root cause: two independent bugs, both in the fielder-chain "carry-over" mechanism
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`):
+
+1. **Carry-over self-throw artifact.** When a primary-code group's own putout was unassisted
+   (a bare single digit, e.g. `3(B)3(1)/GDP/G3` -- game 330) and the *next* group's own digit is
+   the *same* fielder, `AssignFieldedOutGroup`'s carry-over logic still prepended him as an
+   assist onto the next group -- crediting a fielder with "throwing to himself." Same shape via
+   the implicit trailing-digit form too (`4(1)4/GDP/G34` -- games 270/1411): 2B forces the runner
+   unassisted, then separately (no throw) also retires the batter, and the trailing bare "4"
+   still inherited the carry-over even though it's identical to its own digit.
+2. **Repeated-fielder-in-one-chain over-crediting.** Real rundown chains such as
+   `POCS2(134634)` (docs/csv/2025TBA.EVA, game 2133: pitcher to 1B to 2B to SS to 1B to 2B)
+   credited the *same* fielder a separate assist for *every* touch. Official scoring credits a
+   fielder at most one assist per play no matter how many times he touches the ball during a
+   single rundown.
+
+Confirmed against real data: the persisted (Game Log Parser) Assists total was always exactly 1
+lower than what the buggy parser derived, in every one of the 18 affected games, and the two
+mechanisms above account for all 18 exactly (11 rundown-repeat cases, 7 self-throw cases) --
+verified game by game before writing any fix.
+
+Fix:
+1. `AssignFieldedOutGroup` now detects when the carry-over fielder digit exactly matches the
+   current group's own (single-digit) leading digit and, in that case, skips the carry-over
+   prefix entirely and returns no carry-forward value (since no throw happened in this group
+   either). Return type changed from `char` to `char?` to represent "nothing to carry forward."
+2. `ParseFielderChain` now tracks which positions have already been credited an assist within
+   the current chain (a `HashSet<byte>`) and skips crediting a repeat -- the chain's *final*
+   token is unaffected regardless of whether its position repeats an earlier one (a fielder who
+   touches the ball early and *also* completes the final putout himself legitimately keeps both
+   credits; only repeated *non-final* touches by the same fielder are deduplicated).
+
+Added four regression tests using the exact real plays above
+(`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`):
+`Parse_UnassistedBatterThenUnassistedRunner_NoPhantomAssist`,
+`Parse_UnassistedForceThenSameFielderTrailingPutout_NoPhantomAssist`,
+`Parse_PickoffCaughtStealingRundownWithRepeatedFielder_OnlyOneAssistPerFielder`. A pre-existing
+test, `Parse_RundownStyleChain_RepeatedFielderProducesRepeatedAssist` (`POCS2(1341)`), already
+covered the "touches the ball early AND completes the final putout" case correctly -- confirmed
+it still passes unchanged, since that position only appears once among the chain's *non-final*
+tokens.
+
+### Errors (11 of 209 warnings, always exactly "+1" in derived) -- Resolved
+
+Root cause: every one of the 11 affected games has an `FLE<n>` (foul ball dropped for an error)
+play. This is the exact gap flagged but explicitly deferred when `FoulBallError` was split out
+earlier this session ("the missing fielding-Error-credit gap for `FLE$` plays... would require a
+schema change since `GameEventFieldingCredit.GameEventRunnerId` is NOT NULL and FLE plays have no
+runner row -- explicitly scoped out"). Now confirmed with 11 real examples of its actual,
+consistent impact.
+
+Fix:
+The `FLE<n>` case in `ParseSingleCode` now creates a runner row for the batter with
+`StartBase == EndBase == BattersBox` (no actual base movement, `IsOut = false`) purely to attach
+the error credit to, satisfying the NOT NULL constraint without implying the batter reached base
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`). Verified this doesn't affect base-
+occupancy tracking or GIDP/at-bat logic: `GameEventResolver` only adds a runner to the baserunner
+tracker when `EndBase` is First/Second/Third, and `GameStatisticsResolver`'s GIDP check is gated
+on `EventType == GroundOut` (FLE's EventType is `FoulBallError`), so neither is affected. Updated
+the existing test (renamed `Parse_DroppedFoulError_NoRunnerRecorded` ->
+`Parse_DroppedFoulError_NoBaseMovementButCreditsFielderError`) and the `GameEventResolverTests.cs`
+zero-runner allowlist, which no longer needs to exempt `FoulBallError`
+(`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`,
+`src/lib/Retrosharp.Format.Tests/GameEventResolverTests.cs`).
+
+Verification (both fixes):
+All 175 tests in `Retrosharp.Format.Tests` pass (208 across the full solution).
+
+Backfill (completed):
+Both fixes affect games imported throughout this entire session, not just the 11-file batch that
+surfaced the warnings -- a full-database sweep was needed, not a per-file one. Built a one-off
+tool (scratch-only, not part of the repo) that re-derived `PlayCodeParser.Parse` output directly
+from each already-persisted `GameEvent.RawEventText` (not the original source files -- most of
+the earlier-imported files had already been replaced on disk by the time of this backfill, but
+`RawEventText` is exactly what was originally parsed, so no source file is needed to re-derive
+correctly) and diffed it against currently-persisted `GameEventRunner`/`GameEventFieldingCredit`
+rows:
+- **Assists**: for every existing runner row, compared the freshly-derived fielding-credit
+  multiset against the persisted one; every difference found was confirmed to be an Assist-type
+  removal (never an addition, never a Putout/Error) before deleting anything -- a hard safety
+  gate that aborts on any other kind of mismatch. Found and correctly *excluded* 24 unrelated
+  plays needing an *additional* Error credit (all `"C/E2..."` catcher's-interference-plus-error
+  plays) -- a separate, pre-existing gap from the already-shipped "Errors undercount from C/E2
+  modifier" fix (see "Discrepancy Issues in 2025BOS.EVA" above), whose own backfill only ever
+  covered BOS's specific games. Flagged as its own follow-up, not touched here.
+- **Errors (FLE)**: for every `FoulBallError` event with zero runner rows, resolved the error
+  fielder's identity by finding the nearest-by-sequence *other* fielding credit in the same game,
+  same fielding side, same position, then confirming via `GameSubstitution` that no substitution
+  at that position occurred between the two plays before trusting it -- all 35 resolved this way
+  with zero ambiguous cases requiring manual review.
+- A genuine bug caught by the tool's own safety gate before any write: the season `Fielding`
+  table is keyed by `(PersonId, FranchiseId, SeasonYear, Position)`, not just the first three --
+  an early version of the backfill's `UPDATE` omitted `Position` and was caught immediately (the
+  assertion "expected exactly 1 row affected" found 4), rolling back cleanly with no data written.
+
+Post-backfill verification: `GameEventFieldingCredit` row count unchanged at 172,637 (35 deleted +
+35 inserted); season `Fielding.Assists` sum decreased by exactly 35 (41,023 -> 40,988);
+`Fielding.Errors` sum increased by exactly 35 (2,390 -> 2,425); zero `FoulBallError` events remain
+without a runner row. Spot-checked game 330's `3(B)3(1)/GDP/G3` (now exactly 2 Putout credits, no
+Assist) and one backfilled FLE play (`FLE3`, game 315 -- new runner at `BattersBox->BattersBox`,
+`IsOut=false`, one Error credit at the correct fielder).
+
+### GIDP (12 of 209 warnings, mixed direction) -- confirmed not a bug
+
+Every affected game's discrepancy traces to a `/GDP/`-tagged play where the batter's own
+`IsOut` is `false` (a force double play on *other* runners with the batter safe on the fielder's
+choice, e.g. `75(2)4(1)/GDP/G7.B-1`) -- the exact same class already investigated and ruled not a
+bug in "Discrepancy Issues in 2025BOS.EVA" above (game 559: "GIDP requires the batter himself to
+be retired... that's correctly not a batter GIDP"). Mixed-direction discrepancies (sometimes
+persisted higher, sometimes derived higher) are consistent with this being a genuine, pre-existing
+scoring-convention edge case rather than a parser bug. Not chased further.
+
+### StolenBases / TimesCaughtStealing (11 of 209 warnings) -- three distinct causes, not yet fixed
+
+- Several affected games contain `K+SB3;SB2` / `K+SBH;SB2` -- the bundled-double-steal bug
+  already fixed above, but for *other* already-imported games (not `2025CHN.EVN`) that happen to
+  share the same literal play text. These will self-correct once those games' event data is
+  reconciled the same way `2025CHN.EVN`'s was -- not chased as part of this entry since it's the
+  same already-fixed root cause, just needing its own backfill pass.
+- Game 1053 (`2025KCA.EVA`) needs a follow-up to the `(SB<base>)` fix above: `BK.2-3(SB3);1-2`
+  should also flag the runner's advance as `IsStolenBase = true` for `StolenBases` counting, not
+  just avoid throwing -- confirmed by the persisted Game Log crediting the steal (persisted 1,
+  derived 0). The current fix only treats `(SB<base>)` as a no-op informational tag, matching
+  `(WP)`/`(PB)`'s treatment, but this case is statistically different: the runner really did
+  steal the base, the balk was incidental.
+- The remaining cases (e.g. `CS2(2E4)`, `POCS2(13E6)`) all involve a caught-stealing attempt
+  negated by a subsequent error -- moderate-confidence read (not yet confirmed against an
+  authoritative rule source): official scoring likely still counts these as a caught-stealing
+  *attempt* even though the runner ends up safe, which would need a new tracking flag (the same
+  pattern as the existing `IsStolenBase` flag) to record separately from `IsOut`, since `IsOut`
+  must stay correct for game-flow/base-state purposes.
+
+### WildPitches (2 of 209 warnings) -- root cause confirmed, not yet fixed
+
+Both affected games record their wild pitch only via the `(WP)` advance annotation (e.g.
+`SB2.1-3(WP)`), not as its own primary `WildPitch` event -- since that annotation is deliberately
+a no-op (see the earlier `(WP)`/`(PB)` fix), nothing increments `GamePitchingStatistics.WildPitches`
+for it. Would need the same kind of dedicated flag as `IsStolenBase`/the proposed caught-stealing-
+attempt flag above, threaded from the annotation through to pitching-stat derivation.
+
+### PitchersUsed (2 of 209 warnings) and Putouts (1 of 209 warnings) -- not conclusively diagnosed
+
+Investigated but didn't converge on a clear cause; each is a single/double occurrence. For
+Putouts specifically, confirmed every out-runner in the affected game already has a putout
+credit, so it isn't a missing-credit gap of the kind found elsewhere in this entry. Not chased
+further without more evidence -- flagged here for whenever another occurrence surfaces.
+in the database.
