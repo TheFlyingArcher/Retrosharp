@@ -371,32 +371,48 @@ namespace Retrosharp.Format.PlayByPlay
                 var left = primaryCode[..plusIndex];
                 var right = primaryCode[(plusIndex + 1)..];
                 var (leftEventType, leftIsFieldedOutPendingTrajectory) = ParseSingleCode(left, rawEventText, runners);
-                var (rightEventType, _) = ParseSingleCode(right, rawEventText, runners);
+                // The right side needs the same ";"-joined multi-steal handling
+                // ParseSingleOrMultiCode gives the top-level code below -- "K+SB3;SB2" (a
+                // strikeout bundled with a double steal) was calling ParseSingleCode directly
+                // on "SB3;SB2", which has no semicolon-awareness of its own: its "SB" branch
+                // reads only the single character right after "SB" to pick the base, silently
+                // ignoring everything from the ";" onward. Confirmed against a real play,
+                // "K+SB3;SB2" (docs/csv/2025CHN.EVN:1133) -- only the first steal (SB3) moved
+                // its runner; the second (SB2) was dropped, leaving that runner's tracked
+                // position stale until a later play in the same half-inning referenced a base
+                // the resolver had no record of.
+                var (rightEventType, _) = ParseSingleOrMultiCode(right, rawEventText, runners);
                 return (leftEventType, rightEventType, leftIsFieldedOutPendingTrajectory);
             }
 
-            // "SB2;SBH" -- simultaneous multiple steals on one play. Only observed joining
-            // multiple SB codes together (a double/triple steal); not a general combinator.
-            if (primaryCode.Contains(';'))
-            {
-                (GameEventType EventType, bool IsFieldedOutPendingTrajectory)? result = null;
-                foreach (var subCode in primaryCode.Split(';'))
-                {
-                    // Every sub-code must actually run -- each contributes its own runner(s) to
-                    // "runners" as a side effect. Using "??=" directly on the call would
-                    // short-circuit and skip calling ParseSingleCode entirely for every
-                    // sub-code after the first, silently dropping the rest of a multi-runner
-                    // steal (confirmed against a real double steal, "SB3;SB2", in
-                    // docs/csv/2025SDN.EVN).
-                    var subResult = ParseSingleCode(subCode, rawEventText, runners);
-                    result ??= subResult;
-                }
+            var (eventType, isFieldedOutPendingTrajectory) = ParseSingleOrMultiCode(primaryCode, rawEventText, runners);
+            return (eventType, null, isFieldedOutPendingTrajectory);
+        }
 
-                return (result!.Value.EventType, null, result!.Value.IsFieldedOutPendingTrajectory);
+        /// <summary>
+        /// "SB2;SBH" -- simultaneous multiple steals on one play. Only observed joining multiple
+        /// SB codes together (a double/triple steal); not a general combinator. Shared by both
+        /// the top-level primary code and the right-hand side of a "+" bundle in
+        /// <see cref="ParsePrimaryCode"/>, which needs the exact same splitting.
+        /// </summary>
+        private static (GameEventType EventType, bool IsFieldedOutPendingTrajectory) ParseSingleOrMultiCode(string code, string rawEventText, IDictionary<BaseState, MutableRunner> runners)
+        {
+            if (!code.Contains(';'))
+                return ParseSingleCode(code, rawEventText, runners);
+
+            (GameEventType EventType, bool IsFieldedOutPendingTrajectory)? result = null;
+            foreach (var subCode in code.Split(';'))
+            {
+                // Every sub-code must actually run -- each contributes its own runner(s) to
+                // "runners" as a side effect. Using "??=" directly on the call would
+                // short-circuit and skip calling ParseSingleCode entirely for every sub-code
+                // after the first, silently dropping the rest of a multi-runner steal
+                // (confirmed against a real double steal, "SB3;SB2", in docs/csv/2025SDN.EVN).
+                var subResult = ParseSingleCode(subCode, rawEventText, runners);
+                result ??= subResult;
             }
 
-            var (eventType, isFieldedOutPendingTrajectory) = ParseSingleCode(primaryCode, rawEventText, runners);
-            return (eventType, null, isFieldedOutPendingTrajectory);
+            return result!.Value;
         }
 
         private static (GameEventType EventType, bool IsFieldedOutPendingTrajectory) ParseSingleCode(string code, string rawEventText, IDictionary<BaseState, MutableRunner> runners)
@@ -955,6 +971,15 @@ namespace Retrosharp.Format.PlayByPlay
                     // already consumed elsewhere -- it doesn't change IsRBI, IsEarnedRun, or
                     // fielding credits. Confirmed against a real play, "SB3.1-2(WP)"
                     // (docs/csv/2025TEX.EVA:12992).
+                }
+                else if (annotation.Length >= 3 && annotation.StartsWith("SB", StringComparison.Ordinal)
+                    && annotation[2..] is "2" or "3" or "H")
+                {
+                    // "2-3(SB3)" -- the same informational role as "(WP)"/"(PB)" above, noting
+                    // the advance coincided with (or was actually caused by) a stolen-base
+                    // attempt already in progress -- e.g. a balk called while the runner was
+                    // already stealing. Doesn't change IsRBI, IsEarnedRun, or fielding credits.
+                    // Confirmed against a real play, "BK.2-3(SB3);1-2" (docs/csv/2025KCA.EVA:5871).
                 }
                 else
                 {

@@ -799,5 +799,47 @@ namespace Retrosharp.Format.Tests
             Assert.True(batter.IsOut);
             Assert.Empty(batter.FieldingCredits);
         }
+
+        [Fact]
+        public void Parse_StrikeoutBundledWithDoubleSteal_BothRunnersMove()
+        {
+            // play,8,1,hoern001,12,C*S*BFF>C,K+SB3;SB2 -- docs/csv/2025CHN.EVN:1133. A strikeout
+            // bundled (via "+") with a double steal joined by ";" -- before this fix, the "+"
+            // branch called ParseSingleCode directly on "SB3;SB2" with no semicolon-awareness of
+            // its own, so only the first steal (SB3) moved its runner and the second (SB2) was
+            // silently dropped, leaving that runner's tracked position stale until a later play
+            // referenced a base the resolver had no record of.
+            var result = PlayCodeParser.Parse("K+SB3;SB2", "12", "C*S*BFF>C");
+
+            Assert.Equal(GameEventType.Strikeout, result.EventType);
+            Assert.Equal(GameEventType.StolenBase, result.SecondaryEventType);
+
+            var stealToThird = Assert.Single(result.Runners, r => r.StartBase == BaseState.Second);
+            Assert.Equal(BaseState.Third, stealToThird.EndBase);
+            Assert.True(stealToThird.IsStolenBase);
+
+            var stealToSecond = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
+            Assert.Equal(BaseState.Second, stealToSecond.EndBase);
+            Assert.True(stealToSecond.IsStolenBase);
+        }
+
+        [Fact]
+        public void Parse_BalkAdvanceWithStolenBaseAnnotation_DoesNotThrow()
+        {
+            // play,3,1,pasqv001,22,SFBFBB,BK.2-3(SB3);1-2 -- docs/csv/2025KCA.EVA:5871. "(SB3)"
+            // plays the same informational role as "(WP)"/"(PB)" -- notes the advance coincided
+            // with a stolen-base attempt already in progress when the balk was called.
+            var result = PlayCodeParser.Parse("BK.2-3(SB3);1-2", "22", "SFBFBB");
+
+            Assert.Equal(GameEventType.Balk, result.EventType);
+
+            var toThird = Assert.Single(result.Runners, r => r.StartBase == BaseState.Second);
+            Assert.Equal(BaseState.Third, toThird.EndBase);
+            Assert.False(toThird.IsOut);
+
+            var toSecond = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
+            Assert.Equal(BaseState.Second, toSecond.EndBase);
+            Assert.False(toSecond.IsOut);
+        }
     }
 }

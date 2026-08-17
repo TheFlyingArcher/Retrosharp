@@ -1054,3 +1054,116 @@ rows and a `GameEventGameStatus` claim row.
 Noted, not investigated (out of scope for this defect): the completed import produced four
 unrelated reconciliation warnings (Assists x2, Errors, GroundedIntoDoublePlay across four
 different games). Not chased here for the same reason as the `2025TBA.EVA` note above.
+
+## Batch import of remaining 2025 franchises: two crashes
+
+Actual:
+Imported every remaining not-yet-imported `.EVN`/`.EVA` file in `docs/csv/` one at a time via the
+API, as an end user would (ATL, CHA, CHN, CIN, CLE, DET, KCA, MIL, MIN, PIT, SLN). 9 of 11
+completed cleanly (81 games each, zero exceptions): ATL, CHA, CIN, CLE, DET, MIL, MIN, PIT, SLN.
+Two crashed and imported 0 games (per the usual parse-everything-first architecture): `2025CHN.EVN`
+and `2025KCA.EVA`.
+
+Expected:
+All documented Retrosheet play codes should parse without throwing.
+
+Status: **Resolved (both)**
+
+Level: High (blocks parsing the respective file) for both.
+
+### Crash 1: `2025CHN.EVN` -- `InvalidOperationException`, runner on Second not found
+
+```text
+System.InvalidOperationException: Play 'S7/L7.3-H(UR);2-H(UR);BX2(754)' (inning 8) references a runner on Second that the resolver has no record of -- a preceding play or substitution was missed. Current baserunners: [First=swand001(slot5), Third=bertj001(slot4)]
+   at Retrosharp.Format.PlayByPlay.GameEventResolver.ResolvePlay(...) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\GameEventResolver.cs:line 145
+```
+
+Source: `docs/csv/2025CHN.EVN:1137`.
+
+Root cause: **not erroneous Retrosheet data -- a confirmed parser bug**, traced by manually
+replaying the actual half-inning (`docs/csv/2025CHN.EVN:1128-1137`) against the real baserunner
+sequence:
+
+- Line 1131 (`FC5/G56.2-3;1-2(E5);B-1`): `happi001` (2nd->3rd), `tuckk001` (1st->2nd via error),
+  `bertj001` reaches 1st. State: 1st=`bertj001`, 2nd=`tuckk001`, 3rd=`happi001`.
+- Line 1132 (`S9/L89+.3-H(UR);2-H(UR);1-2`): both `happi001` and `tuckk001` score, `bertj001`
+  advances 1st->2nd. State: 2nd=`bertj001`.
+- Line 1133 (`K+SB3;SB2`): a strikeout **bundled with a double steal** -- `bertj001` (2nd->3rd)
+  and `swand001` (1st->2nd, from the previous line's own single, `S9`... actually from
+  `swand001`'s own at-bat two lines earlier) should both move. State should become: 2nd=`swand001`,
+  3rd=`bertj001`.
+- Line 1137 (the crashing play): advances `3-H(UR)` and `2-H(UR)` reference exactly those two
+  runners -- and match the manually-traced state exactly. But the resolver's own snapshot at
+  crash time shows `swand001` still on **First**, not Second -- meaning the `SB2` half of line
+  1133's double steal never actually moved him.
+
+Confirmed by reading `PlayCodeParser.ParsePrimaryCode`
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`): the `"+"` combinator (`plusIndex >= 0`,
+handling `K+<event>`) is checked *before* the `;`-joined multi-steal combinator (`primaryCode.Contains(';')`)
+and returns immediately, calling `ParseSingleCode` directly on the right-hand side
+(`right = primaryCode[(plusIndex + 1)..]`) without ever routing it back through the `;`-splitting
+logic. For `"K+SB3;SB2"`, `right` is `"SB3;SB2"` -- handed whole to `ParseSingleCode`, which has
+no semicolon-awareness of its own. `ParseSingleCode`'s `"SB"` branch reads only `code[2]` (`'3'`)
+to determine the stolen base, silently ignoring everything from the `;` onward -- so `SB3` (the
+first steal) is processed correctly, and `SB2` (the second) is dropped entirely, leaving that
+runner's tracked position stale. This is a real interaction gap between two already-existing,
+independently-working features: the `"+"` bundling combinator (works standalone, e.g. `K+SB3`)
+and the `";"`-joined multi-steal combinator (works standalone, e.g. `SB3;SB2` -- the existing code
+comment even cites a real confirmed example, `docs/csv/2025SDN.EVN`) -- just never exercised
+together (`K+SB3;SB2`) until this real play surfaced it. Not isolated notation either: the
+double-steal codes `SB2;SBH` and `SB3;SB2` are both documented directly in Retrosheet's own spec
+("show double steals, second and third in one case, second and home in the other"), and bundling
+onto a `K`/`W`/`PO`-type primary code via `"+"` is equally standard, so this combination is
+expected to recur.
+
+Fix: extracted the `;`-splitting logic (previously inline in `ParsePrimaryCode`, only reached
+when there's no `"+"`) into a shared `ParseSingleOrMultiCode` helper, and route the right-hand
+side of a `"+"` bundle through it instead of calling `ParseSingleCode` directly
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`). The top-level (no `"+"`) case is
+unchanged in behavior -- same splitting logic, just shared. Added
+`Parse_StrikeoutBundledWithDoubleSteal_BothRunnersMove`, using the exact real play from
+`2025CHN.EVN:1133` (`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`).
+
+### Crash 2: `2025KCA.EVA` -- unrecognized `(SB<base>)` advance annotation
+
+```text
+Retrosharp.Format.PlayByPlay.PlayCodeParseException: Unrecognized advance annotation '(SB3)' in '2-3(SB3)'. Raw play code: 'BK.2-3(SB3);1-2'.
+   at Retrosharp.Format.PlayByPlay.PlayCodeParser.ApplyAdvanceSegment(String segment, String rawEventText, IDictionary`2 runners) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\PlayCodeParser.cs:line 961
+```
+
+Source: `docs/csv/2025KCA.EVA:5871` -- `play,3,1,pasqv001,22,SFBFBB,BK.2-3(SB3);1-2`.
+
+Root cause: same class of gap as the already-fixed `(WP)`/`(PB)` advance-annotation defect --
+`ApplyAdvanceSegment`'s annotation loop
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`) recognizes `E$`, `NR`/`NORBI`,
+`UR`/`TUR`, a bare digit-prefixed fielder chain, and `WP`/`PB` -- anything else throws. `(SB3)`
+here is a balk (`BK`) where the runner on second was mid-steal-attempt to third when the balk was
+called -- the informational annotation notes that the advance coincided with (or was really
+caused by) a stolen-base attempt, the same purely-descriptive role `(WP)`/`(PB)` already play on
+an advance. Checked scope across every currently-available file
+(`grep -c "(SB[23H])" docs/csv/*.EV*`): exactly 1 occurrence, this one -- same narrow-but-real
+pattern as the `(WP)`/`(PB)` precedent.
+
+Fix: added an `(SB<base>)` branch to `ApplyAdvanceSegment`'s annotation loop, mirroring the
+existing `WP`/`PB` no-op treatment exactly -- purely informational, doesn't touch `IsRBI`,
+`IsEarnedRun`, or fielding credits
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`). Added
+`Parse_BalkAdvanceWithStolenBaseAnnotation_DoesNotThrow`, using the exact real play from
+`2025KCA.EVA:5871` (`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`).
+
+Verification:
+All 172 tests in `Retrosharp.Format.Tests` pass (205 across the full solution). Rebuilt the
+engine and API and re-imported both files end to end (API -> NServiceBus -> engine saga ->
+Postgres): `2025CHN.EVN` -- "81 games inserted, 0 games skipped, 81 games' statistics applied"
+with zero exceptions; `2025KCA.EVA` -- same, "81 games inserted, 0 games skipped, 81 games'
+statistics applied" with zero exceptions. Confirmed in the database: the `K+SB3;SB2` play in the
+actual crashing game (GameId 157) now produces all three expected runner rows, including the
+previously-dropped steal (First->Second); the very next play in that same half-inning,
+`S7/L7.3-H(UR);2-H(UR);BX2(754)` (the one that originally threw), now resolves cleanly and
+correctly scores both runners. The `BK.2-3(SB3);1-2` play in `2025KCA.EVA` (GameId 1053) resolved
+with both runners safely advanced (Second->Third, First->Second), matching a balk's semantics
+exactly.
+
+With both fixed, every currently-available 2025 `.EVN`/`.EVA` file in `docs/csv/` has now been
+successfully imported -- all 30 MLB franchises have their full 2025 home schedule (81 games each)
+in the database.
