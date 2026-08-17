@@ -909,3 +909,70 @@ event file (confirmed by grep across `docs/csv/*.EV*` before writing the fixes),
 nothing to backfill and no real file to re-import -- these are implemented per Retrosheet's own
 documented spec ahead of ever being observed in real data, the same way the bare `"C"` (catcher's
 interference) case was implemented earlier this session.
+
+## PlayCodeParseException: 2025TBA.EVA
+
+Actual:
+
+```text
+Retrosharp.Format.PlayByPlay.PlayCodeParseException: Fielded-out code has no trajectory modifier (G/L/F/P/BG/BP/BL) to determine GroundOut vs FlyOut. Raw play code: '2/BINT'.
+   at Retrosharp.Format.PlayByPlay.PlayCodeParser.Parse(String rawEventText, String countField, String pitchSequence) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\PlayCodeParser.cs:line 57
+   at Retrosharp.Format.PlayByPlay.GameEventResolver.ResolvePlay(...) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\GameEventResolver.cs:line 107
+   at Retrosharp.Format.PlayByPlay.GameEventResolver.Resolve(...) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp\Format\PlayByPlay\GameEventResolver.cs:line 81
+   at Retrosharp.Service.GameEventImportService.MapToGameEventRecordAsync(EventFileGame game) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp.Service\GameEventImportService.cs:line 105
+   at Retrosharp.Service.GameEventImportService.ImportAsync(String filePath) in D:\Code\TheFlyingArcher\Retrosharp\src\lib\Retrosharp.Service\GameEventImportService.cs:line 56
+   at Retrosharp.Engine.Console.Saga.GameEventSaga.Handle(GameEventStart message, IMessageHandlerContext context) in D:\Code\TheFlyingArcher\Retrosharp\src\engine\Retrosharp.Engine.Console\Saga\GameEventSaga.cs:line 52
+```
+
+Expected:
+All documented Retrosheet play codes should parse without throwing.
+
+Status: **Resolved**
+
+Level: High (blocks parsing this file)
+
+Root cause:
+`2/BINT` is a batter-interference out (`BINT`, "batter interference" -- a documented modifier):
+the batter is called out for interfering with a fielder, with no ball ever put in play. Every
+other digit-led primary code in `PlayCodeParser` (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`)
+is a genuine fielded out, where trajectory (ground/line/fly/pop) is always determinable from a
+modifier -- the pending-trajectory resolution in `Parse()` correctly treats a missing one as a
+data gap for those. But `BINT` has no batted ball at all, so requiring a trajectory modifier for
+it is simply wrong, not a missing-modifier gap. Confirmed against every real `BINT` play
+currently available (`grep -n BINT docs/csv/*.EV*`): three of the four already carry a real
+trajectory modifier alongside `BINT` (`2/P2F/FL/BINT`, `2/G2/BINT`, `13/BG1S/BINT`) and parse
+fine; only the reported `2/BINT` -- and one more in the same file, `13/BG1S/BINT`'s sibling in
+`2025TBA.EVA` line 6616, which actually already has a `BG` trajectory and was unaffected -- has
+no trajectory modifier at all. So this was narrowly the bare-`BINT` case, not `BINT` in general.
+
+Fix:
+`ApplyModifiers` now recognizes a bare `"BINT"` modifier and sets a new `isBatterInterference`
+flag; the pending-trajectory switch in `Parse()` falls back to `GameEventType.GroundOut` only
+when no real trajectory modifier was found *and* `isBatterInterference` is set -- a genuine
+trajectory modifier (as in the other three real `BINT` plays) still takes priority, unchanged
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`). `GroundOut` was chosen deliberately,
+not a new `GameEventType`: offensive interference is scored as an ordinary out for statistical
+purposes (it ends the plate appearance and counts as an at-bat, unlike catcher's interference or
+a sacrifice), which is exactly what `GroundOut` already means to `GameStatisticsResolver`. Added
+`Parse_BareBatterInterference_ResolvesToGroundOutWithNoTrajectoryModifier` (the exact reported
+play) and `Parse_BatterInterferenceWithRealTrajectory_TrajectoryTakesPriority` (confirming the
+three already-working real `BINT` plays stay unaffected)
+(`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`).
+
+Verification:
+All 170 tests in `Retrosharp.Format.Tests` pass (203 across the full solution). `2025TBA.EVA` had
+never been successfully imported before (the exception aborted the whole file before any writes).
+Imported it for real end to end (API -> NServiceBus -> engine saga -> Postgres): "81 games
+inserted, 0 games skipped, 81 games' statistics applied" with zero exceptions. Confirmed in the
+database that the exact reported play (`RawEventText = '2/BINT'`, game 257) resolved to
+`EventType = GroundOut` (8), `BattedBallType = null`, with a single fielding credit -- an
+unassisted Putout to position 2 (catcher), no phantom entries. Also confirmed the file's other
+`BINT` plays and the four already-imported `BINT` plays from other files (`2025ATL.EVN`,
+`2025PHI.EVN`) are unaffected: all still resolve with their real trajectory-derived
+`BattedBallType`.
+
+Noted, not investigated (out of scope for this defect): `2025TBA.EVA` also produced five
+unrelated reconciliation warnings (GroundedIntoDoublePlay, StolenBases, TimesCaughtStealing,
+PitchersUsed, and Assists discrepancies across five different games, all Franchise 119). Not
+chased here since none relate to `BINT` parsing; flagging for a future defect if they turn out
+not to be official-scorer-judgment noise.

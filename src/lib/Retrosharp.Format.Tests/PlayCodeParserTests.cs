@@ -706,6 +706,36 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Parse_BareBatterInterference_ResolvesToGroundOutWithNoTrajectoryModifier()
+        {
+            // play,1,0,campk002,11,*B1CS,2/BINT -- docs/csv/2025TBA.EVA:2165. Batter interference
+            // is an out on the batter with no batted ball at all, so unlike every other digit-led
+            // fielded-out code there's no trajectory modifier to find -- confirmed crashing
+            // before this fix ("Fielded-out code has no trajectory modifier...").
+            var result = PlayCodeParser.Parse("2/BINT", "11", "*B1CS");
+
+            Assert.Equal(GameEventType.GroundOut, result.EventType);
+            var batter = Assert.Single(result.Runners);
+            Assert.True(batter.IsOut);
+            Assert.Equal(
+                new[] { (2, FieldingCreditType.Putout, 1) },
+                batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_BatterInterferenceWithRealTrajectory_TrajectoryTakesPriority()
+        {
+            // play,6,1,olsom001,31,BCBBX,2/P2F/FL/BINT -- docs/csv/2025ATL.EVN:12983. When a real
+            // trajectory modifier IS present alongside "BINT" (this one happened on a caught pop
+            // fly), it must still win -- the BINT fallback only applies when nothing else
+            // determined a trajectory.
+            var result = PlayCodeParser.Parse("2/P2F/FL/BINT", "31", "BCBBX");
+
+            Assert.Equal(GameEventType.FlyOut, result.EventType);
+            Assert.Equal(BattedBallType.PopUp, result.BattedBallType);
+        }
+
+        [Fact]
         public void Parse_RunnerInterferenceAdvanceAnnotation_DoesNotThrow()
         {
             // (synthetic -- no real "(fielder/INT)" advance annotation observed in the reference

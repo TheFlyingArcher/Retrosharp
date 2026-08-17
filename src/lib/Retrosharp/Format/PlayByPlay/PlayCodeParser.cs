@@ -40,7 +40,8 @@ namespace Retrosharp.Format.PlayByPlay
             BattedBallType? battedBallType = null;
             var isSacHit = false;
             var isSacFly = false;
-            ApplyModifiers(modifiers, runners, ref battedBallType, ref isSacHit, ref isSacFly);
+            var isBatterInterference = false;
+            ApplyModifiers(modifiers, runners, ref battedBallType, ref isSacHit, ref isSacFly, ref isBatterInterference);
 
             if (isFieldedOutPendingTrajectory)
             {
@@ -49,11 +50,22 @@ namespace Retrosharp.Format.PlayByPlay
                 // while anything caught in the air (fly, line drive, pop up) is a FlyOut --
                 // EventType alone doesn't distinguish those, BattedBallType does. Every fielded
                 // out in the real reference files carried a trajectory modifier; a missing one
-                // is treated as a data gap rather than silently guessed.
+                // is treated as a data gap rather than silently guessed -- except "BINT" (batter
+                // interference): that's an out on the batter with no batted ball at all (no
+                // trajectory to determine, ever), confirmed against real data
+                // (docs/csv/2025TBA.EVA:2165, "2/BINT" -- bare, no G/L/F/P/BG/BP/BL). Other real
+                // BINT plays (docs/csv/2025ATL.EVN:12983 "2/P2F/FL/BINT",
+                // docs/csv/2025PHI.EVN:4274 "2/G2/BINT", docs/csv/2025TBA.EVA:6616
+                // "13/BG1S/BINT") already carry a real trajectory modifier and are unaffected --
+                // this fallback only applies when nothing else determined one. Classified as
+                // GroundOut (not a new EventType) because that already matches the correct stat
+                // treatment for offensive interference: it ends the plate appearance and counts
+                // as an at-bat, the same as a real ground out.
                 eventType = battedBallType switch
                 {
                     Contract.GameEvent.BattedBallType.GroundBall => GameEventType.GroundOut,
                     Contract.GameEvent.BattedBallType.LineDrive or Contract.GameEvent.BattedBallType.FlyBall or Contract.GameEvent.BattedBallType.PopUp => GameEventType.FlyOut,
+                    null when isBatterInterference => GameEventType.GroundOut,
                     _ => throw new PlayCodeParseException(rawEventText, "Fielded-out code has no trajectory modifier (G/L/F/P/BG/BP/BL) to determine GroundOut vs FlyOut.")
                 };
             }
@@ -169,7 +181,8 @@ namespace Retrosharp.Format.PlayByPlay
             IDictionary<BaseState, MutableRunner> runners,
             ref BattedBallType? battedBallType,
             ref bool isSacHit,
-            ref bool isSacFly)
+            ref bool isSacFly,
+            ref bool isBatterInterference)
         {
             foreach (var modifier in modifiers)
             {
@@ -199,6 +212,8 @@ namespace Retrosharp.Format.PlayByPlay
                     isSacHit = true;
                 else if (modifier.StartsWith("SF", StringComparison.Ordinal))
                     isSacFly = true;
+                else if (modifier == "BINT")
+                    isBatterInterference = true;
 
                 // "C/E2" -- catcher's interference where the catcher also committed a fielding
                 // error (e.g. an errant throw) recovering the ball. Unlike a primary "E<n>"
