@@ -95,6 +95,20 @@ namespace Retrosharp.Format.PlayByPlay
                 if (evt.SecondaryEventType is { } secondaryEventType)
                     ApplyPitcherEvent(pitcherAcc, secondaryEventType);
 
+                // A "(WP)" advance annotation (e.g. "SB2.1-3(WP)") is a wild pitch incidental to
+                // a different primary event -- ApplyPitcherEvent's WildPitch case only ever fires
+                // for a *primary* "WP" event, so this was silently uncounted otherwise. Checked
+                // once per play (not once per annotated runner) via .Any -- a single wild pitch
+                // can move more than one runner, but should only count once; guarded against the
+                // primary-event case too, since a bare "WP" already increments via
+                // ApplyPitcherEvent above and would otherwise double-count if a runner's own
+                // advance were also (redundantly) annotated "(WP)" on that same play.
+                if (evt.EventType != GameEventType.WildPitch && evt.SecondaryEventType != GameEventType.WildPitch
+                    && play.Runners.Any(r => r.Runner.CausedWildPitch))
+                {
+                    pitcherAcc.WildPitches++;
+                }
+
                 var battersOwnRunner = play.Runners.FirstOrDefault(r => r.Runner.StartBase == BaseState.BattersBox);
                 var outsOnThisPlay = play.Runners.Count(r => r.Runner.IsOut);
 

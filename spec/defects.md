@@ -1374,13 +1374,46 @@ scoring-convention edge case rather than a parser bug. Not chased further.
   updated by exactly the expected `+1`/`-1` for all 9 affected `(PersonId, FranchiseId,
   SeasonYear)` rows, confirmed individually before and after.
 
-### WildPitches (2 of 209 warnings) -- root cause confirmed, not yet fixed
+### WildPitches (2 of 209 warnings) -- Resolved
 
 Both affected games record their wild pitch only via the `(WP)` advance annotation (e.g.
-`SB2.1-3(WP)`), not as its own primary `WildPitch` event -- since that annotation is deliberately
-a no-op (see the earlier `(WP)`/`(PB)` fix), nothing increments `GamePitchingStatistics.WildPitches`
-for it. Would need the same kind of dedicated flag as `IsStolenBase`/the proposed caught-stealing-
-attempt flag above, threaded from the annotation through to pitching-stat derivation.
+`SB2.1-3(WP)`), not as its own primary `WildPitch` event -- since that annotation was previously
+a pure no-op (see the earlier `(WP)`/`(PB)` fix), nothing incremented
+`GamePitchingStatistics.WildPitches` for it.
+
+Fix:
+Added `CausedWildPitch`, mirroring the `IsStolenBase`/`IsCaughtStealingAttempt` pattern end to
+end (`MutableRunner` -> `ParsedRunnerAdvance` -> `GameEventRunner`, all transient, not persisted
+columns), set only for the `"WP"` annotation specifically -- `"(PB)"` stays a pure no-op, since
+`Fielding.PassedBalls` is out of scope for this project entirely (explicit exclusion in
+spec/phase-1-build-plan.md Step 6d), so there's nothing to flag it toward
+(`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`,
+`src/lib/Retrosharp/Format/PlayByPlay/ParsedRunnerAdvance.cs`,
+`src/lib/Retrosharp/Contract/GameEvent/GameEventRunner.cs`,
+`src/lib/Retrosharp/Format/PlayByPlay/GameEventResolver.cs`). Unlike the batter-level
+`IsStolenBase`/`IsCaughtStealingAttempt` flags, this credits the *pitcher* -- `GameStatisticsResolver`
+checks `play.Runners.Any(r => r.Runner.CausedWildPitch)` **once per play** (not once per
+annotated runner, since a single wild pitch can move more than one runner but must still only
+count once), and only when the play's own `EventType`/`SecondaryEventType` isn't already
+`WildPitch` -- a defensive guard against double-counting if a runner's advance were ever
+redundantly annotated `"(WP)"` on a play whose primary event already is one (not observed in real
+data, but cheap to guard against)
+(`src/lib/Retrosharp/Format/PlayByPlay/GameStatisticsResolver.cs`). Added five regression tests
+covering the annotation flagging (`(WP)` sets it, `(PB)` doesn't), the pitcher-crediting logic
+(single annotated runner, two runners from the same wild pitch counting once, and the
+primary-event double-count guard)
+(`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`,
+`src/lib/Retrosharp.Format.Tests/GameStatisticsResolverTests.cs`). All 180 tests in
+`Retrosharp.Format.Tests` pass (213 across the full solution).
+
+Backfill (completed): a full-database sweep (`RawEventText LIKE '%(WP)%'`) found exactly 5
+occurrences total -- the 2 originally reported plus 3 more from games imported earlier in the
+session that were never surfaced as reconciliation warnings in this specific evaluation. None had
+`EventType`/`SecondaryEventType` already `WildPitch`, so none were already counted.
+`Pitching.WildPitches` incremented by exactly 1 for each of the 5 affected `(PersonId,
+FranchiseId, SeasonYear)` rows (resolved directly from each play's own persisted `PitcherId` --
+no identity-resolution heuristic needed, unlike the earlier FLE backfill), confirmed individually
+before and after.
 
 ### PitchersUsed (2 of 209 warnings) and Putouts (1 of 209 warnings) -- not conclusively diagnosed
 

@@ -75,5 +75,16 @@ namespace Retrosharp.Contract.GameEvent
         /// (GameEventRunnerModel has no matching property).
         /// </summary>
         public bool IsCaughtStealingAttempt { get; set; }
+
+        /// <summary>
+        /// True when this runner's advance carried a "(WP)" annotation -- Retrosheet's
+        /// documented alternate notation for a wild pitch incidental to a different primary
+        /// event (e.g. "SB2.1-3(WP)": the steal is the primary play, but a separate runner also
+        /// advanced on the same pitch). Transient, same as <see cref="IsStolenBase"/>: used by
+        /// <see cref="Format.PlayByPlay.GameStatisticsResolver"/> to credit the current pitcher's
+        /// Pitching.WildPitches exactly once per play; not a persisted column
+        /// (GameEventRunnerModel has no matching property).
+        /// </summary>
+        public bool CausedWildPitch { get; set; }
     }
 }

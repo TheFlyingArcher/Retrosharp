@@ -24,7 +24,7 @@ namespace Retrosharp.Format.Tests
         private static GameEventRunnerRecord Runner(
             int personId, BaseState startBase, BaseState endBase, bool isOut = false,
             int? responsiblePitcherId = null, bool isRBI = false, bool isStolenBase = false,
-            bool isCaughtStealingAttempt = false,
+            bool isCaughtStealingAttempt = false, bool causedWildPitch = false,
             params GameEventFieldingCredit[] credits) =>
             new()
             {
@@ -37,7 +37,8 @@ namespace Retrosharp.Format.Tests
                     ResponsiblePitcherId = responsiblePitcherId,
                     IsRBI = isRBI,
                     IsStolenBase = isStolenBase,
-                    IsCaughtStealingAttempt = isCaughtStealingAttempt
+                    IsCaughtStealingAttempt = isCaughtStealingAttempt,
+                    CausedWildPitch = causedWildPitch
                 },
                 FieldingCredits = credits
             };
@@ -263,6 +264,59 @@ namespace Retrosharp.Format.Tests
             // steal in this hand-built play) -- confirming no phantom TimesCaughtStealing credit
             // was given, not merely that a credited value happens to be zero.
             Assert.DoesNotContain(delta.Battings, b => b.PersonId == 5);
+        }
+
+        [Fact]
+        public void Resolve_WildPitchAdvanceAnnotation_CreditsCurrentPitcher()
+        {
+            // "SB2.1-3(WP)" -- a wild pitch incidental to a different primary event (here a
+            // stolen base). Before this fix, ApplyPitcherEvent only ever fired for a *primary*
+            // "WP" event, so this annotation form was silently never counted toward
+            // Pitching.WildPitches -- see spec/defects.md, "Discrepancy warnings from remaining
+            // 2025 imports".
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 13, PitcherId = 23, EventType = GameEventType.StolenBase };
+            var play = Play(
+                evt,
+                Runner(5, BaseState.First, BaseState.Second, isStolenBase: true),
+                Runner(6, BaseState.Second, BaseState.Third, causedWildPitch: true));
+
+            var delta = Resolve(play);
+
+            var pitching = Assert.Single(delta.Pitchings, p => p.PersonId == 23);
+            Assert.Equal(1, pitching.WildPitches);
+        }
+
+        [Fact]
+        public void Resolve_TwoRunnersCausedByTheSameWildPitch_CountsOnlyOnce()
+        {
+            // A single wild pitch can move more than one runner at once -- must still only count
+            // as one Pitching.WildPitches, not one per annotated runner.
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 13, PitcherId = 23, EventType = GameEventType.Strikeout };
+            var play = Play(
+                evt,
+                Runner(13, BaseState.BattersBox, BaseState.First, isOut: true),
+                Runner(5, BaseState.Second, BaseState.Third, causedWildPitch: true),
+                Runner(6, BaseState.Third, BaseState.Home, causedWildPitch: true));
+
+            var delta = Resolve(play);
+
+            var pitching = Assert.Single(delta.Pitchings, p => p.PersonId == 23);
+            Assert.Equal(1, pitching.WildPitches);
+        }
+
+        [Fact]
+        public void Resolve_PrimaryWildPitchEventWithAlsoFlaggedRunner_DoesNotDoubleCount()
+        {
+            // Defensive guard, not observed in real data: if a play's own primary event is
+            // already WildPitch (already counted via ApplyPitcherEvent), a runner's advance
+            // being *also* (redundantly) flagged CausedWildPitch must not double-count it.
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 13, PitcherId = 23, EventType = GameEventType.WildPitch };
+            var play = Play(evt, Runner(5, BaseState.Second, BaseState.Third, causedWildPitch: true));
+
+            var delta = Resolve(play);
+
+            var pitching = Assert.Single(delta.Pitchings, p => p.PersonId == 23);
+            Assert.Equal(1, pitching.WildPitches);
         }
 
         [Fact]

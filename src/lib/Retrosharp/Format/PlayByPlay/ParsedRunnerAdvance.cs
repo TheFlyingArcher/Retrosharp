@@ -46,6 +46,13 @@ namespace Retrosharp.Format.PlayByPlay
         /// </summary>
         public bool IsCaughtStealingAttempt { get; init; }
 
+        /// <summary>
+        /// True when this runner's advance carried a "(WP)" annotation -- a wild pitch
+        /// incidental to a different primary event. See
+        /// <see cref="Retrosharp.Contract.GameEvent.GameEventRunner.CausedWildPitch"/>.
+        /// </summary>
+        public bool CausedWildPitch { get; init; }
+
         public required IReadOnlyList<ParsedFieldingCredit> FieldingCredits { get; init; }
     }
 }

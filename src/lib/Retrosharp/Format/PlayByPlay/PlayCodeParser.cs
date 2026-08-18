@@ -269,6 +269,18 @@ namespace Retrosharp.Format.PlayByPlay
             /// </summary>
             public bool IsCaughtStealingAttempt { get; set; }
 
+            /// <summary>
+            /// True when this runner's advance carried a "(WP)" annotation -- Retrosheet's
+            /// documented alternate notation for a wild pitch that's incidental to a different
+            /// primary event (e.g. "SB2.1-3(WP)": the steal is the primary play, but a separate
+            /// runner also advanced on the same pitch because the catcher couldn't handle it).
+            /// Unlike a primary "WP" event, which already increments the pitcher's WildPitches
+            /// via <c>ApplyPitcherEvent</c>, this annotation was previously purely informational
+            /// and never counted at all -- see spec/defects.md, "Discrepancy warnings from
+            /// remaining 2025 imports".
+            /// </summary>
+            public bool CausedWildPitch { get; set; }
+
             public List<ParsedFieldingCredit> FieldingCredits { get; } = new();
 
             public ParsedRunnerAdvance ToParsedRunnerAdvance() => new()
@@ -280,6 +292,7 @@ namespace Retrosharp.Format.PlayByPlay
                 IsEarnedRun = IsEarnedRun,
                 IsStolenBase = IsStolenBase,
                 IsCaughtStealingAttempt = IsCaughtStealingAttempt,
+                CausedWildPitch = CausedWildPitch,
                 FieldingCredits = FieldingCredits
             };
         }
@@ -1041,10 +1054,18 @@ namespace Retrosharp.Format.PlayByPlay
                     // "1-2(WP)"/"1-2(PB)" -- an alternative way of indicating the advance was
                     // caused by a wild pitch or passed ball, per Retrosheet's own documentation
                     // ("Advance parameters provide an alternative way of indicating wild pitches
-                    // and passed balls"). Purely informational, like a fielder-chain annotation
-                    // already consumed elsewhere -- it doesn't change IsRBI, IsEarnedRun, or
-                    // fielding credits. Confirmed against a real play, "SB3.1-2(WP)"
-                    // (docs/csv/2025TEX.EVA:12992).
+                    // and passed balls"). Doesn't change IsRBI, IsEarnedRun, or fielding credits
+                    // either way. Confirmed against a real play, "SB3.1-2(WP)"
+                    // (docs/csv/2025TEX.EVA:12992). "(WP)" specifically also needs to be counted
+                    // toward the pitcher's WildPitches -- unlike a primary "WP" event, this
+                    // annotation form was purely informational and never counted at all
+                    // (confirmed missing against real data -- see spec/defects.md, "Discrepancy
+                    // warnings from remaining 2025 imports"). "(PB)" stays a pure no-op:
+                    // Fielding.PassedBalls is out of scope for this project entirely (see
+                    // spec/phase-1-build-plan.md Step 6d's explicit scope exclusions), so there's
+                    // nothing to count it toward.
+                    if (annotation == "WP")
+                        runner.CausedWildPitch = true;
                 }
                 else if (annotation.Length >= 3 && annotation.StartsWith("SB", StringComparison.Ordinal)
                     && annotation[2..] is "2" or "3" or "H")

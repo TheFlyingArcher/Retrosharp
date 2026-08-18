@@ -661,31 +661,39 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
-        public void Parse_WildPitchAdvanceAnnotation_DoesNotThrowAndLeavesRunnerUnaffected()
+        public void Parse_WildPitchAdvanceAnnotation_DoesNotThrowAndFlagsCausedWildPitch()
         {
             // play,9,0,lee-b002,22,BFB2C>B,SB3.1-2(WP) -- docs/csv/2025TEX.EVA:12992. "(WP)" is a
             // documented Retrosheet advance annotation ("an alternative way of indicating wild
-            // pitches and passed balls"), purely informational -- it must not throw, and must not
-            // affect IsRBI/IsEarnedRun/fielding credits any differently than a plain "1-2" would.
+            // pitches and passed balls") -- it must not throw, must not affect IsRBI/IsEarnedRun/
+            // fielding credits any differently than a plain "1-2" would, but *does* need to flag
+            // CausedWildPitch so GameStatisticsResolver can credit the pitcher's WildPitches --
+            // confirmed missing against real data (this annotation form was previously purely
+            // informational and never counted at all) -- see spec/defects.md, "Discrepancy
+            // warnings from remaining 2025 imports".
             var result = PlayCodeParser.Parse("SB3.1-2(WP)", "22", "BFB2C>B");
 
             var advanced = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
             Assert.Equal(BaseState.Second, advanced.EndBase);
             Assert.False(advanced.IsOut);
             Assert.Empty(advanced.FieldingCredits);
+            Assert.True(advanced.CausedWildPitch);
         }
 
         [Fact]
-        public void Parse_PassedBallAdvanceAnnotation_DoesNotThrow()
+        public void Parse_PassedBallAdvanceAnnotation_DoesNotThrowAndDoesNotFlagCausedWildPitch()
         {
             // (synthetic -- no real "(PB)" advance annotation observed in the reference files,
-            // but it's documented alongside "(WP)" as the same kind of informational tag and
-            // shares the same code path).
+            // but it's documented alongside "(WP)" as the same kind of tag and shares the same
+            // code path). Unlike "(WP)", "(PB)" stays a pure no-op: Fielding.PassedBalls is out
+            // of scope for this project entirely (spec/phase-1-build-plan.md Step 6d), so there's
+            // nothing to flag it toward.
             var result = PlayCodeParser.Parse("S7/G6.2-3(PB)", "10", "BX");
 
             var advanced = Assert.Single(result.Runners, r => r.StartBase == BaseState.Second);
             Assert.Equal(BaseState.Third, advanced.EndBase);
             Assert.False(advanced.IsOut);
+            Assert.False(advanced.CausedWildPitch);
         }
 
         [Fact]
