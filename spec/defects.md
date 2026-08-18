@@ -1297,19 +1297,29 @@ be retired... that's correctly not a batter GIDP"). Mixed-direction discrepancie
 persisted higher, sometimes derived higher) are consistent with this being a genuine, pre-existing
 scoring-convention edge case rather than a parser bug. Not chased further.
 
-### StolenBases / TimesCaughtStealing (11 of 209 warnings) -- three distinct causes, not yet fixed
+### StolenBases / TimesCaughtStealing (11 of 209 warnings) -- three distinct causes
 
 - Several affected games contain `K+SB3;SB2` / `K+SBH;SB2` -- the bundled-double-steal bug
   already fixed above, but for *other* already-imported games (not `2025CHN.EVN`) that happen to
   share the same literal play text. These will self-correct once those games' event data is
   reconciled the same way `2025CHN.EVN`'s was -- not chased as part of this entry since it's the
   same already-fixed root cause, just needing its own backfill pass.
-- Game 1053 (`2025KCA.EVA`) needs a follow-up to the `(SB<base>)` fix above: `BK.2-3(SB3);1-2`
-  should also flag the runner's advance as `IsStolenBase = true` for `StolenBases` counting, not
-  just avoid throwing -- confirmed by the persisted Game Log crediting the steal (persisted 1,
-  derived 0). The current fix only treats `(SB<base>)` as a no-op informational tag, matching
-  `(WP)`/`(PB)`'s treatment, but this case is statistically different: the runner really did
-  steal the base, the balk was incidental.
+- **Game 1053 (`2025KCA.EVA`) -- Resolved.** `BK.2-3(SB3);1-2`'s `(SB3)` annotation now also
+  flags that runner's advance as `IsStolenBase = true`
+  (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`) -- unlike `(WP)`/`(PB)`, which stay
+  purely informational, `(SB<base>)` means the runner really was stealing, confirmed by the
+  persisted Game Log crediting the steal (persisted 1, derived 0). The *other* runner in the same
+  play (a plain `1-2` balk advance, no `(SB..)` annotation) correctly stays `IsStolenBase = false`.
+  Updated the existing test (renamed
+  `Parse_BalkAdvanceWithStolenBaseAnnotation_DoesNotThrow` ->
+  `Parse_BalkAdvanceWithStolenBaseAnnotation_CreditsOnlyThatRunnerAStolenBase`) to assert both
+  runners' `IsStolenBase` explicitly
+  (`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`). All 175 tests in
+  `Retrosharp.Format.Tests` pass (208 across the full solution). Checked the whole database for
+  every occurrence of the `(SB<base>)` pattern before backfilling -- confirmed exactly one
+  (game 1053's own play, the only one that ever existed) -- and applied a single-row backfill:
+  `Batting.StolenBases` for the runner (PersonId 8427, Franchise 60/KCA, season 2025) incremented
+  by exactly 1 (22 -> 23), matching the persisted Game Log's own count exactly.
 - The remaining cases (e.g. `CS2(2E4)`, `POCS2(13E6)`) all involve a caught-stealing attempt
   negated by a subsequent error -- moderate-confidence read (not yet confirmed against an
   authoritative rule source): official scoring likely still counts these as a caught-stealing

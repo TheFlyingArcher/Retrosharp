@@ -834,11 +834,14 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
-        public void Parse_BalkAdvanceWithStolenBaseAnnotation_DoesNotThrow()
+        public void Parse_BalkAdvanceWithStolenBaseAnnotation_CreditsOnlyThatRunnerAStolenBase()
         {
-            // play,3,1,pasqv001,22,SFBFBB,BK.2-3(SB3);1-2 -- docs/csv/2025KCA.EVA:5871. "(SB3)"
-            // plays the same informational role as "(WP)"/"(PB)" -- notes the advance coincided
-            // with a stolen-base attempt already in progress when the balk was called.
+            // play,3,1,pasqv001,22,SFBFBB,BK.2-3(SB3);1-2 -- docs/csv/2025KCA.EVA:5871, game 1053.
+            // "(SB3)" is not purely informational like "(WP)"/"(PB)" -- the runner really was
+            // stealing when the balk was called and is credited a genuine stolen base for it
+            // (confirmed against the persisted Game Log's StolenBases total for this game). The
+            // *other* runner's plain "1-2" advance (no "(SB..)" annotation) is just a balk
+            // advance, not a steal.
             var result = PlayCodeParser.Parse("BK.2-3(SB3);1-2", "22", "SFBFBB");
 
             Assert.Equal(GameEventType.Balk, result.EventType);
@@ -846,10 +849,12 @@ namespace Retrosharp.Format.Tests
             var toThird = Assert.Single(result.Runners, r => r.StartBase == BaseState.Second);
             Assert.Equal(BaseState.Third, toThird.EndBase);
             Assert.False(toThird.IsOut);
+            Assert.True(toThird.IsStolenBase);
 
             var toSecond = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
             Assert.Equal(BaseState.Second, toSecond.EndBase);
             Assert.False(toSecond.IsOut);
+            Assert.False(toSecond.IsStolenBase);
         }
 
         [Fact]

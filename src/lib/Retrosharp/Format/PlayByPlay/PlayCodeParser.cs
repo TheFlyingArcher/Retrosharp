@@ -1033,11 +1033,16 @@ namespace Retrosharp.Format.PlayByPlay
                 else if (annotation.Length >= 3 && annotation.StartsWith("SB", StringComparison.Ordinal)
                     && annotation[2..] is "2" or "3" or "H")
                 {
-                    // "2-3(SB3)" -- the same informational role as "(WP)"/"(PB)" above, noting
-                    // the advance coincided with (or was actually caused by) a stolen-base
-                    // attempt already in progress -- e.g. a balk called while the runner was
-                    // already stealing. Doesn't change IsRBI, IsEarnedRun, or fielding credits.
-                    // Confirmed against a real play, "BK.2-3(SB3);1-2" (docs/csv/2025KCA.EVA:5871).
+                    // "2-3(SB3)" -- unlike "(WP)"/"(PB)" above, this isn't purely informational:
+                    // it means the runner really was stealing when e.g. a balk was called, and
+                    // is credited a genuine stolen base for it -- confirmed against the real play
+                    // "BK.2-3(SB3);1-2" (docs/csv/2025KCA.EVA:5871, game 1053): the persisted
+                    // Game Log's StolenBases total includes this runner, but the parser was
+                    // treating the annotation as a no-op and never setting IsStolenBase, silently
+                    // undercounting Batting.StolenBases by 1 for that game -- see spec/defects.md,
+                    // "Discrepancy warnings from remaining 2025 imports". Doesn't change IsRBI,
+                    // IsEarnedRun, or fielding credits -- only the stolen-base flag.
+                    runner.IsStolenBase = true;
                 }
                 else
                 {
