@@ -417,6 +417,10 @@ namespace Retrosharp.Format.Tests
             var caughtStealingRunner = Assert.Single(result.Runners, r => r.StartBase == BaseState.Second);
             Assert.Equal(BaseState.Third, caughtStealingRunner.EndBase);
             Assert.False(caughtStealingRunner.IsOut);
+            // Even though the runner ends up safe, official scoring still charges the caught
+            // stealing attempt ("is put out, or would have been put out by errorless play") --
+            // see spec/defects.md, "Discrepancy warnings from remaining 2025 imports".
+            Assert.True(caughtStealingRunner.IsCaughtStealingAttempt);
             Assert.Equal(
                 new[] { (2, FieldingCreditType.Assist, 1), (5, FieldingCreditType.Error, 2) },
                 caughtStealingRunner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
@@ -442,6 +446,7 @@ namespace Retrosharp.Format.Tests
             var runner = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
             Assert.Equal(BaseState.Third, runner.EndBase);
             Assert.False(runner.IsOut);
+            Assert.True(runner.IsCaughtStealingAttempt);
             Assert.Equal(
                 new[] { (1, FieldingCreditType.Error, 1) },
                 runner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));

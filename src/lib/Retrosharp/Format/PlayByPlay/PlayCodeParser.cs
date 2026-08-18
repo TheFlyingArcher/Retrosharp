@@ -255,6 +255,20 @@ namespace Retrosharp.Format.PlayByPlay
             /// </summary>
             public bool IsStolenBase { get; set; }
 
+            /// <summary>
+            /// True whenever this runner's disposition came from a "CS"/"POCS" sub-code, set
+            /// unconditionally before any error-negates-the-out adjustment -- so it stays true
+            /// even when a subsequent throwing error lets the runner reach safely. Per official
+            /// scoring (a caught stealing is charged when the runner "is put out, or would have
+            /// been put out by errorless play"), the attempt itself is still charged; only
+            /// <see cref="IsOut"/> (which must stay accurate for game-flow/base-state purposes)
+            /// changes. Confirmed missing against real data: "CS2(2E4)"-style plays were only
+            /// ever counted via the play's overall EventType plus IsOut, so an error-negated
+            /// attempt silently dropped out of Batting.TimesCaughtStealing entirely -- see
+            /// spec/defects.md, "Discrepancy warnings from remaining 2025 imports".
+            /// </summary>
+            public bool IsCaughtStealingAttempt { get; set; }
+
             public List<ParsedFieldingCredit> FieldingCredits { get; } = new();
 
             public ParsedRunnerAdvance ToParsedRunnerAdvance() => new()
@@ -265,6 +279,7 @@ namespace Retrosharp.Format.PlayByPlay
                 IsRBI = IsRBI,
                 IsEarnedRun = IsEarnedRun,
                 IsStolenBase = IsStolenBase,
+                IsCaughtStealingAttempt = IsCaughtStealingAttempt,
                 FieldingCredits = FieldingCredits
             };
         }
@@ -704,6 +719,7 @@ namespace Retrosharp.Format.PlayByPlay
             var runner = GetOrAddRunner(runners, startBase);
             runner.EndBase = targetBase;
             runner.IsOut = true;
+            runner.IsCaughtStealingAttempt = true;
 
             var parenStart = rest.IndexOf('(');
             if (parenStart < 0)

@@ -62,5 +62,18 @@ namespace Retrosharp.Contract.GameEvent
         /// matching property).
         /// </summary>
         public bool IsStolenBase { get; set; }
+
+        /// <summary>
+        /// True whenever this runner's disposition came from a "CS"/"POCS" sub-code -- set
+        /// unconditionally, even when a subsequent throwing error let the runner reach safely
+        /// (<see cref="IsOut"/> = false). Official scoring charges a caught stealing when the
+        /// runner "is put out, or would have been put out by errorless play," so the attempt is
+        /// still charged in that case; only <see cref="IsOut"/> (which must stay accurate for
+        /// game-flow/base-state purposes) reflects the error. Transient, same as
+        /// <see cref="IsStolenBase"/>: used by <see cref="Format.PlayByPlay.GameStatisticsResolver"/>
+        /// to derive Batting.TimesCaughtStealing correctly; not a persisted column
+        /// (GameEventRunnerModel has no matching property).
+        /// </summary>
+        public bool IsCaughtStealingAttempt { get; set; }
     }
 }

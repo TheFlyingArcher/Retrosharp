@@ -113,14 +113,6 @@ namespace Retrosharp.Format.PlayByPlay
                             GetOrAdd(pitching, responsiblePitcherId, fieldingFranchiseId).Runs++;
                     }
 
-                    // Checking SecondaryEventType too (not just EventType) is what makes a
-                    // bundled "K+CS2(24)" count at all -- EventType alone can only ever be
-                    // Strikeout/Walk for those plays. The StartBase != BattersBox guard keeps
-                    // this correct now that a bundled play's Runners can include the batter
-                    // (from the primary K/W) alongside the actual caught-stealing runner.
-                    var isCaughtStealingEvent = evt.EventType is GameEventType.CaughtStealing or GameEventType.PickoffCaughtStealing
-                        || evt.SecondaryEventType is GameEventType.CaughtStealing or GameEventType.PickoffCaughtStealing;
-
                     // runner.IsStolenBase (not "the play's EventType is StolenBase") -- a play
                     // whose primary code is "SB2" can still carry a *second* runner in
                     // play.Runners who merely advanced or scored as a side effect of the
@@ -132,7 +124,19 @@ namespace Retrosharp.Format.PlayByPlay
                     {
                         GetOrAdd(batting, runner.PersonId, battingFranchiseId).StolenBases++;
                     }
-                    else if (isCaughtStealingEvent && runner.IsOut && runner.StartBase != BaseState.BattersBox)
+                    // runner.IsCaughtStealingAttempt (not "the play's overall EventType is
+                    // CaughtStealing/PickoffCaughtStealing plus this runner happens to be out")
+                    // -- set unconditionally by ParseCaughtStealingLike regardless of whether a
+                    // subsequent throwing error later lets the runner reach safely. Official
+                    // scoring charges a caught stealing when the runner "is put out, or would
+                    // have been put out by errorless play," so an error-negated attempt (e.g.
+                    // "CS2(2E4)", where IsOut ends up false) must still count -- the old
+                    // "isCaughtStealingEvent && runner.IsOut" check silently dropped those.
+                    // Confirmed against real data: multiple already-imported games' persisted
+                    // Game Log TimesCaughtStealing exceeded what play-by-play derived by exactly
+                    // the count of their error-negated CS/POCS attempts -- see spec/defects.md,
+                    // "Discrepancy warnings from remaining 2025 imports".
+                    else if (runner.IsCaughtStealingAttempt)
                     {
                         GetOrAdd(batting, runner.PersonId, battingFranchiseId).TimesCaughtStealing++;
                     }

@@ -165,6 +165,7 @@ namespace Retrosharp.Format.PlayByPlay
                     IsRBI = advance.IsRBI,
                     IsEarnedRun = advance.IsEarnedRun,
                     IsStolenBase = advance.IsStolenBase,
+                    IsCaughtStealingAttempt = advance.IsCaughtStealingAttempt,
                     // "Null unless the runner scores" -- see GameEventRunner.ResponsiblePitcherId.
                     ResponsiblePitcherId = advance.EndBase == BaseState.Home ? responsiblePitcherId : null
                 };

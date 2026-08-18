@@ -24,6 +24,7 @@ namespace Retrosharp.Format.Tests
         private static GameEventRunnerRecord Runner(
             int personId, BaseState startBase, BaseState endBase, bool isOut = false,
             int? responsiblePitcherId = null, bool isRBI = false, bool isStolenBase = false,
+            bool isCaughtStealingAttempt = false,
             params GameEventFieldingCredit[] credits) =>
             new()
             {
@@ -35,7 +36,8 @@ namespace Retrosharp.Format.Tests
                     IsOut = isOut,
                     ResponsiblePitcherId = responsiblePitcherId,
                     IsRBI = isRBI,
-                    IsStolenBase = isStolenBase
+                    IsStolenBase = isStolenBase,
+                    IsCaughtStealingAttempt = isCaughtStealingAttempt
                 },
                 FieldingCredits = credits
             };
@@ -214,12 +216,53 @@ namespace Retrosharp.Format.Tests
         public void Resolve_CaughtStealing_CreditedToRunnerAsOut()
         {
             var evt = new GameEvent { TeamAtBat = "V", BatterId = 13, PitcherId = 23, EventType = GameEventType.CaughtStealing };
-            var play = Play(evt, Runner(5, BaseState.First, BaseState.Second, isOut: true));
+            var play = Play(evt, Runner(5, BaseState.First, BaseState.Second, isOut: true, isCaughtStealingAttempt: true));
 
             var delta = Resolve(play);
 
             var runnerBatting = Assert.Single(delta.Battings, b => b.PersonId == 5);
             Assert.Equal(1, runnerBatting.TimesCaughtStealing);
+        }
+
+        [Fact]
+        public void Resolve_CaughtStealingNegatedByError_StillCountsAsAttempt()
+        {
+            // "CS2(2E4)" -- the throw that would have retired the runner was itself the error,
+            // so the runner ends up safe (IsOut = false), but official scoring still charges the
+            // attempt: a caught stealing is scored when the runner "is put out, or would have
+            // been put out by errorless play." Confirmed against real data: several
+            // already-imported games' persisted Game Log TimesCaughtStealing exceeded what
+            // play-by-play derived by exactly the count of their error-negated CS/POCS attempts
+            // -- see spec/defects.md, "Discrepancy warnings from remaining 2025 imports".
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 13, PitcherId = 23, EventType = GameEventType.CaughtStealing };
+            var play = Play(evt, Runner(5, BaseState.First, BaseState.Second, isOut: false, isCaughtStealingAttempt: true));
+
+            var delta = Resolve(play);
+
+            var runnerBatting = Assert.Single(delta.Battings, b => b.PersonId == 5);
+            Assert.Equal(1, runnerBatting.TimesCaughtStealing);
+        }
+
+        [Fact]
+        public void Resolve_RunnerOutButNotFromCaughtStealingAttempt_DoesNotCountAsCaughtStealing()
+        {
+            // A runner can be out for reasons that have nothing to do with a caught-stealing
+            // attempt (e.g. doubled off on a fielded ball) -- only IsCaughtStealingAttempt (set
+            // specifically by the CS/POCS parsing path), not "IsOut on some non-batter runner",
+            // should drive TimesCaughtStealing.
+            var evt = new GameEvent { TeamAtBat = "V", BatterId = 13, PitcherId = 23, EventType = GameEventType.GroundOut };
+            var play = Play(
+                evt,
+                Runner(13, BaseState.BattersBox, BaseState.First, isOut: true),
+                Runner(5, BaseState.First, BaseState.Second, isOut: true));
+
+            var delta = Resolve(play);
+
+            // Neither IsStolenBase nor IsCaughtStealingAttempt is set for this runner, so no
+            // Batting row is created for them at all (they didn't bat, walk, score, or attempt a
+            // steal in this hand-built play) -- confirming no phantom TimesCaughtStealing credit
+            // was given, not merely that a credited value happens to be zero.
+            Assert.DoesNotContain(delta.Battings, b => b.PersonId == 5);
         }
 
         [Fact]

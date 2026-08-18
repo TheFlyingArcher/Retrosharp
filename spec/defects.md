@@ -1297,7 +1297,7 @@ be retired... that's correctly not a batter GIDP"). Mixed-direction discrepancie
 persisted higher, sometimes derived higher) are consistent with this being a genuine, pre-existing
 scoring-convention edge case rather than a parser bug. Not chased further.
 
-### StolenBases / TimesCaughtStealing (11 of 209 warnings) -- three distinct causes, two Resolved
+### StolenBases / TimesCaughtStealing (11 of 209 warnings) -- three distinct causes, all Resolved
 
 - **`K+SB3;SB2` / `K+SBH;SB2` in other already-imported games -- Resolved.** The bundled-double-
   steal bug was already fixed in the parser (see the `2025CHN.EVN` crash entry above); this is
@@ -1338,12 +1338,41 @@ scoring-convention edge case rather than a parser bug. Not chased further.
   (game 1053's own play, the only one that ever existed) -- and applied a single-row backfill:
   `Batting.StolenBases` for the runner (PersonId 8427, Franchise 60/KCA, season 2025) incremented
   by exactly 1 (22 -> 23), matching the persisted Game Log's own count exactly.
-- The remaining cases (e.g. `CS2(2E4)`, `POCS2(13E6)`) all involve a caught-stealing attempt
-  negated by a subsequent error -- moderate-confidence read (not yet confirmed against an
-  authoritative rule source): official scoring likely still counts these as a caught-stealing
-  *attempt* even though the runner ends up safe, which would need a new tracking flag (the same
-  pattern as the existing `IsStolenBase` flag) to record separately from `IsOut`, since `IsOut`
-  must stay correct for game-flow/base-state purposes.
+- **Caught-stealing attempts negated by an error (e.g. `CS2(2E4)`, `POCS2(13E6)`) -- Resolved.**
+  Official scoring charges a caught stealing whenever the runner "is put out, or would have been
+  put out by errorless play" -- so an error negating the out (`IsOut = false`) shouldn't also
+  negate the *attempt*. Added `IsCaughtStealingAttempt`, mirroring the existing `IsStolenBase`
+  pattern end to end (`MutableRunner` -> `ParsedRunnerAdvance` -> `GameEventRunner`, all
+  transient -- not a persisted column), set unconditionally in `ParseCaughtStealingLike` before
+  any error-negation adjustment
+  (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`,
+  `src/lib/Retrosharp/Format/PlayByPlay/ParsedRunnerAdvance.cs`,
+  `src/lib/Retrosharp/Contract/GameEvent/GameEventRunner.cs`,
+  `src/lib/Retrosharp/Format/PlayByPlay/GameEventResolver.cs`). `GameStatisticsResolver`'s
+  `TimesCaughtStealing` counting now keys off this flag directly instead of the old
+  `isCaughtStealingEvent (play-level) && runner.IsOut && StartBase != BattersBox` combination --
+  which, being play-level rather than runner-level, had the *same* class of imprecision
+  `IsStolenBase` was created to fix for `StolenBases`: a bundled or multi-out play could credit a
+  runner who wasn't actually the one attempting the steal
+  (`src/lib/Retrosharp/Format/PlayByPlay/GameStatisticsResolver.cs`). Added four regression
+  tests: two at the parser level asserting `IsCaughtStealingAttempt = true` on the two existing
+  error-negated-CS tests, and two at `GameStatisticsResolver`'s level (error-negated attempt
+  still counts; a runner out for an unrelated reason on the same play does not)
+  (`src/lib/Retrosharp.Format.Tests/PlayCodeParserTests.cs`,
+  `src/lib/Retrosharp.Format.Tests/GameStatisticsResolverTests.cs`). All 177 tests in
+  `Retrosharp.Format.Tests` pass (210 across the full solution).
+
+  Backfill (completed): a full-database sweep of every `GameEventRunner` row on a play whose
+  `EventType`/`SecondaryEventType` is `CaughtStealing` or `PickoffCaughtStealing` (1,143 rows),
+  computing both the old and new crediting decision for each and diffing them, found 9 total
+  mismatches -- 8 needing a `+1` (error-negated attempts that were silently uncredited) and,
+  confirming the imprecision concern above was real and not just theoretical, exactly 1 needing a
+  `-1`: game 369's `CS3(15)/DP/RINT.1X2(54)` had *two* non-batter runners, only one of whom
+  (`PersonId` 632, the actual `CS3` steal) was a real caught-stealing attempt -- the other
+  (`PersonId` 10441, out via the play's own separate `1X2(54)` advance segment, unrelated to the
+  steal) had been wrongly credited by the old play-level check. `Batting.TimesCaughtStealing`
+  updated by exactly the expected `+1`/`-1` for all 9 affected `(PersonId, FranchiseId,
+  SeasonYear)` rows, confirmed individually before and after.
 
 ### WildPitches (2 of 209 warnings) -- root cause confirmed, not yet fixed
 

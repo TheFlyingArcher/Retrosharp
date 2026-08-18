@@ -38,6 +38,14 @@ namespace Retrosharp.Format.PlayByPlay
         /// </summary>
         public bool IsStolenBase { get; init; }
 
+        /// <summary>
+        /// True whenever this runner's disposition came from a "CS"/"POCS" sub-code, even if a
+        /// subsequent throwing error let them reach safely (<see cref="IsOut"/> = false) --
+        /// official scoring still charges the attempt in that case. See
+        /// <see cref="Retrosharp.Contract.GameEvent.GameEventRunner.IsCaughtStealingAttempt"/>.
+        /// </summary>
+        public bool IsCaughtStealingAttempt { get; init; }
+
         public required IReadOnlyList<ParsedFieldingCredit> FieldingCredits { get; init; }
     }
 }
