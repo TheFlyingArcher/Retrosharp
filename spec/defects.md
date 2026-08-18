@@ -1297,13 +1297,31 @@ be retired... that's correctly not a batter GIDP"). Mixed-direction discrepancie
 persisted higher, sometimes derived higher) are consistent with this being a genuine, pre-existing
 scoring-convention edge case rather than a parser bug. Not chased further.
 
-### StolenBases / TimesCaughtStealing (11 of 209 warnings) -- three distinct causes
+### StolenBases / TimesCaughtStealing (11 of 209 warnings) -- three distinct causes, two Resolved
 
-- Several affected games contain `K+SB3;SB2` / `K+SBH;SB2` -- the bundled-double-steal bug
-  already fixed above, but for *other* already-imported games (not `2025CHN.EVN`) that happen to
-  share the same literal play text. These will self-correct once those games' event data is
-  reconciled the same way `2025CHN.EVN`'s was -- not chased as part of this entry since it's the
-  same already-fixed root cause, just needing its own backfill pass.
+- **`K+SB3;SB2` / `K+SBH;SB2` in other already-imported games -- Resolved.** The bundled-double-
+  steal bug was already fixed in the parser (see the `2025CHN.EVN` crash entry above); this is
+  its backfill for every *other* already-imported game sharing the same literal play text. A
+  full-database sweep (`RawEventText ~ '\+SB[23H];SB[23H]'`) found exactly six occurrences total:
+  game 157 (`2025CHN.EVN`), already correct from the live re-import; and five more needing a
+  backfill --
+  game 73 (`2025SLN.EVN`), game 107 (`2025PIT.EVN`), game 2288 (`2025MIL.EVN`),
+  game 2427 (`2025CLE.EVA`), and game 905 (`2025TBA.EVA`).
+  For the first four, the source file was still available on disk, so a one-off tool
+  (scratch-only, not part of the repo) re-derived the *entire* game via the real
+  `GameEventResolver.Resolve` (not just an isolated re-parse of the one play -- baserunner
+  identity depends on the whole half-inning's preceding plays, unlike fielder identity, which was
+  resolvable from position stability alone in the earlier FLE backfill) and inserted the missing
+  `GameEventRunner` row for the dropped `SB2` steal, matched against the persisted play by exact
+  `RawEventText` and `Sequence` before touching anything. Game 905's source file (`2025TBA.EVA`)
+  was no longer on disk (already replaced), but needed no re-derivation at all: its play also has
+  an explicit advance segment (`.3-H(NR);1-3(E2/TH)`) that independently creates the same runner
+  row as a side effect regardless of the `SB2` bug, so the row already existed correctly --
+  only the `Batting.StolenBases` *credit* (a transient, non-persisted flag on the parser's own
+  runner object, never itself a column) was missing for that already-existing row's player.
+  `Batting.StolenBases` incremented by exactly 1 for all 5 affected players, confirmed
+  individually before and after. All 6 target plays now show 3 runner rows each, matching
+  `2025CHN.EVN`'s already-correct state exactly.
 - **Game 1053 (`2025KCA.EVA`) -- Resolved.** `BK.2-3(SB3);1-2`'s `(SB3)` annotation now also
   flags that runner's advance as `IsStolenBase = true`
   (`src/lib/Retrosharp/Format/PlayByPlay/PlayCodeParser.cs`) -- unlike `(WP)`/`(PB)`, which stay
