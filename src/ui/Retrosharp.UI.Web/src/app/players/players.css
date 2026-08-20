@@ -15,17 +15,12 @@
   margin-top: 1rem;
 }
 
-.players-results .row {
-  margin-bottom: 0.5rem;
+.players-table-wrapper {
+  overflow-x: auto;
 }
 
-.players-group-heading {
-  font-size: 1.25rem;
-  font-weight: 700;
-}
-
-.players-group-list {
-  line-height: 1.8;
+.players-table {
+  width: 100%;
 }
 
 .players-active {

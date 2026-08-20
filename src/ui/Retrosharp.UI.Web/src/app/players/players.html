@@ -34,28 +34,85 @@
     <div class="row">
       <div class="col players-error">{{ error() }}</div>
     </div>
-  } @else if (groups().length === 0) {
+  } @else if (players().length === 0) {
     <div class="row">
       <div class="col">No players found.</div>
     </div>
   } @else {
-    @for (group of groups(); track group.letter) {
-      <div class="row">
-        <div class="col players-group-heading">{{ group.letter }}</div>
+    <div class="row">
+      <div class="col players-table-wrapper">
+        <table mat-table [dataSource]="players()" class="players-table">
+          <ng-container matColumnDef="name">
+            <th mat-header-cell *matHeaderCellDef>Name</th>
+            <td mat-cell *matCellDef="let player">
+              <a [routerLink]="['/players', player.id]" [class.players-active]="isActive(player)">{{
+                displayName(player)
+              }}</a
+              >@if (isDeceased(player)) {<span class="players-deceased" title="Deceased">&nbsp;&dagger;</span
+                >}
+            </td>
+          </ng-container>
+
+          <ng-container matColumnDef="birthDate">
+            <th mat-header-cell *matHeaderCellDef>Birth Date</th>
+            <td mat-cell *matCellDef="let player">{{ player.birthDate | date }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="deathDate">
+            <th mat-header-cell *matHeaderCellDef>Death Date</th>
+            <td mat-cell *matCellDef="let player">{{ player.deathDate | date }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="age">
+            <th mat-header-cell *matHeaderCellDef>Age(d)</th>
+            <td mat-cell *matCellDef="let player">{{ age(player) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="birthPlace">
+            <th mat-header-cell *matHeaderCellDef>Birth Place</th>
+            <td mat-cell *matCellDef="let player">{{ birthPlace(player) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="deathPlace">
+            <th mat-header-cell *matHeaderCellDef>Death Place</th>
+            <td mat-cell *matCellDef="let player">{{ deathPlace(player) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="bats">
+            <th mat-header-cell *matHeaderCellDef>Bats</th>
+            <td mat-cell *matCellDef="let player">{{ player.bats }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="throws">
+            <th mat-header-cell *matHeaderCellDef>Throws</th>
+            <td mat-cell *matCellDef="let player">{{ player.throws }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="height">
+            <th mat-header-cell *matHeaderCellDef>Height</th>
+            <td mat-cell *matCellDef="let player">{{ height(player) }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="weight">
+            <th mat-header-cell *matHeaderCellDef>Weight</th>
+            <td mat-cell *matCellDef="let player">{{ player.weight }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="playerDebutDate">
+            <th mat-header-cell *matHeaderCellDef>Player Debut</th>
+            <td mat-cell *matCellDef="let player">{{ player.playerDebutDate | date }}</td>
+          </ng-container>
+
+          <ng-container matColumnDef="playerLastDate">
+            <th mat-header-cell *matHeaderCellDef>Player Last</th>
+            <td mat-cell *matCellDef="let player">{{ player.playerLastDate | date }}</td>
+          </ng-container>
+
+          <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+          <tr mat-row *matRowDef="let row; columns: displayedColumns"></tr>
+        </table>
       </div>
-      <div class="row">
-        <div class="col players-group-list">
-          @for (player of group.players; track player.id; let last = $last) {
-            <a [routerLink]="['/players', player.id]" [class.players-active]="isActive(player)">{{
-              displayName(player)
-            }}</a
-            >@if (isDeceased(player)) {<span class="players-deceased" title="Deceased">&nbsp;&dagger;</span
-              >}@if (!last) {<span>,&nbsp;</span
-              >}
-          }
-        </div>
-      </div>
-    }
+    </div>
   }
 
   <div class="row">

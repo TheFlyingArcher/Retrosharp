@@ -15,9 +15,27 @@ namespace Retrosharp.UI.Api.Models
 
         public string? UseName { get; set; }
 
+        public DateTime? BirthDate { get; set; }
+
+        public string? BirthCity { get; set; }
+
+        public string? BirthStateProvince { get; set; }
+
+        public string? BirthCountry { get; set; }
+
+        public string? DeathCity { get; set; }
+
+        public string? DeathStateProvince { get; set; }
+
+        public string? DeathCountry { get; set; }
+
         public string? Bats { get; set; }
 
         public string? Throws { get; set; }
+
+        public float? Height { get; set; }
+
+        public float? Weight { get; set; }
 
         public DateTime? PlayerDebutDate { get; set; }
 

@@ -14,11 +14,38 @@ export interface PlayerSearchResult {
   /** The name to use for the player. */
   useName: string | null;
 
+  /** The player's date of birth, as an ISO 8601 date string. */
+  birthDate: string | null;
+
+  /** The city the player was born in. */
+  birthCity: string | null;
+
+  /** The state/province the player was born in, if applicable. */
+  birthStateProvince: string | null;
+
+  /** The country the player was born in. */
+  birthCountry: string | null;
+
+  /** The city the player died in. */
+  deathCity: string | null;
+
+  /** The state/province the player died in, if applicable. */
+  deathStateProvince: string | null;
+
+  /** The country the player died in. */
+  deathCountry: string | null;
+
   /** The batting hand of the player. */
   bats: string | null;
 
   /** The throwing hand of the player. */
   throws: string | null;
+
+  /** The player's height, in total inches. */
+  height: number | null;
+
+  /** The player's weight, in pounds. */
+  weight: number | null;
 
   /** The date when the player debuted, as an ISO 8601 date string. */
   playerDebutDate: string | null;

@@ -1,29 +1,50 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatTableModule } from '@angular/material/table';
 import { PlayerSearchResult } from '../../model/player-search-result.model';
 import { PlayerService } from '../../service/player.service';
+import { formatAge, formatHeight, formatPlace } from '../../util/format.util';
 
 const ALPHABET = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
 
-interface PlayerGroup {
-  letter: string;
-  players: PlayerSearchResult[];
-}
+const DISPLAYED_COLUMNS = [
+  'name',
+  'birthDate',
+  'deathDate',
+  'age',
+  'birthPlace',
+  'deathPlace',
+  'bats',
+  'throws',
+  'height',
+  'weight',
+  'playerDebutDate',
+  'playerLastDate',
+];
 
 @Component({
   selector: 'app-players',
   templateUrl: './players.html',
   styleUrl: './players.css',
-  imports: [RouterLink, MatButtonModule, MatPaginatorModule, MatProgressSpinnerModule],
+  imports: [
+    RouterLink,
+    DatePipe,
+    MatButtonModule,
+    MatPaginatorModule,
+    MatProgressSpinnerModule,
+    MatTableModule,
+  ],
 })
 export class Players implements OnInit {
   private readonly service = inject(PlayerService);
 
   readonly alphabet = ALPHABET;
   readonly pageSizeOptions = [25, 50, 100];
+  readonly displayedColumns = DISPLAYED_COLUMNS;
 
   readonly selectedLetter = signal<string | null>(null);
   readonly pageIndex = signal(0);
@@ -33,22 +54,6 @@ export class Players implements OnInit {
   readonly totalCount = signal(0);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
-
-  // Players arrive already ordered by surname, so consecutive same-first-letter runs on the
-  // current page can just be grouped in place rather than re-sorted.
-  readonly groups = computed<PlayerGroup[]>(() => {
-    const groups: PlayerGroup[] = [];
-    for (const player of this.players()) {
-      const letter = (player.surname ?? this.displayName(player) ?? '?').charAt(0).toUpperCase();
-      const currentGroup = groups.at(-1);
-      if (currentGroup && currentGroup.letter === letter) {
-        currentGroup.players.push(player);
-      } else {
-        groups.push({ letter, players: [player] });
-      }
-    }
-    return groups;
-  });
 
   ngOnInit(): void {
     this.load();
@@ -70,16 +75,61 @@ export class Players implements OnInit {
     this.load();
   }
 
+  // Spec: "UseName Surname" -- e.g. "Babe Ruth" (UseName "Babe", Surname "Ruth").
   displayName(player: PlayerSearchResult): string {
-    return player.useName ?? player.fullName ?? player.retroSheetId;
+    if (player.useName && player.surname) {
+      return `${player.useName} ${player.surname}`;
+    }
+
+    return player.useName ?? player.surname ?? player.fullName ?? player.retroSheetId;
   }
 
+  // Per spec: a null PlayerLastDate only implies "still active" for someone who
+  // has a recorded debut -- otherwise there's no evidence they ever played, let
+  // alone recently (some early-era Person records have neither a debut nor a
+  // last-played date at all). A populated DeathDate always means retired, even
+  // when PlayerLastDate wasn't captured -- a dead player can't still be active
+  // regardless of which field is the gap.
   isActive(player: PlayerSearchResult): boolean {
-    return player.playerLastDate == null;
+    return player.playerDebutDate != null && player.playerLastDate == null && player.deathDate == null;
   }
 
   isDeceased(player: PlayerSearchResult): boolean {
     return player.deathDate != null;
+  }
+
+  // Baseball-Reference convention: current age for an active/living player, age
+  // at death when known. A retired player with no recorded death date is
+  // ambiguous -- early-era biofile records frequently omit it, and there's no
+  // way to tell whether they died shortly after their last game or decades
+  // later -- so that case reports "N/A" rather than guessing an "as of" date,
+  // same as an unknown birth date.
+  age(player: PlayerSearchResult): number | 'N/A' {
+    if (player.birthDate == null) {
+      return 'N/A';
+    }
+
+    if (player.deathDate) {
+      return formatAge(player.birthDate, new Date(player.deathDate)) ?? 'N/A';
+    }
+
+    if (this.isActive(player)) {
+      return formatAge(player.birthDate, new Date()) ?? 'N/A';
+    }
+
+    return 'N/A';
+  }
+
+  birthPlace(player: PlayerSearchResult): string | null {
+    return formatPlace(player.birthCity, player.birthStateProvince, player.birthCountry);
+  }
+
+  deathPlace(player: PlayerSearchResult): string | null {
+    return formatPlace(player.deathCity, player.deathStateProvince, player.deathCountry);
+  }
+
+  height(player: PlayerSearchResult): string | null {
+    return formatHeight(player.height);
   }
 
   private load(): void {
