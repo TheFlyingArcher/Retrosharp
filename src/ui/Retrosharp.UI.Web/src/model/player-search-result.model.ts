@@ -23,7 +23,7 @@ export interface PlayerSearchResult {
   /** The date when the player debuted, as an ISO 8601 date string. */
   playerDebutDate: string | null;
 
-  /** The date when the player last played, as an ISO 8601 date string. A player with no last-played date is still active. */
+  /** The date when the player last played, as an ISO 8601 date string. Null means Retrosheet has no final game on record for this player — most often because they're still active, but this lags reality (e.g. a retirement announced after the last data update) and should not be read as a live active/retired flag. */
   playerLastDate: string | null;
 
   /** The player's date of death, as an ISO 8601 date string. Non-null indicates the player is deceased. */

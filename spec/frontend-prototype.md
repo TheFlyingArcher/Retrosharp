@@ -136,7 +136,7 @@ A single text search bar leaves a lot of empty space on the page. Considered and
 Path: /players
 
 On this page, users will be able to view a table of baseball players grouped by the player's last name.
-There is on top of the page the alphabet A-Z in which a user can click a letter and a table will load with players whose last name starts with that letter. Clicking on a player's name will take the user to the player detail page. The table of players will be paginated to improve performance and usability. Bold text will indicate the player is currently active in MLB. A cross next to their name will indicate the player is deceased.
+There is on top of the page the alphabet A-Z in which a user can click a letter and a table will load with players whose last name starts with that letter. Clicking on a player's name will take the user to the player detail page. The table of players will be paginated to improve performance and usability. Bold text (with a tooltip explaining the caveat) indicates the player has no final game on record in Retrosheet data — most often because they're still active, but see the note below. A cross next to their name will indicate the player is deceased.
 
 The table contains the following columns:
 
@@ -153,11 +153,11 @@ The table contains the following columns:
 - Player Debut
 - Player Last
 
-#### Resolved: Determining "Is Active"
+#### Resolved: Determining "Is Active" — reframed as "No Final Game on Record"
 
-There is no explicit `IsActive` field within the underlying data store. `PlayerLastDate` (sourced from the Retrosheet biofile's `last_p` column) is nullable, and a player is considered active when it is `null`. A player can't have a debut without also having some most-recent game, so a null last-game date for a person with a populated debut can only mean their most recent appearance hasn't been finalized as their last one, i.e. they are still active. Retrosheet's own biofile documentation doesn't explicitly guarantee this interpretation, but it's the only logically consistent one.
+There is no explicit `IsActive` field within the underlying data store, and — after further discussion — no way to safely derive one either. Retrosheet is a historical record of completed seasons, community-maintained and always at least one season behind, not a live roster feed. `PlayerLastDate` (sourced from the Retrosheet biofile's `last_p` column) is nullable, but a `null` value only means Retrosheet has not recorded a final game for this player — not that they are active in MLB *right now*. The gap between those two claims is exactly the "farewell tour" case (e.g. Albert Pujols, Yadier Molina): a player can play a full final season, appear with a non-null `PlayerLastDate` only after the following offseason's biofile update, and in the meantime nothing in this dataset can distinguish "genuinely active" from "recently retired, not yet reflected." The reverse also holds near a season boundary — a player who just debuted or is mid-season has a `null` last-game date for the ordinary reason that their career isn't over, which is indistinguishable in the data from the stale-retirement case.
 
-Note: the biofile is imported independently of the Game Log/Event pipeline, so `PlayerLastDate` could in principle lag behind the latest season already loaded elsewhere in the database. If that staleness becomes a practical problem, the fallback is to derive "active" from whether the player has any `Batting`/`Pitching`/`Fielding` row in the most recent season year present in the database instead of trusting this field.
+Given that, the UI does not claim a true active/retired status. Bold text on the Players page means only "`PlayerLastDate` is `null`", labeled and tooltipped as "no final game on record" rather than "active", so the page never asserts something the data can't back up. Deriving from the most-recent-season's `Batting`/`Pitching`/`Fielding` rows (considered as a fallback) doesn't solve this either — it narrows *when* the last known appearance was, but still can't tell a genuinely active player from one who retired after that season, so it isn't worth the added query cost. Getting an actually-accurate live status would require an external live-roster source (e.g. `statsapi.mlb.com`), which was already rejected for this project on the "On This Day" widget (see above) as an unwanted external/ToS dependency for an app whose whole identity is self-contained historical Retrosheet data — the same reasoning applies here.
 
 #### Resolved: Deceased Indicator
 

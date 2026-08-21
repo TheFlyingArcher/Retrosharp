@@ -46,9 +46,11 @@
       <div class="row">
         <div class="col players-group-list">
           @for (player of group.players; track player.id; let last = $last) {
-            <a [routerLink]="['/players', player.id]" [class.players-active]="isActive(player)">{{
-              displayName(player)
-            }}</a
+            <a
+              [routerLink]="['/players', player.id]"
+              [class.players-no-final-game]="hasNoFinalGame(player)"
+              [title]="hasNoFinalGame(player) ? 'No final game on record in Retrosheet data (likely still active, but this may lag a recent retirement)' : ''"
+              >{{ displayName(player) }}</a
             >@if (isDeceased(player)) {<span class="players-deceased" title="Deceased">&nbsp;&dagger;</span
               >}@if (!last) {<span>,&nbsp;</span
               >}

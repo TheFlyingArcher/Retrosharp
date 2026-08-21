@@ -54,9 +54,17 @@ namespace Retrosharp.Configuration
 
         public static MessagingConfiguration Instance()
         {
+            // See the matching comment in RetrosharpConfiguration.Instance() -- both environment
+            // variables are checked because this is shared between a generic-host console app and
+            // an ASP.NET Core web app, which each use a different one by convention.
+            var environmentName = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                ?? "Production";
+
             var configBuilder = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+                .AddJsonFile($"appsettings.{environmentName}.json", optional: true, reloadOnChange: true)
                 .AddEnvironmentVariables();
 
             var config = configBuilder.Build();

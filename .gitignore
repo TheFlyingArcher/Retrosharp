@@ -39,6 +39,13 @@ ScaffoldingReadMe.txt
 # dotenv environment variables file
 .env
 
+# Per-developer local overrides -- RetrosharpConfiguration/MessagingConfiguration
+# (src/lib/Retrosharp/Configuration) load these for any component, and they're the
+# natural place to put real local connection strings/credentials, so they must never
+# be committed. appsettings.json itself stays tracked with placeholder values only.
+**/appsettings.Development.json
+**/appsettings.Local.json
+
 # Others
 ~$*
 *~

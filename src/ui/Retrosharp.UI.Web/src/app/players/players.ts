@@ -74,7 +74,10 @@ export class Players implements OnInit {
     return player.useName ?? player.fullName ?? player.retroSheetId;
   }
 
-  isActive(player: PlayerSearchResult): boolean {
+  // Not a live active/retired flag -- Retrosheet has no current-roster feed, only a per-player
+  // "last game" date that lags reality (e.g. a retirement announced since the last data update).
+  // Null here means only "no final game on record", which is the most this data can honestly claim.
+  hasNoFinalGame(player: PlayerSearchResult): boolean {
     return player.playerLastDate == null;
   }
 
