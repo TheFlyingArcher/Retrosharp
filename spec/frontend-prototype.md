@@ -175,6 +175,12 @@ Path: /players/[id]
 
 The detail page will display the details of the player with that ID. The player detail page will include information such as the player's name, position, height, weight, birthdate, birth city, death date, death city, burial location, team, statistics, and related media.
 
+#### Gap: Player Debut/Last Date Missing from Page Description
+
+The Players page's own column list (see above) includes **Player Debut** and **Player Last**, and both are already the same "no final game on record" signal used for that page's bold-text treatment (see [Resolved: Determining "Is Active"](#resolved-determining-is-active--reframed-as-no-final-game-on-record)) — but this section's bio field list never mentions them, an oversight when this page was originally written. No backend gap here: `PlayerDetail` already carries `PlayerDebutDate`/`PlayerLastDate` (see [PlayerDetail.cs](../src/ui/Retrosharp.UI.Api/Models/PlayerDetail.cs)), so this is purely a frontend/spec omission, not a new API dependency.
+
+**Decision**: add Player Debut and Player Last to this page's biographical block, next to birthdate/death date, using the same "no final game on record" tooltip/label convention as the Players page rather than implying a live active/retired status.
+
 #### Resolved: Burial Location
 
 `Person` already carries burial data (`Cemetery`, `CemeteryCity`, `CemeteryStateProv`, `CemeteryCountry`, `CemeteryNote`), but the `PlayerDetail` response DTO omitted them — burial location was undisplayable via the API despite existing in the data store. Fixed by adding the five matching properties to `PlayerDetail` ([PlayerDetail.cs](../src/ui/Retrosharp.UI.Api/Models/PlayerDetail.cs)); the controller uses Mapster's convention-based `Adapt<PlayerDetail>()`, so no controller change was needed once the DTO had matching property names.

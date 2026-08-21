@@ -1,0 +1,30 @@
+.statistics-table-wrapper {
+  overflow-x: auto;
+}
+
+.statistics-table {
+  width: 100%;
+}
+
+.statistics-table th.mat-mdc-header-cell,
+.statistics-table td.mat-mdc-cell,
+.statistics-table td.mat-mdc-footer-cell {
+  padding: 0 0.75rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.statistics-table th.mat-mdc-header-cell:first-of-type,
+.statistics-table td.mat-mdc-cell:first-of-type,
+.statistics-table td.mat-mdc-footer-cell:first-of-type {
+  text-align: left;
+}
+
+.statistics-table-total-row {
+  font-weight: 700;
+}
+
+.statistics-table-empty {
+  padding: 1.5rem 0;
+  color: var(--mat-sys-outline, #6b6b6b);
+}
