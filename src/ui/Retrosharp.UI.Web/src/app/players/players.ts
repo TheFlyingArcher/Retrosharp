@@ -91,6 +91,16 @@ export class Players implements OnInit {
     return player.playerLastDate == null;
   }
 
+  // Per spec: a null PlayerLastDate only implies "still active" for someone who
+  // has a recorded debut -- otherwise there's no evidence they ever played, let
+  // alone recently (some early-era Person records have neither a debut nor a
+  // last-played date at all). A populated DeathDate always means retired, even
+  // when PlayerLastDate wasn't captured -- a dead player can't still be active
+  // regardless of which field is the gap.
+  private isActive(player: PlayerSearchResult): boolean {
+    return player.playerDebutDate != null && player.playerLastDate == null && player.deathDate == null;
+  }
+
   isDeceased(player: PlayerSearchResult): boolean {
     return player.deathDate != null;
   }
