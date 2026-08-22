@@ -42,6 +42,12 @@ Not found (404) and server errors (500) will be handled gracefully. The user wil
 
 These are common tables that will be used across multiple pages to display statistics for players, franchises, and seasons. The tables will be sortable on all columns and will include pagination to improve performance and usability. These tables may be standalone components or they may be integrated into other tables, depending on the design of the page.
 
+**Implemented**: a generic, sortable `StatisticsTable<T>` component ([statistics-table.ts](../src/ui/Retrosharp.UI.Web/src/app/shared/statistics-table/statistics-table.ts)), driven entirely by a caller-supplied `StatColumn<T>[]` column set and row array, with an optional combined-total row pinned as a footer regardless of sort. `BATTING_COLUMNS` ([batting-columns.ts](../src/ui/Retrosharp.UI.Web/src/app/shared/statistics-table/batting-columns.ts)) implements all 24 hitter columns below with no gaps.
+
+#### Backend Dependency: Pitcher Wins/Losses/HR/BF/H9 Not Aggregated
+
+`PITCHING_COLUMNS` ([pitching-columns.ts](../src/ui/Retrosharp.UI.Web/src/app/shared/statistics-table/pitching-columns.ts)) implements 19 of the 24 pitcher columns below. Five are shipped as a known gap rather than blocking the table: **Wins (W)**, **Losses (L)**, **Home Runs Allowed (HR)** (raw count), **Batters Faced (BF)**, and **Hits Per Nine Innings (H9)**. None of these are aggregated onto the season `Pitching` row today — Wins/Losses only exist per-game via `Game.WinningPitcherId`/`LosingPitcherId` (see the [Individual Game Played in a Season](#individual-game-played-in-a-season) page), and HR-allowed/H9/BF aren't stored anywhere at the season-aggregate level (HR-allowed is only available indirectly, via `PitcherEventAggregate`, for the HR/9 and HR/FB rate stats already listed in [api.md](./api.md#statistic-formulas)). Fixing this needs a `PlayerStatisticsService`/`Pitching`-model change (deriving a season W-L record from per-game decisions, plus persisting raw HR-allowed and batters-faced counts) — out of scope for the Player Detail page build, tracked here for later.
+
 #### Resolved: RBI and Games Played/Started Were Missing from `Batting`
 
 The player-season `Batting` table (and its `BattingDelta`/`BattingLine` mirrors) had no `RunsBattedIn`, `GamesPlayed`, or `GamesStarted` fields at all — RBI existed only at the play level (`GameEventRunner.IsRBI`) and team level (`GameBattingStatistics.RunsBattedIn`), and G/GS for batters didn't exist anywhere (unlike pitchers, who already had both via `Pitching.GamesPitched`/`GamesStarted`). This broke the hitters columns below on every page that uses this shared table.
@@ -188,6 +194,12 @@ The Players page's own column list (see above) includes **Player Debut** and **P
 There will be a table containing the following columns based on position:
 - If the player is a pitcher: Use shared components statistics table for pitchers.
 - If the player is a batter: Use shared components statistics table for hitters.
+
+#### Gap: No `Position` Field to Branch the Table Choice On
+
+The above reads as if "pitcher" vs. "batter" were a fixed attribute of the player, but `PlayerDetail` has no `Position` field at all (see [PlayerDetail.cs](../src/ui/Retrosharp.UI.Api/Models/PlayerDetail.cs)) — there's nothing to branch on before the stats have already been fetched. It's also not really a binary choice: any player whose career touches a season/league where pitchers batted can have a real batting line alongside a pitching line, not just true two-way players like Shohei Ohtani. Relievers rarely hit, but pre-2022 NL starters routinely got 2-3 PA per start — occasionally with real results, e.g. Daniel Camarena's grand slam off the Nationals in 2021 — and the universal DH adopted for 2022 is why this only shows up in older seasons. (See [api.md](./api.md) for the underlying `GET /players/{id}/batting` and `/pitching` endpoints, neither of which is gated on a position check.)
+
+**Decision**: fetch both `/batting` and `/pitching` for every player, and render each shared statistics table only when its rows are non-empty. A pure pitcher never sees an empty hitting table, a pure hitter never sees an empty pitching table, and anyone with real rows in both — a two-way player or an old-school NL starter — sees both.
 
 Table will be sortable on all columns. MLB careers rarely span more than 20 years, so pagination shouldn't be a necessity. If a player has played for multiple teams in a single year, the table will display each team on a separate row. Despite mid-season trades, rows shouldn't exceed 30 rows.
 
