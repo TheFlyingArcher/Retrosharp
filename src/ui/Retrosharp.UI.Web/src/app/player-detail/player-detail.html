@@ -1,0 +1,99 @@
+<div class="container player-detail">
+  @if (loading()) {
+    <div class="row">
+      <div class="col player-detail-spinner">
+        <mat-spinner diameter="40"></mat-spinner>
+      </div>
+    </div>
+  } @else if (error()) {
+    <div class="row">
+      <div class="col player-detail-error">{{ error() }}</div>
+    </div>
+  } @else if (player(); as player) {
+    <div class="row">
+      <div class="col">
+        <h1>
+          {{ displayName() }}
+          @if (player.isHof) {
+            <span title="Hall of Fame">&nbsp;&#9733;</span>
+          }
+          @if (isDeceased()) {
+            <span class="player-detail-deceased" title="Deceased">&nbsp;&dagger;</span>
+          }
+        </h1>
+      </div>
+    </div>
+
+    <div class="row player-detail-bio">
+      <div class="col-md-6">
+        <dl>
+          <dt>Bats</dt>
+          <dd>{{ player.bats ?? 'Unknown' }}</dd>
+          <dt>Throws</dt>
+          <dd>{{ player.throws ?? 'Unknown' }}</dd>
+          <dt>Height</dt>
+          <dd>{{ height() || 'Unknown' }}</dd>
+          <dt>Weight</dt>
+          <dd>{{ player.weight ? player.weight + ' lbs' : 'Unknown' }}</dd>
+        </dl>
+      </div>
+      <div class="col-md-6">
+        <dl>
+          <dt>Born</dt>
+          <dd>{{ player.birthDate ? (player.birthDate | date: 'longDate') : 'Unknown' }}{{ birthPlace() ? ' in ' + birthPlace() : '' }}</dd>
+          @if (isDeceased()) {
+            <dt>Died</dt>
+            <dd>{{ player.deathDate | date: 'longDate' }}{{ deathPlace() ? ' in ' + deathPlace() : '' }}</dd>
+            @if (burialLocation()) {
+              <dt>Burial</dt>
+              <dd>{{ burialLocation() }}</dd>
+            }
+          }
+          <dt>Player Debut</dt>
+          <dd>{{ player.playerDebutDate ? (player.playerDebutDate | date: 'longDate') : 'Unknown' }}</dd>
+          <dt>Player Last</dt>
+          <dd
+            [class.player-detail-no-final-game]="hasNoFinalGame()"
+            [title]="hasNoFinalGame() ? 'No final game on record in Retrosheet data (likely still active, but this may lag a recent retirement)' : ''"
+          >
+            {{ hasNoFinalGame() ? 'No final game on record' : (player.playerLastDate | date: 'longDate') }}
+          </dd>
+        </dl>
+      </div>
+    </div>
+
+    @if (battingRows().length > 0) {
+      <div class="row player-detail-section-heading">
+        <div class="col">
+          <h2>Batting</h2>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <app-statistics-table
+            [columns]="BATTING_COLUMNS"
+            [rows]="battingRows()"
+            [combinedTotal]="battingTotal()"
+          ></app-statistics-table>
+        </div>
+      </div>
+    }
+
+    @if (pitchingRows().length > 0) {
+      <div class="row player-detail-section-heading">
+        <div class="col">
+          <h2>Pitching</h2>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <app-statistics-table
+            [columns]="PITCHING_COLUMNS"
+            [rows]="pitchingRows()"
+            [combinedTotal]="pitchingTotal()"
+          ></app-statistics-table>
+        </div>
+      </div>
+    }
+  }
+</div>
