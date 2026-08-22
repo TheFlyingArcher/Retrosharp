@@ -84,14 +84,11 @@ export class Players implements OnInit {
     return player.useName ?? player.surname ?? player.fullName ?? player.retroSheetId;
   }
 
-  // Per spec: a null PlayerLastDate only implies "still active" for someone who
-  // has a recorded debut -- otherwise there's no evidence they ever played, let
-  // alone recently (some early-era Person records have neither a debut nor a
-  // last-played date at all). A populated DeathDate always means retired, even
-  // when PlayerLastDate wasn't captured -- a dead player can't still be active
-  // regardless of which field is the gap.
-  isActive(player: PlayerSearchResult): boolean {
-    return player.playerDebutDate != null && player.playerLastDate == null && player.deathDate == null;
+  // Not a live active/retired flag -- Retrosheet has no current-roster feed, only a per-player
+  // "last game" date that lags reality (e.g. a retirement announced since the last data update).
+  // Null here means only "no final game on record", which is the most this data can honestly claim.
+  hasNoFinalGame(player: PlayerSearchResult): boolean {
+    return player.playerLastDate == null;
   }
 
   isDeceased(player: PlayerSearchResult): boolean {
