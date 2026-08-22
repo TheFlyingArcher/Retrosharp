@@ -26,14 +26,7 @@ namespace Retrosharp.Contract.Batting
         /// <summary>
         /// Calculates the slugging percentage, which measures the total number of bases a player records per at-bat.
         /// </summary>
-        public float SluggingPercentage
-        {
-            get
-            {
-                int totalBases = Hits + (2 * Doubles) + (3 * Triples) + (4 * Homeruns);
-                return AtBats > 0 ? (float)totalBases / AtBats : 0f;
-            }
-        }
+        public float SluggingPercentage => AtBats > 0 ? (float)TotalBases / AtBats : 0f;
 
         /// <summary>
         /// Calculates the On-base Plus Slugging (OPS), which is a combined measure of a player's ability to get on base and hit for power.
@@ -64,6 +57,6 @@ namespace Retrosharp.Contract.Batting
         /// <summary>
         /// Calculates the total bases, which is the total number of bases a player has earned from hits.
         /// </summary>
-        public int TotalBases => Hits + (2 * Doubles) + (3 * Triples) + (4 * Homeruns);
+        public int TotalBases => Hits + Doubles + (2 * Triples) + (3 * Homeruns);
     }
 }

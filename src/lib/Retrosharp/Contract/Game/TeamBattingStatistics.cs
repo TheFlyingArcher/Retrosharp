@@ -8,7 +8,7 @@ namespace Retrosharp.Contract.Game
     /// </summary>
     public class TeamBattingStatistics : GameBattingStatistics
     {
-        public int TotalBases => Hit + (2 * Doubles) + (3 * Triples) + (4 * Homeruns);
+        public int TotalBases => Hit + Doubles + (2 * Triples) + (3 * Homeruns);
 
         public float BattingAverage => AtBats > 0 ? (float)Hit / AtBats : 0f;
 
