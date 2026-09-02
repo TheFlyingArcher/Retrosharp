@@ -1,0 +1,123 @@
+# docker-compose.pi.yml
+# ---------------------------------------------------------------------------
+# Pi-sizing overlay. Approximates a 4 GB Raspberry Pi 4 / 5 (4 cores, ~3.3 GB
+# usable for containers after 64-bit Pi OS Lite) so that RAM pressure and CPU
+# contention surface on the Mac *before* the stack goes onto real hardware.
+#
+# Layer it LAST so its limits win. Include the import bind-mount override too,
+# or the ETL endpoints can't see the Retrosheet files:
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.override.yml \
+#     -f docker-compose.pi.yml \
+#     up -d --build
+#
+# WHAT THIS REPRODUCES
+#   - .NET heap / GC behaviour under a hard cgroup memory ceiling
+#   - OOM-kill + restart-policy loops when a process outgrows its budget
+#   - connection-pool / queue backpressure when CPU is scarce
+#   - Postgres and RabbitMQ running with Pi-scale tuning, not desktop defaults
+#
+# WHAT IT DOES NOT REPRODUCE (still needs a physical Pi)
+#   - SD-card / USB-SSD I/O latency -- usually the real bottleneck for the
+#     write-heavy ETL path
+#   - thermal throttling under sustained load
+#   - the Pi's slower per-core arm64 vs. the Mac's fast per-core arm64; only
+#     the *ratios* between services here are Pi-like, not absolute speed
+#
+# NOTES
+#   - Requires Compose v2 (`docker compose`); deploy.resources.limits is
+#     honoured for a local `up`, no swarm needed.
+#   - memory limits are PER container. If you scale the engine
+#     (--scale retrosharp-engine-console=N) drop its limit to ~448M first or
+#     N replicas blow the 4 GB budget.
+#   - CPU limits are intentionally modest and sum to ~4.0. A real Pi lets all
+#     4 cores float to whatever needs them; if you'd rather test that, delete
+#     the `cpus:` lines and just cap the Docker Desktop VM at 4 CPUs instead.
+#
+# Steady-state memory budget (migration exits before engine/api come up):
+#   postgres 1024M + rabbitmq 768M + engine 896M + ui-api 640M = 3328M
+# ---------------------------------------------------------------------------
+services:
+  postgres:
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=512MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - max_connections=50
+      - -c
+      - max_worker_processes=4
+      - -c
+      - max_parallel_workers=2
+      - -c
+      - max_parallel_workers_per_gather=1
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1024M
+        reservations:
+          memory: 256M
+
+  rabbitmq:
+    environment:
+      # ~500 MiB absolute: block publishers before the container hits its
+      # cgroup limit, rather than letting the OOM-killer take the broker.
+      RABBITMQ_VM_MEMORY_HIGH_WATERMARK: "524288000"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
+        reservations:
+          memory: 192M
+
+  retrosharp-migration:
+    environment:
+      DOTNET_gcServer: "0"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 640M
+
+  retrosharp-engine-console:
+    environment:
+      # Workstation GC: Server GC allocates a heap segment per core and is far
+      # too memory-hungry for a shared 4 GB box. This process is the ETL
+      # pressure point (bulk Person upsert loads the existing table into a
+      # dictionary; event import tracks large graphs).
+      DOTNET_gcServer: "0"
+      DOTNET_GCConserveMemory: "5"
+    healthcheck:
+      # cold .NET start on a Pi 4 can take 30-60s; keep the probe from
+      # declaring it unhealthy and triggering a restart mid-test.
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.25"
+          memory: 896M
+        reservations:
+          memory: 256M
+
+  retrosharp-ui-api:
+    environment:
+      DOTNET_gcServer: "0"
+    healthcheck:
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 640M
+        reservations:
+          memory: 192M
