@@ -324,7 +324,7 @@ Verification:
 `PostgresException` bare and wrapped in `InvalidOperationException` -> recoverable; a `23503`
 wrapped the same way -> still unrecoverable. `EngineRecoverabilityPolicyTests` -- the wrapped
 deadlock -> `ImmediateRetry` then `DelayedRetry`, never `MoveToError` on the first failure.
-Live re-run of Step 2 folded into `spec/stress-testing.md`.
+Verified live by re-running Step 2 with the fix: engine log `grep -c 40P01` -> 0, zero retries, error queue clean, row counts identical to a serial import. See `spec/stress-testing.md` Step 2c.
 
 ## Deadlock under concurrent Game Event import
 

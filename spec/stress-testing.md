@@ -654,9 +654,8 @@ within noise.
 
 ### Step 2 — concurrent event imports under the Pi overlay (2026-09-03)
 
-**Status**: In Progress — Finding 1 fixed & verified; Finding 2 fixed (deterministic
-lock ordering + savepoint-guarded insert), re-run pending to confirm zero deadlocks;
-Finding 3 reclassified as not-a-defect
+**Status**: Complete — Finding 1 fixed & verified; Finding 2 fixed & verified (zero
+deadlocks after deterministic lock ordering); Finding 3 reclassified as not-a-defect
 
 Fresh DB, Pi overlay. Person + both game logs serially (unchanged: 24s / 30s / 31s),
 then all **30 2025 event files** POSTed within 2s of each other.
@@ -738,8 +737,34 @@ database-enforced idempotency checks... not serialization".
 - Peak concurrent footprint across the four containers during the event phase ≈
   740M. A 4 GB Pi has large headroom for concurrent import too.
 
-**Re-run pending (Finding 2 fix):** with deterministic lock ordering in place the
-next 30-file concurrent run is expected to log **zero `40P01`** and need **zero
-retries**, still ending with row counts identical to a serial import. That run also
-becomes the representative concurrent memory/CPU sample (the runs so far each had
-retry churn from the deadlocks).
+**Re-run with the Finding 2 fix (Step 2c, 2026-09-03):** same 30-file concurrent
+fire against the rebuilt engine. Engine log: **`grep -c 40P01` → 0**, retry/immediate-
+retry lines → 0. Error queue stayed 0 for the whole run (sampled every 5s). End
+state exactly matches a serial import: `GameEventGameStatus` 2,430, `GameEvent`
+216,845, Batting/Pitching/Fielding 770 / 1,015 / 2,272. Concurrent phase wall 138s
+vs 530s serial (~3.8×). No OOM, no restarts. Deterministic lock ordering **fully
+eliminated** the deadlocks — concurrent import now behaves like serial, just faster.
+
+**Clean concurrent resource sample** (Step 2c, no retry churn):
+
+| Container | CPU% peak / p95 / avg | MEM peak / p95 | limit | MEM peak vs limit |
+|---|---|---|---|---|
+| engine-console | 132 / 131 / **57** | 313M / 292M | 1.25c / 896M | 35% |
+| postgres | 91 / 56 / 19 | 178M / 177M | 1.0c / 1024M | 17% |
+| rabbitmq | 39 / 35 / 7 | 205M / 198M | 0.75c / 768M | 27% |
+| ui-api | 28 / 2 / 1 | 102M / 102M | 1.0c / 640M | 16% |
+
+- With the deadlocks/retries gone, engine CPU **avg** rises to 57% (28% in the
+  retry-churned Step 2b) — the engine now spends its time on real work. It sits
+  pegged at ~131% against the 1.25-core cap for the ~3.5 min event burst: under real
+  concurrency the engine is genuinely CPU-cap-bound. Postgres CPU peaks 91% (vs 76%),
+  approaching its 1.0-core cap now that the engine isn't burning cycles on rollbacks.
+- Memory is unchanged by the fix and by concurrency: engine ~230M through the burst
+  (the 313M peak is the earlier Person upsert), flat, no leak; Postgres 178M;
+  RabbitMQ under its watermark. ~3.5× engine headroom to 896M.
+- **Implication for a real Pi 4:** concurrent import will be CPU-bound on the Pi's
+  slower cores (engine + Postgres both near their caps here on much faster hardware)
+  — slower than this Mac run, but not failing, and with large memory headroom.
+
+**Fixes landed from Step 2:** transient-error reclassification (`240ab4d`),
+deterministic stat-row lock ordering + savepoint-guarded insert (`d7e1c40`).
