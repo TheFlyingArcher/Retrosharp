@@ -652,6 +652,48 @@ within noise.
 **Caveat:** serial only. Concurrent imports (Step 2) are where memory, the
 `max_connections=50` Postgres cap, and RabbitMQ queue depth are actually exercised.
 
-### Step 2 — concurrent event imports under the Pi overlay
+### Step 2 — concurrent event imports under the Pi overlay (2026-09-03)
 
-**Status**: Not Started
+**Status**: In Progress — findings raised, one fix applied, re-run pending
+
+Fresh DB, Pi overlay. Person + both game logs serially (unchanged: 24s / 30s / 31s),
+then all **30 2025 event files** POSTed within 2s of each other.
+
+**24 of 30 files imported cleanly** (GES 81 each), concurrent phase wall 216s vs
+530s serial — ~2.5× faster. `pgConns` peaked at 7 (limit 50). But **6 files failed**,
+all with `Npgsql.PostgresException 40P01: deadlock detected`, and were left
+**partially imported**: 2025CHA.EVA 7/81, 2025PHI.EVN 20/81, 2025ATH.EVA 23/81,
+2025NYA.EVA 57/81, 2025CLE.EVA 60/81, 2025MIN.EVA 76/81. Final GES 2,187 / 2,430.
+
+**Finding 1 — a deadlock was classified unrecoverable (fixed).** EF Core / Npgsql
+wrap a Postgres deadlock in a `System.InvalidOperationException` ("...likely due to
+a transient failure"); `ImportFailureClassifier`'s blanket `InvalidOperationException
+=> unrecoverable` rule sent each one straight to the error queue with **zero
+retries**. A deadlock victim is the textbook retryable failure. Fixed: the
+classifier now walks the exception chain and treats any `NpgsqlException` with
+`IsTransient == true` (deadlock `40P01`, serialization `40001`, connection/resource
+errors) or a `TimeoutException` as recoverable, regardless of the wrapper. The
+deadlocked message now rides the 3-immediate + 5-delayed-backoff ladder;
+`GameEventImportService` is idempotent per game, so a retry finishes the partial
+file. See `spec/defects.md`, "Needless Retrying". 4 new tests; suite 231 green.
+**Re-run of Step 2 against the rebuilt engine is pending.**
+
+**Finding 2 — concurrent imports deadlock on shared stat rows (deferred).** The 30
+files don't share games, but they share `Batting`/`Pitching`/`Fielding` rows — a
+player's season line is one row per `(player, franchise, season)`, upserted by
+every file containing a game that player appeared in (`2025NYA.EVA` and
+`2025BOS.EVA` both write Judge's NYA-2025 line). Concurrent upserts take row locks
+in inconsistent order → deadlock. `project.md` requires this be handled by "atomic,
+database-enforced idempotency checks... not serialization"; it currently isn't
+deadlock-safe. Finding 1 makes it self-heal (retry), but the contention is still
+there. Deeper fix — consistent lock ordering in the stat upsert, an ordered/locked
+upsert, `EnableRetryOnFailure` on the DbContext, or scoping atomicity per game — is
+follow-up work.
+
+**Finding 3 — per-file event import is not atomic (deferred).** `BulkInsertAsync`
+commits in batches, so a mid-file deadlock leaves the file partially imported
+rather than rolled back. Idempotent retry (Finding 1) recovers it, but a partial
+file is briefly observable. Tie off alongside Finding 2.
+
+**Memory/CPU under concurrency:** Docker-stats CSV captured; analysis pending the
+clean re-run (the deadlock-truncated run isn't a representative load sample).

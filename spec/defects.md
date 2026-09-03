@@ -288,6 +288,44 @@ then `MoveToError`. The three saga tests that asserted catch-and-complete now as
 exception propagates without the saga completing or sending its `Complete` message. Live
 end-to-end verification is folded into stress-test Run 1's backfill (`spec/stress-testing.md`).
 
+Re-opening reason (over-broad, the other direction):
+Found in stress-test Step 2 (`spec/stress-testing.md`): 30 Game Event files imported
+concurrently, 6 failed with `Npgsql.PostgresException 40P01: deadlock detected`, each landing
+in the error queue **immediately with zero retries** and leaving its file partially imported
+(7-76 of 81 games). Root cause of the deadlock itself is separate (concurrent upserts of the
+shared `Batting`/`Pitching`/`Fielding` season rows -- see `spec/stress-testing.md` Step 2
+findings 2-3, deferred). The recoverability defect: EF Core / Npgsql surface a Postgres
+deadlock as a `System.InvalidOperationException` ("An exception has been raised that is likely
+due to a transient failure"), and `ImportFailureClassifier`'s blanket `InvalidOperationException
+=> unrecoverable` rule sent it straight to the error queue. A deadlock victim is the textbook
+*retryable* failure -- it should ride the retry ladder and would almost certainly succeed once
+the contending imports finish.
+
+Re-opening expected:
+A transient database error -- deadlock (`40P01`), serialization failure (`40001`), dropped or
+timed-out connection -- is treated as recoverable regardless of what exception wraps it.
+
+Status: **Resolved**
+
+Fix:
+`ImportFailureClassifier.IsUnrecoverable` now walks the whole exception chain first and returns
+`false` if any link is an `NpgsqlException` with `IsTransient == true` (Npgsql's own curated
+set: deadlock, serialization failure, connection failures, resource-limit errors --
+`PostgresException` derives from it and checks the SQLSTATE) or a `TimeoutException`. Only if
+no transient link is found does the existing type check (`FileNotFoundException`,
+`DirectoryNotFoundException`, `InvalidOperationException`, `PlayCodeParseException`) apply. A
+non-transient `PostgresException` (e.g. `23503` foreign-key violation) wrapped in an
+`InvalidOperationException` stays unrecoverable. The deadlocked message now flows through
+`EngineRecoverabilityPolicy`'s 3-immediate + 5-delayed-backoff ladder; `GameEventImportService`
+is idempotent per game (`GameEventGameStatus` claim), so a retry finishes the partial file.
+
+Verification:
+`dotnet test` green (231). 4 new tests: `ImportFailureClassifierTests` -- a `40P01`
+`PostgresException` bare and wrapped in `InvalidOperationException` -> recoverable; a `23503`
+wrapped the same way -> still unrecoverable. `EngineRecoverabilityPolicyTests` -- the wrapped
+deadlock -> `ImmediateRetry` then `DelayedRetry`, never `MoveToError` on the first failure.
+Live re-run of Step 2 folded into `spec/stress-testing.md`.
+
 ## InvalidOperationException on base runners
 
 Actual:

@@ -1,3 +1,5 @@
+using Npgsql;
+
 using NServiceBus;
 
 using Retrosharp.Configuration;
@@ -52,6 +54,21 @@ namespace Retrosharp.Engine.Console.Tests
                 immediateProcessingFailures: 0, delayedDeliveriesPerformed: 0);
 
             Assert.IsType<ImmediateRetry>(action);
+        }
+
+        [Fact]
+        public void Decide_PostgresDeadlockWrappedInInvalidOperationException_Retries()
+        {
+            // The Step 2 case: a deadlock from concurrent stat-row upserts. Must NOT go
+            // straight to the error queue despite the InvalidOperationException wrapper.
+            var deadlock = new InvalidOperationException(
+                "An exception has been raised that is likely due to a transient failure.",
+                new PostgresException("deadlock detected", "ERROR", "ERROR", "40P01"));
+
+            Assert.IsType<ImmediateRetry>(EngineRecoverabilityPolicy.Decide(
+                Config, ErrorQueue, deadlock, immediateProcessingFailures: 0, delayedDeliveriesPerformed: 0));
+            Assert.IsType<DelayedRetry>(EngineRecoverabilityPolicy.Decide(
+                Config, ErrorQueue, deadlock, immediateProcessingFailures: 3, delayedDeliveriesPerformed: 0));
         }
 
         [Fact]
