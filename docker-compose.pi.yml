@@ -68,10 +68,12 @@ services:
           memory: 256M
 
   rabbitmq:
-    environment:
-      # ~500 MiB absolute: block publishers before the container hits its
-      # cgroup limit, rather than letting the OOM-killer take the broker.
-      RABBITMQ_VM_MEMORY_HIGH_WATERMARK: "524288000"
+    # The memory high watermark is set via a mounted conf.d file, not
+    # RABBITMQ_VM_MEMORY_HIGH_WATERMARK -- the RabbitMQ 3.13 image rejects that
+    # env var ("deprecated environment variables detected") and refuses to start.
+    # rabbitmq-pi.conf blocks publishers at ~500 MiB, before the 768M limit.
+    volumes:
+      - ./rabbitmq-pi.conf:/etc/rabbitmq/conf.d/10-pi.conf:ro
     deploy:
       resources:
         limits:
