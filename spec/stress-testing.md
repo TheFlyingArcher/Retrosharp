@@ -654,7 +654,9 @@ within noise.
 
 ### Step 2 — concurrent event imports under the Pi overlay (2026-09-03)
 
-**Status**: Complete — Finding 1 fixed and verified; Findings 2-3 deferred
+**Status**: In Progress — Finding 1 fixed & verified; Finding 2 fixed (deterministic
+lock ordering + savepoint-guarded insert), re-run pending to confirm zero deadlocks;
+Finding 3 reclassified as not-a-defect
 
 Fresh DB, Pi overlay. Person + both game logs serially (unchanged: 24s / 30s / 31s),
 then all **30 2025 event files** POSTed within 2s of each other.
@@ -678,22 +680,31 @@ deadlocked message now rides the 3-immediate + 5-delayed-backoff ladder;
 file. See `spec/defects.md`, "Needless Retrying". 4 new tests; suite 231 green.
 **Re-run of Step 2 against the rebuilt engine is pending.**
 
-**Finding 2 — concurrent imports deadlock on shared stat rows (deferred).** The 30
+**Finding 2 — concurrent imports deadlock on shared stat rows (fixed).** The 30
 files don't share games, but they share `Batting`/`Pitching`/`Fielding` rows — a
 player's season line is one row per `(player, franchise, season)`, upserted by
 every file containing a game that player appeared in (`2025NYA.EVA` and
-`2025BOS.EVA` both write Judge's NYA-2025 line). Concurrent upserts take row locks
-in inconsistent order → deadlock. `project.md` requires this be handled by "atomic,
-database-enforced idempotency checks... not serialization"; it currently isn't
-deadlock-safe. Finding 1 makes it self-heal (retry), but the contention is still
-there. Deeper fix — consistent lock ordering in the stat upsert, an ordered/locked
-upsert, `EnableRetryOnFailure` on the DbContext, or scoping atomicity per game — is
-follow-up work.
+`2025BOS.EVA` both write Judge's NYA-2025 line — his home and road games). A code
+comment in `GameStatisticsRepository` had asserted this couldn't happen ("every
+game a player plays for a given franchise lives in that franchise's own event
+file"), which is only true for home games. Concurrent per-game transactions each
+held one player's row lock and waited on another's in the opposite order → `40P01`.
+Fixed by acquiring the locks in a single deterministic order across every
+transaction: `TryApplyGameStatisticsAsync` now sorts each delta group by its
+natural key and keeps the fixed group order (batting → pitching → fielding), so no
+lock cycle can form — contending files queue instead of deadlocking. The insert
+path (a brand-new season row, hit early in a run before any row exists) is now
+savepoint-guarded: a losing insert-race rolls back to the savepoint (not poisoning
+the outer per-game transaction), detaches, and falls through to the additive
+update. `project.md`'s "atomic, database-enforced idempotency checks... not
+serialization" — met without any file- or global-level lock.
 
-**Finding 3 — per-file event import is not atomic (deferred).** `BulkInsertAsync`
-commits in batches, so a mid-file deadlock leaves the file partially imported
-rather than rolled back. Idempotent retry (Finding 1) recovers it, but a partial
-file is briefly observable. Tie off alongside Finding 2.
+**Finding 3 — per-file import atomicity: not a defect.** `GameEventRepository`'s
+per-game transaction boundary is deliberate (its own comment): a mid-file failure
+leaves N fully-complete games + the rest untouched, and idempotent retry resumes
+cleanly. The Step 2 "partial files" (7/81 etc.) were consistent partial states, not
+corruption. With Finding 2 fixed there are no mid-file failures under concurrency,
+so no partials.
 
 **Re-run against the fixed engine (2026-09-03):** same 30-file concurrent fire.
 Engine log shows **6 `40P01` deadlocks** (identical contention — it's consistent),
@@ -726,3 +737,9 @@ database-enforced idempotency checks... not serialization".
   connections.
 - Peak concurrent footprint across the four containers during the event phase ≈
   740M. A 4 GB Pi has large headroom for concurrent import too.
+
+**Re-run pending (Finding 2 fix):** with deterministic lock ordering in place the
+next 30-file concurrent run is expected to log **zero `40P01`** and need **zero
+retries**, still ending with row counts identical to a serial import. That run also
+becomes the representative concurrent memory/CPU sample (the runs so far each had
+retry churn from the deadlocks).

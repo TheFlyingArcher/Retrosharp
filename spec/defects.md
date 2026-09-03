@@ -326,6 +326,48 @@ wrapped the same way -> still unrecoverable. `EngineRecoverabilityPolicyTests` -
 deadlock -> `ImmediateRetry` then `DelayedRetry`, never `MoveToError` on the first failure.
 Live re-run of Step 2 folded into `spec/stress-testing.md`.
 
+## Deadlock under concurrent Game Event import
+
+Actual:
+Stress-test Step 2 (`spec/stress-testing.md`) fired 30 Game Event files concurrently. Six
+failed with `Npgsql.PostgresException 40P01: deadlock detected` in
+`GameStatisticsRepository.TryApplyGameStatisticsAsync`. Serial import: zero.
+
+Status: **Resolved**
+
+Level: Medium
+
+Root cause:
+`GameStatisticsRepository` carried a comment asserting row-level races on a player's
+`Batting`/`Pitching`/`Fielding` season row "can't actually happen here: every game a player
+plays for a given franchise lives in that franchise's own event file, processed sequentially
+by one saga." That holds only for **home** games. A player's road games appear in the host
+team's event file, so franchise X's players' season rows are written by every other team's
+file that hosted X. Under concurrent import, two files' per-game transactions each held one
+player's row lock (`ExecuteUpdateAsync` -> `UPDATE ... WHERE Id = n`, held to commit) and
+waited on another player's row locked by the other transaction, in the opposite order --
+a textbook lock-order-inversion deadlock. The `GameEventGameStatus` claim only serialises a
+single *game*'s statistics; it does nothing for the *season rows* shared across games.
+
+Fix:
+Acquire the row locks in one deterministic order across every transaction.
+`TryApplyGameStatisticsAsync` now applies each delta group sorted by its natural key
+(`PersonId`, `FranchiseId`, `SeasonYear`, and `Position` for fielding) and keeps the fixed
+group order batting -> pitching -> fielding. With a global acquisition order no lock cycle can
+form; two files touching the same rows queue instead of deadlocking. The insert path (a
+brand-new season row, before any row exists) is savepoint-guarded via a new
+`TrySaveNewSeasonRowAsync`: a losing insert race rolls back to the savepoint -- so the outer
+per-game transaction isn't left in Postgres's aborted state -- detaches the entity, and falls
+through to the additive update. No file-level or global lock (per `project.md`'s explicit
+prohibition). The transient-error reclassification above is retained as a backstop but is no
+longer expected to fire for this path.
+
+Verification:
+`dotnet test` green (231 -- this data-layer path has no unit-test harness; `GameStatisticsRepository`
+takes `RetrosharpContext` and uses `ExecuteUpdateAsync`/transactions/savepoints, none of which
+the EF in-memory provider supports). Verified live by re-running Step 2: see
+`spec/stress-testing.md` for the zero-deadlock, zero-retry concurrent run.
+
 ## InvalidOperationException on base runners
 
 Actual:

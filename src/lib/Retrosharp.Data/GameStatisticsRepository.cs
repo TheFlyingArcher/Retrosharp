@@ -59,20 +59,28 @@ namespace Retrosharp.Data
 
             try
             {
-                // Row-level races on a single player's Batting/Pitching/Fielding season row
-                // can't actually happen here: every game a player plays for a given franchise
-                // lives in that franchise's own event file, processed sequentially by one
-                // saga. The only cross-file overlap is the shared-game scenario, and that's
-                // already fully serialized by the claim above -- only one saga ever reaches
-                // this point for a given GameId. So a plain check-then-act (not an
-                // insert/catch/fallback dance) is sufficient and safer to reason about.
-                foreach (var battingDelta in delta.Battings)
+                // A player's Batting/Pitching/Fielding SEASON row IS shared across event files:
+                // a road game appears in the host team's file, so franchise X's players' rows
+                // are written by every other team's file that hosted franchise X. Under
+                // concurrent import (stress-test Step 2) that produced Postgres deadlocks --
+                // two files' transactions each held one player's row lock and waited on the
+                // other's, in opposite order. Fixed by acquiring the locks in a single
+                // deterministic order across every transaction: sort each delta group by its
+                // natural key, and keep the fixed group order (batting, then pitching, then
+                // fielding). With a global acquisition order no lock cycle can form -- two
+                // files touching the same rows now simply queue instead of deadlocking. Each
+                // Apply*DeltaAsync additionally tolerates a concurrent insert of the same new
+                // season row (unique-violation -> fall through to the update path).
+                foreach (var battingDelta in delta.Battings
+                    .OrderBy(d => d.PersonId).ThenBy(d => d.FranchiseId).ThenBy(d => d.SeasonYear))
                     await ApplyBattingDeltaAsync(battingDelta);
 
-                foreach (var pitchingDelta in delta.Pitchings)
+                foreach (var pitchingDelta in delta.Pitchings
+                    .OrderBy(d => d.PersonId).ThenBy(d => d.FranchiseId).ThenBy(d => d.SeasonYear))
                     await ApplyPitchingDeltaAsync(pitchingDelta);
 
-                foreach (var fieldingDelta in delta.Fieldings)
+                foreach (var fieldingDelta in delta.Fieldings
+                    .OrderBy(d => d.PersonId).ThenBy(d => d.FranchiseId).ThenBy(d => d.SeasonYear).ThenBy(d => d.Position))
                     await ApplyFieldingDeltaAsync(fieldingDelta);
 
                 await _context.Database.CommitTransactionAsync();
@@ -87,14 +95,11 @@ namespace Retrosharp.Data
 
         private async Task ApplyBattingDeltaAsync(BattingDelta delta)
         {
-            var existingId = await _context.Set<BattingModel>()
-                .Where(b => b.PersonId == delta.PersonId && b.FranchiseId == delta.FranchiseId && b.SeasonYear == delta.SeasonYear)
-                .Select(b => (int?)b.Id)
-                .FirstOrDefaultAsync();
+            var existingId = await FindBattingIdAsync(delta);
 
             if (existingId == null)
             {
-                _context.Set<BattingModel>().Add(new BattingModel
+                var model = new BattingModel
                 {
                     PersonId = delta.PersonId,
                     FranchiseId = delta.FranchiseId,
@@ -119,10 +124,19 @@ namespace Retrosharp.Data
                     RunsBattedIn = delta.RunsBattedIn,
                     GamesPlayed = delta.GamesPlayed,
                     GamesStarted = delta.GamesStarted
-                });
+                };
+                _context.Set<BattingModel>().Add(model);
 
-                await _context.SaveChangesAsync();
-                return;
+                if (await TrySaveNewSeasonRowAsync(model, "sp_batting"))
+                    return;
+
+                // Lost the insert race to a concurrently-processing game (another file that
+                // hosted a road game for this player). Fall through to the additive update
+                // against the row that now exists.
+                existingId = await FindBattingIdAsync(delta)
+                    ?? throw new DbUpdateConcurrencyException(
+                        $"Batting row for person {delta.PersonId}/franchise {delta.FranchiseId}/" +
+                        $"{delta.SeasonYear} disappeared after a concurrent insert; the retry will re-derive it.");
             }
 
             await _context.Set<BattingModel>()
@@ -151,14 +165,11 @@ namespace Retrosharp.Data
 
         private async Task ApplyPitchingDeltaAsync(PitchingDelta delta)
         {
-            var existingId = await _context.Set<PitchingModel>()
-                .Where(p => p.PersonId == delta.PersonId && p.FranchiseId == delta.FranchiseId && p.SeasonYear == delta.SeasonYear)
-                .Select(p => (int?)p.Id)
-                .FirstOrDefaultAsync();
+            var existingId = await FindPitchingIdAsync(delta);
 
             if (existingId == null)
             {
-                _context.Set<PitchingModel>().Add(new PitchingModel
+                var model = new PitchingModel
                 {
                     PersonId = delta.PersonId,
                     FranchiseId = delta.FranchiseId,
@@ -180,10 +191,16 @@ namespace Retrosharp.Data
                     HitBatsmen = delta.HitBatsmen,
                     Balks = delta.Balks,
                     WildPitches = delta.WildPitches
-                });
+                };
+                _context.Set<PitchingModel>().Add(model);
 
-                await _context.SaveChangesAsync();
-                return;
+                if (await TrySaveNewSeasonRowAsync(model, "sp_pitching"))
+                    return;
+
+                existingId = await FindPitchingIdAsync(delta)
+                    ?? throw new DbUpdateConcurrencyException(
+                        $"Pitching row for person {delta.PersonId}/franchise {delta.FranchiseId}/" +
+                        $"{delta.SeasonYear} disappeared after a concurrent insert; the retry will re-derive it.");
             }
 
             await _context.Set<PitchingModel>()
@@ -209,15 +226,11 @@ namespace Retrosharp.Data
 
         private async Task ApplyFieldingDeltaAsync(FieldingDelta delta)
         {
-            var existingId = await _context.Set<FieldingModel>()
-                .Where(f => f.PersonId == delta.PersonId && f.FranchiseId == delta.FranchiseId
-                    && f.SeasonYear == delta.SeasonYear && f.Position == delta.Position)
-                .Select(f => (int?)f.Id)
-                .FirstOrDefaultAsync();
+            var existingId = await FindFieldingIdAsync(delta);
 
             if (existingId == null)
             {
-                _context.Set<FieldingModel>().Add(new FieldingModel
+                var model = new FieldingModel
                 {
                     PersonId = delta.PersonId,
                     FranchiseId = delta.FranchiseId,
@@ -226,10 +239,17 @@ namespace Retrosharp.Data
                     Putouts = delta.Putouts,
                     Assists = delta.Assists,
                     Errors = delta.Errors
-                });
+                };
+                _context.Set<FieldingModel>().Add(model);
 
-                await _context.SaveChangesAsync();
-                return;
+                if (await TrySaveNewSeasonRowAsync(model, "sp_fielding"))
+                    return;
+
+                existingId = await FindFieldingIdAsync(delta)
+                    ?? throw new DbUpdateConcurrencyException(
+                        $"Fielding row for person {delta.PersonId}/franchise {delta.FranchiseId}/" +
+                        $"{delta.SeasonYear}/pos {delta.Position} disappeared after a concurrent insert; " +
+                        "the retry will re-derive it.");
             }
 
             await _context.Set<FieldingModel>()
@@ -239,6 +259,54 @@ namespace Retrosharp.Data
                     .SetProperty(f => f.Assists, f => (f.Assists ?? 0) + delta.Assists)
                     .SetProperty(f => f.Errors, f => (f.Errors ?? 0) + delta.Errors));
         }
+
+        /// <summary>
+        /// Saves a just-<c>Add</c>ed brand-new season row, guarded by a savepoint. If a
+        /// concurrently-processing game (another file) inserted the same natural key first
+        /// (unique violation), roll back to the savepoint -- so the outer per-game transaction
+        /// isn't left in Postgres's aborted state -- detach the doomed entity, and return
+        /// <see langword="false"/> so the caller falls through to its additive update. Returns
+        /// <see langword="true"/> when the insert won the race. The savepoint is released on
+        /// success so it doesn't accumulate across the many players in one game.
+        /// </summary>
+        private async Task<bool> TrySaveNewSeasonRowAsync(object model, string savepointName)
+        {
+            var transaction = _context.Database.CurrentTransaction
+                ?? throw new InvalidOperationException("TrySaveNewSeasonRowAsync requires an open transaction.");
+
+            await transaction.CreateSavepointAsync(savepointName);
+            try
+            {
+                await _context.SaveChangesAsync();
+                await transaction.ReleaseSavepointAsync(savepointName);
+                return true;
+            }
+            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+            {
+                await transaction.RollbackToSavepointAsync(savepointName);
+                _context.Entry(model).State = EntityState.Detached;
+                return false;
+            }
+        }
+
+        private Task<int?> FindBattingIdAsync(BattingDelta delta) =>
+            _context.Set<BattingModel>()
+                .Where(b => b.PersonId == delta.PersonId && b.FranchiseId == delta.FranchiseId && b.SeasonYear == delta.SeasonYear)
+                .Select(b => (int?)b.Id)
+                .FirstOrDefaultAsync();
+
+        private Task<int?> FindPitchingIdAsync(PitchingDelta delta) =>
+            _context.Set<PitchingModel>()
+                .Where(p => p.PersonId == delta.PersonId && p.FranchiseId == delta.FranchiseId && p.SeasonYear == delta.SeasonYear)
+                .Select(p => (int?)p.Id)
+                .FirstOrDefaultAsync();
+
+        private Task<int?> FindFieldingIdAsync(FieldingDelta delta) =>
+            _context.Set<FieldingModel>()
+                .Where(f => f.PersonId == delta.PersonId && f.FranchiseId == delta.FranchiseId
+                    && f.SeasonYear == delta.SeasonYear && f.Position == delta.Position)
+                .Select(f => (int?)f.Id)
+                .FirstOrDefaultAsync();
 
         private static bool IsUniqueConstraintViolation(DbUpdateException ex) =>
             ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
