@@ -48,25 +48,33 @@ namespace Retrosharp.Format.PlayByPlay
                 // A fielded out's EventType depends on trajectory, which isn't known until the
                 // modifiers are parsed: a ground ball fielded and thrown out is a GroundOut,
                 // while anything caught in the air (fly, line drive, pop up) is a FlyOut --
-                // EventType alone doesn't distinguish those, BattedBallType does. Every fielded
-                // out in the real reference files carried a trajectory modifier; a missing one
-                // is treated as a data gap rather than silently guessed -- except "BINT" (batter
-                // interference): that's an out on the batter with no batted ball at all (no
-                // trajectory to determine, ever), confirmed against real data
-                // (docs/csv/2025TBA.EVA:2165, "2/BINT" -- bare, no G/L/F/P/BG/BP/BL). Other real
-                // BINT plays (docs/csv/2025ATL.EVN:12983 "2/P2F/FL/BINT",
-                // docs/csv/2025PHI.EVN:4274 "2/G2/BINT", docs/csv/2025TBA.EVA:6616
-                // "13/BG1S/BINT") already carry a real trajectory modifier and are unaffected --
-                // this fallback only applies when nothing else determined one. Classified as
-                // GroundOut (not a new EventType) because that already matches the correct stat
-                // treatment for offensive interference: it ends the plate appearance and counts
-                // as an at-bat, the same as a real ground out.
+                // EventType alone doesn't distinguish those, BattedBallType does. "BINT" (batter
+                // interference) is an out on the batter with no batted ball at all (no trajectory
+                // to determine, ever), confirmed against real data (docs/csv/2025TBA.EVA:2165,
+                // "2/BINT" -- bare, no G/L/F/P/BG/BP/BL). Other real BINT plays
+                // (docs/csv/2025ATL.EVN:12983 "2/P2F/FL/BINT", docs/csv/2025PHI.EVN:4274
+                // "2/G2/BINT", docs/csv/2025TBA.EVA:6616 "13/BG1S/BINT") already carry a real
+                // trajectory modifier and are unaffected -- the BINT fallback only applies when
+                // nothing else determined one. Classified as GroundOut (not a new EventType)
+                // because that already matches the correct stat treatment for offensive
+                // interference: it ends the plate appearance and counts as an at-bat, the same
+                // as a real ground out.
+                //
+                // A fielded out with no trajectory modifier at all is rare in modern Retrosheet
+                // data but still valid -- the scorer simply didn't record ground vs air. Failing
+                // the whole file's import over it is disproportionate: found live, 2024MIA.EVN's
+                // bare "2" (an unassisted catcher putout on a foul pop) aborted all 81 games in
+                // that file with only a warn: line and nothing on the error queue. So the last
+                // arm falls back to the standard scoring heuristic (see ClassifyUnannotated
+                // FieldedOut) instead of throwing, leaving BattedBallType null -- the trajectory
+                // is genuinely unknown and nothing downstream should treat it as a real
+                // GB/LD/FB/PU.
                 eventType = battedBallType switch
                 {
                     Contract.GameEvent.BattedBallType.GroundBall => GameEventType.GroundOut,
                     Contract.GameEvent.BattedBallType.LineDrive or Contract.GameEvent.BattedBallType.FlyBall or Contract.GameEvent.BattedBallType.PopUp => GameEventType.FlyOut,
                     null when isBatterInterference => GameEventType.GroundOut,
-                    _ => throw new PlayCodeParseException(rawEventText, "Fielded-out code has no trajectory modifier (G/L/F/P/BG/BP/BL) to determine GroundOut vs FlyOut.")
+                    _ => ClassifyUnannotatedFieldedOut(runners)
                 };
             }
 
@@ -113,6 +121,33 @@ namespace Retrosharp.Format.PlayByPlay
                 RawEventText = rawEventText,
                 Runners = runners.Values.Select(r => r.ToParsedRunnerAdvance()).ToList()
             };
+        }
+
+        /// <summary>
+        /// Classifies a fielded out whose play code carried no trajectory modifier
+        /// (G/L/F/P/BG/BP/BL), using the putout fielder(s) as the tell -- the standard scoring
+        /// heuristic when trajectory wasn't recorded: a lone unassisted putout by an outfielder
+        /// (7/8/9) or the catcher (2) is a ball taken in the air (fly out / foul pop) -> FlyOut;
+        /// a putout reached by a throw (any assist in the chain) or an unassisted infield putout
+        /// is a ball fielded on the ground -> GroundOut. A conservative last resort, only reached
+        /// from <see cref="Parse"/> when the code genuinely omits every trajectory modifier and
+        /// is not batter interference. BattedBallType is deliberately left unset by the caller.
+        /// </summary>
+        private static GameEventType ClassifyUnannotatedFieldedOut(IReadOnlyDictionary<BaseState, MutableRunner> runners)
+        {
+            if (!runners.TryGetValue(BaseState.BattersBox, out var batter))
+                return GameEventType.GroundOut;
+
+            var credits = batter.FieldingCredits;
+
+            if (credits.Any(c => c.CreditType == FieldingCreditType.Assist))
+                return GameEventType.GroundOut;
+
+            var putouts = credits.Where(c => c.CreditType == FieldingCreditType.Putout).ToList();
+            if (putouts.Count == 1 && putouts[0].Position is 2 or 7 or 8 or 9)
+                return GameEventType.FlyOut;
+
+            return GameEventType.GroundOut;
         }
 
         private static (byte Balls, byte Strikes) ParseCount(string rawEventText, string countField)

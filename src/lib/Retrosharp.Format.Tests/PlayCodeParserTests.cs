@@ -759,6 +759,75 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Parse_UnassistedCatcherPutout_NoTrajectory_ResolvesToFlyOut()
+        {
+            // 2024MIA.EVN -- a bare "2" (unassisted catcher putout, a foul pop) with no
+            // trajectory modifier. Valid Retrosheet; before this fix it threw
+            // PlayCodeParseException and aborted the whole file's import with no error-queue
+            // signal. Classified FlyOut (ball taken in the air), with BattedBallType left unset
+            // since the trajectory was never recorded.
+            var result = PlayCodeParser.Parse("2", "02", "CSX");
+
+            Assert.Equal(GameEventType.FlyOut, result.EventType);
+            Assert.Null(result.BattedBallType);
+            var batter = Assert.Single(result.Runners);
+            Assert.True(batter.IsOut);
+            Assert.Equal(
+                new[] { (2, FieldingCreditType.Putout, 1) },
+                batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_UnassistedOutfieldPutout_NoTrajectory_ResolvesToFlyOut()
+        {
+            // Bare "8" -- lone center-field putout, no modifier. Outfielders don't record
+            // unassisted ground-ball putouts, so with no trajectory this is a fly out.
+            var result = PlayCodeParser.Parse("8", "11", "BSX");
+
+            Assert.Equal(GameEventType.FlyOut, result.EventType);
+            Assert.Null(result.BattedBallType);
+        }
+
+        [Fact]
+        public void Parse_ThrownFieldedOut_NoTrajectory_ResolvesToGroundOut()
+        {
+            // Bare "63" -- shortstop to first, i.e. a throw was involved (fielder 6 assists).
+            // With no trajectory modifier the presence of an assist makes this a ground out.
+            var result = PlayCodeParser.Parse("63", "00", "X");
+
+            Assert.Equal(GameEventType.GroundOut, result.EventType);
+            Assert.Null(result.BattedBallType);
+            var batter = Assert.Single(result.Runners);
+            Assert.True(batter.IsOut);
+            Assert.Equal(
+                new[] { (6, FieldingCreditType.Assist, 1), (3, FieldingCreditType.Putout, 2) },
+                batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_UnassistedInfieldPutout_NoTrajectory_ResolvesToGroundOut()
+        {
+            // Bare "3" -- first baseman fields it and steps on the bag unassisted. An unassisted
+            // infield putout with no trajectory falls to ground out.
+            var result = PlayCodeParser.Parse("3", "21", "BFBX");
+
+            Assert.Equal(GameEventType.GroundOut, result.EventType);
+            Assert.Null(result.BattedBallType);
+        }
+
+        [Fact]
+        public void Parse_FieldedOutWithRealTrajectory_StillWinsOverTheFallback()
+        {
+            // A trajectory modifier, when present, must still take priority over the
+            // no-trajectory heuristic: "8/F" is an outfield fly (already FlyOut either way), and
+            // "3/G" is a grounder to first that must resolve GroundOut with BattedBallType set.
+            Assert.Equal(BattedBallType.FlyBall, PlayCodeParser.Parse("8/F", "00", "X").BattedBallType);
+            var grounder = PlayCodeParser.Parse("3/G", "00", "X");
+            Assert.Equal(GameEventType.GroundOut, grounder.EventType);
+            Assert.Equal(BattedBallType.GroundBall, grounder.BattedBallType);
+        }
+
+        [Fact]
         public void Parse_RunnerInterferenceAdvanceAnnotation_DoesNotThrow()
         {
             // (synthetic -- no real "(fielder/INT)" advance annotation observed in the reference
