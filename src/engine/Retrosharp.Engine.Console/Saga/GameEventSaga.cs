@@ -46,23 +46,20 @@ namespace Retrosharp.Engine.Console.Saga
 
             _logger.LogInformation("Starting Game Event import from '{FilePath}'.", message.FilePath);
 
-            GameEventImportResult result;
-            try
-            {
-                result = await _gameEventImportService.ImportAsync(message.FilePath);
-            }
-            catch (Exception ex) when (ImportFailureClassifier.IsUnrecoverable(ex))
-            {
-                // Retrying a mistyped/missing file path can never succeed -- fail the saga here
-                // rather than letting the exception reach NServiceBus's recoverability pipeline,
-                // which can't tell this apart from a transient failure like a dropped DB
-                // connection. See spec/defects.md, "Needless Retrying".
-                _logger.LogWarning(ex,
-                    "Game Event import from '{FilePath}' failed with an unrecoverable error; not retrying.",
-                    message.FilePath);
-                MarkAsComplete();
-                return;
-            }
+            // Any failure propagates to the endpoint's recoverability policy
+            // (EngineRecoverabilityPolicy): a transient error is retried with backoff, an
+            // unrecoverable one (an unparseable Retrosheet play code, a missing/bad file, a
+            // deterministic resolution failure) is routed straight to the error queue with no
+            // retries. The saga deliberately does not catch-and-complete unrecoverable failures
+            // itself -- doing so meant a whole event file could fail with nothing on the error
+            // queue and a saga that looked successful (found during stress-test Run 1:
+            // 2024MIA.EVN's bare "2" silently dropped all 81 games). See spec/defects.md,
+            // "Needless Retrying".
+            //
+            // Data.IsRunning stays true on the rolled-back attempt, but the whole message
+            // transaction (saga-data write included) rolls back with the exception, so no saga
+            // row is persisted and a later retry of the same file starts fresh.
+            var result = await _gameEventImportService.ImportAsync(message.FilePath);
 
             await context.SendLocal(new GameEventComplete
             {

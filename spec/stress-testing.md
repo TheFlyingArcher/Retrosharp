@@ -517,10 +517,74 @@ run, with the tuning changes in place.
 
 ## Progress Log
 
-**Status**: Not Started
+**Status**: In Progress
 
 _(Record here, per scenario: environment specifics — Docker Desktop CPU/RAM
 allocation, image digests, licence state; the six metric groups; any failures with
 suspected cause, the change made, and the re-run result. Follow the format used in
 [phase-1-build-plan.md](./phase-1-build-plan.md) — what was found, what was done,
 discrepancies and decisions, errors encountered, verification performed.)_
+
+### Run 1 — serial baseline, unconstrained (2026-09-02)
+
+Ran ahead of the Pi-sized passes as an unconstrained shakeout on the Mac host: not
+`docker-compose.pi.yml`, just base + the import bind-mount override, on a Docker
+Desktop VM with ~13.6 GiB. Dataset extended to **two** seasons (2024 + 2025) —
+`import/gamelogs/{2024,2025}/glYYYY.txt` and 30 event files per year. NServiceBus
+trial licence expired (message processing unaffected). Fresh DB (`down -v` first).
+
+**Pipeline: pass.** 1 biofile + 2 game logs + 60 event files + 2 standings computes,
+strictly serial. Zero messages to the error queue, zero stuck sagas, zero container
+restarts. Person (26,961), both game logs, all 30 **2025** event files, and both
+standings computations completed correctly; the 2025 half reproduced the standalone
+baseline from [project.md] byte-for-byte (`GameEvent` +216,845, GES 2,430, player
+stats split cleanly across the two seasons).
+
+**Timing** (serial; my completion poller added ~13s/file overhead, so engine work is
+lower): Person 19s · gl2024 32s · gl2025 33s · 2024 events 612s · 2025 events 589s ·
+standings 1s · total ~21.5 min.
+
+**Resources** (sampled `docker stats`, no limits): engine-console peak 164% CPU
+(1.64 cores) / 352 MiB; postgres 58% / 183 MiB; rabbitmq 52% / 222 MiB; ui-api idle
+(no read load this run). No OOM, no restarts. Note the engine's 1.64-core burst is
+above `docker-compose.pi.yml`'s 1.25-core cap — serial event parsing will throttle
+~25–30% under the Pi overlay, as intended.
+
+**Log review:** 258 `warn: GameEventImportService` reconciliation lines across both
+seasons (~130/season — the expected ±1 ER / GIDP / RBI noise, same rate as the 2025
+baseline). No `fail:`/`crit:` lines.
+
+**Finding 1 — parser gap (fixed).** `2024MIA.EVN`'s first play was a bare `2` (an
+unassisted catcher putout on a foul pop) with no `G/L/F/P/BG/BP/BL` trajectory
+modifier — valid but rare Retrosheet. `PlayCodeParser` threw `PlayCodeParseException`
+rather than classifying it. Fix: `ClassifyUnannotatedFieldedOut` fallback (a lone
+unassisted OF/catcher putout → FlyOut, a throw or lone infield putout → GroundOut,
+`BattedBallType` left null). 6 new `PlayCodeParserTests`. Branch
+`fix/playcode-bare-fielded-out`.
+
+**Finding 2 — silent whole-file loss (fixed).** Because the exception is unrecoverable
+and each saga caught-and-`MarkAsComplete()`d unrecoverable failures, all 81 Marlins
+2024 games were dropped with only a `warn:` line — nothing on the error queue, saga
+"successful", API 202 indistinguishable from success. Caught only by reconciling
+`GameEventGameStatus` (2,348) vs the 2024 game-log count (2,429). Fix: the
+unrecoverable-vs-transient decision moved into `EngineRecoverabilityPolicy.Decide`,
+which `MoveToError`s unrecoverable failures on the first try (still zero retries); the
+sagas no longer catch anything. Failed files now land in `Retrosharp.Engine.Errors`
+with the full exception and are operator-retryable. See [defects.md] "Needless
+Retrying". 9 new `EngineRecoverabilityPolicyTests`; 3 saga tests updated.
+
+**Finding 3 — 2024 log is 2,429 games**, not 2,430: one 2024 MLB game was cancelled
+and never made up. Not a defect; the 2024 reconciliation baseline is 2,429 (standings
+computed correctly against it — LAN 98‑64, PHI 95‑67).
+
+**Finding 4 — test-harness only:** the DB-poll-based completion detection in the run
+driver adds ~13s/file. For the Pi-sized runs, tail the engine container log for the
+real "import complete" line so timings are the engine's.
+
+**Still open:** caller-facing import status (the API 202 gives no success/failure
+channel even now that failures reach the error queue) — a status endpoint or
+persisted ETL-run record is Phase 2 ("ETL activity feed/dashboard" in project.md).
+
+**Next:** rebuild the engine image on the fixes, backfill `2024MIA.EVN`, verify GES
+2,348 → 2,429 and Marlins 2024 stats appear, then start the Pi-sized passes from
+Step 1.

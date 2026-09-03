@@ -12,6 +12,7 @@ using Npgsql;
 using Retrosharp.Configuration;
 using Retrosharp.Data.Context;
 using Retrosharp.DI;
+using Retrosharp.Engine.Console.Saga;
 
 namespace Retrosharp.Engine.Console
 {
@@ -65,7 +66,12 @@ namespace Retrosharp.Engine.Console
             recoverability.Immediate(immediate => immediate.NumberOfRetries(messagingConfig.ImmediateRetries));
             recoverability.Delayed(delayed => delayed.NumberOfRetries(0));
             recoverability.CustomPolicy((recoverabilityConfig, errorContext) =>
-                ExponentialBackoffWithJitterPolicy(messagingConfig, recoverabilityConfig, errorContext));
+                EngineRecoverabilityPolicy.Decide(
+                    messagingConfig,
+                    recoverabilityConfig.Failed.ErrorQueue,
+                    errorContext.Exception,
+                    errorContext.ImmediateProcessingFailures,
+                    errorContext.DelayedDeliveriesPerformed));
 
             builder.UseNServiceBus(endpointConfiguration);
 
@@ -98,31 +104,5 @@ namespace Retrosharp.Engine.Console
             await await Task.WhenAny(runningHost, runningHealthApp);
         }
 
-        /// <summary>
-        /// NServiceBus's built-in delayed recoverability only supports a linear TimeIncrease, not
-        /// true exponential backoff or jitter, so parser.md's "exponential backoff with jitter"
-        /// requirement is implemented here instead of via config alone. Immediate retries are left
-        /// to the built-in Immediate() policy; this only governs the delayed-retry phase.
-        /// </summary>
-        private static RecoverabilityAction ExponentialBackoffWithJitterPolicy(
-            MessagingConfiguration messagingConfig,
-            RecoverabilityConfig recoverabilityConfig,
-            ErrorContext errorContext)
-        {
-            if (errorContext.ImmediateProcessingFailures < messagingConfig.ImmediateRetries)
-                return RecoverabilityAction.ImmediateRetry();
-
-            if (errorContext.DelayedDeliveriesPerformed < messagingConfig.DelayedRetries)
-            {
-                var attempt = errorContext.DelayedDeliveriesPerformed + 1;
-                var baseDelaySeconds = messagingConfig.InitialRetryDelaySeconds * Math.Pow(2, attempt - 1);
-                var jitterMilliseconds = Random.Shared.Next(0, (int)(baseDelaySeconds * 1000 * 0.2));
-                var delay = TimeSpan.FromSeconds(baseDelaySeconds) + TimeSpan.FromMilliseconds(jitterMilliseconds);
-
-                return RecoverabilityAction.DelayedRetry(delay);
-            }
-
-            return RecoverabilityAction.MoveToError(recoverabilityConfig.Failed.ErrorQueue);
-        }
     }
 }

@@ -40,11 +40,13 @@ namespace Retrosharp.Engine.Console.Tests
         }
 
         [Fact]
-        public async Task Handle_Start_FileNotFound_MarksSagaCompleteWithoutSendingComplete()
+        public async Task Handle_Start_UnrecoverableException_PropagatesWithoutCompletingOrSendingComplete()
         {
-            // Regression test for spec/defects.md's "Needless Retrying": a mistyped/missing file
-            // path used to propagate out of the handler and hit NServiceBus's immediate/delayed
-            // retry pipeline (3 + 5 attempts) for an error retrying can never fix.
+            // The saga no longer catch-and-completes unrecoverable failures (that made a failed
+            // import invisible -- see spec/defects.md, "Needless Retrying"). It now lets every
+            // exception propagate; EngineRecoverabilityPolicy is the single place that decides
+            // an unrecoverable one (like this missing file) goes straight to the error queue
+            // with no retries -- see EngineRecoverabilityPolicyTests.
             var importService = new FakeGameLogImportService
             {
                 ExceptionToThrow = new FileNotFoundException("The file at path 'bad.txt' was not found.")
@@ -52,9 +54,10 @@ namespace Retrosharp.Engine.Console.Tests
             var saga = CreateSaga(importService);
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(new GameLogStart { RequestId = Guid.NewGuid(), SeasonYear = 2025, FilePath = "bad.txt" }, context);
+            await Assert.ThrowsAsync<FileNotFoundException>(() =>
+                saga.Handle(new GameLogStart { RequestId = Guid.NewGuid(), SeasonYear = 2025, FilePath = "bad.txt" }, context));
 
-            Assert.True(saga.Completed);
+            Assert.False(saga.Completed);
             Assert.Empty(context.SentMessages);
         }
 

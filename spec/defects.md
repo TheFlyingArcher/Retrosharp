@@ -243,6 +243,51 @@ to `ImportFailureClassifierTests.cs`, plus a new saga-level regression test,
 fixed -- see that entry for the full end-to-end verification (81 games imported from
 `2025ATH.EVA` with zero exceptions and zero retries).
 
+Re-opening reason (observability):
+The catch-and-`MarkAsComplete()` fix stopped the retry storm but swallowed the failure. Found
+during stress-test Run 1 (`spec/stress-testing.md`): `2024MIA.EVN`'s first play was a bare `2`
+(unassisted catcher putout, no trajectory modifier), `PlayCodeParser` threw, and the saga
+logged one `warn:` line and completed. Result: all 81 Marlins home games silently absent from
+`GameEvent`/`GameEventGameStatus`/`Batting`/`Pitching`/`Fielding`, **nothing on the error
+queue**, the saga looked successful, and the API's 202 was indistinguishable from a real
+import. The gap was only caught by reconciling `GameEventGameStatus` (2,348) against the
+game-log count (2,429). For an ETL system, a wholesale file failure must be durably visible,
+not just logged.
+
+Re-opening expected:
+An unrecoverable import failure lands in `Retrosharp.Engine.Errors` (the configured error
+queue) with its full exception and headers, is logged by NServiceBus at error level, and is
+operator-retryable once the underlying data/parser issue is fixed -- while still doing **zero**
+retries (the "Needless Retrying" requirement is unchanged).
+
+Status: **Resolved**
+
+Fix:
+Moved the unrecoverable-vs-transient decision out of each saga's `Handle(...Start)` try/catch
+and into the endpoint's single recoverability policy. New
+`EngineRecoverabilityPolicy.Decide(...)`
+(`src/engine/Retrosharp.Engine.Console/Saga/EngineRecoverabilityPolicy.cs`, extracted from the
+old `Program.cs` `ExponentialBackoffWithJitterPolicy` and now a pure, unit-testable function):
+if `ImportFailureClassifier.IsUnrecoverable(exception)` it returns
+`RecoverabilityAction.MoveToError(errorQueue)` on the first failure -- no immediate or delayed
+retries -- otherwise it applies the existing immediate -> exponential-backoff-with-jitter ->
+error-queue ladder unchanged. `PersonSaga`/`GameLogSaga`/`GameEventSaga` no longer catch
+anything: every exception propagates, NServiceBus's recoverability pipeline consults the policy,
+and the failed message is moved to the error queue with a matching error-level log line. The
+message transaction (saga-data write included) rolls back on the exception, so no orphaned saga
+row is left behind and a later retry of the same file starts fresh -- the same clean-failure
+property the original fix verified, now with the failure actually visible.
+
+Verification:
+`dotnet test` green (227 tests). New `EngineRecoverabilityPolicyTests.cs` (9 cases): each
+unrecoverable exception type (`FileNotFoundException`, `DirectoryNotFoundException`,
+`InvalidOperationException`, `PlayCodeParseException`) -> `MoveToError` on the first failure
+with zero retries and priority over the retry ladder; transient (`TimeoutException`) ->
+`ImmediateRetry` within budget, then `DelayedRetry` with a `2^n` base delay plus <=20% jitter,
+then `MoveToError`. The three saga tests that asserted catch-and-complete now assert the
+exception propagates without the saga completing or sending its `Complete` message. Live
+end-to-end verification is folded into stress-test Run 1's backfill (`spec/stress-testing.md`).
+
 ## InvalidOperationException on base runners
 
 Actual:

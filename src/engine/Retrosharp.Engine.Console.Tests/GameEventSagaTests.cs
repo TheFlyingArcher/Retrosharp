@@ -4,6 +4,7 @@ using NServiceBus.Testing;
 
 using Retrosharp.Engine.Console.Saga;
 using Retrosharp.Engine.Console.Tests.Fakes;
+using Retrosharp.Format.PlayByPlay;
 using Retrosharp.Message.GameEvent;
 using Retrosharp.Service.Interface;
 
@@ -46,28 +47,36 @@ namespace Retrosharp.Engine.Console.Tests
         }
 
         [Fact]
-        public async Task Handle_Start_FileNotFound_MarksSagaCompleteWithoutSendingComplete()
+        public async Task Handle_Start_UnrecoverableException_PropagatesWithoutCompletingOrSendingComplete()
         {
-            // Regression test for spec/defects.md's "Needless Retrying".
+            // The saga no longer catch-and-completes unrecoverable failures. Doing so meant a
+            // whole event file could fail with nothing on the error queue and a saga that
+            // looked successful (found during stress-test Run 1: 2024MIA.EVN's bare "2" silently
+            // dropped all 81 games). It now lets every exception propagate; EngineRecoverability
+            // Policy routes an unrecoverable one straight to the error queue with no retries --
+            // see EngineRecoverabilityPolicyTests and spec/defects.md, "Needless Retrying".
             var importService = new FakeGameEventImportService
             {
-                ExceptionToThrow = new FileNotFoundException("The file at path 'bad.EVN' was not found.")
+                ExceptionToThrow = new PlayCodeParseException(
+                    "2", "Fielded-out code has no trajectory modifier (G/L/F/P/BG/BP/BL) to determine GroundOut vs FlyOut.")
             };
             var saga = CreateSaga(importService);
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(new GameEventStart { RequestId = Guid.NewGuid(), FilePath = "bad.EVN" }, context);
+            await Assert.ThrowsAsync<PlayCodeParseException>(() =>
+                saga.Handle(new GameEventStart { RequestId = Guid.NewGuid(), FilePath = "2024MIA.EVN" }, context));
 
-            Assert.True(saga.Completed);
+            Assert.False(saga.Completed);
             Assert.Empty(context.SentMessages);
         }
 
         [Fact]
-        public async Task Handle_Start_InvalidOperationException_MarksSagaCompleteWithoutSendingComplete()
+        public async Task Handle_Start_ResolutionFailure_PropagatesWithoutCompletingOrSendingComplete()
         {
-            // Regression test for spec/defects.md's "Needless Retrying" re-open: a play code
-            // resolution failure (bad Retrosheet data or a resolver gap, e.g. "InvalidOperationException
-            // on base runners") is just as unrecoverable-by-retrying as a missing file.
+            // A deterministic resolution failure (bad Retrosheet data or a resolver gap, e.g.
+            // "InvalidOperationException on base runners") is unrecoverable-by-retrying just like
+            // a missing file -- it still propagates, and the recoverability policy routes it to
+            // the error queue.
             var importService = new FakeGameEventImportService
             {
                 ExceptionToThrow = new InvalidOperationException(
@@ -76,9 +85,10 @@ namespace Retrosharp.Engine.Console.Tests
             var saga = CreateSaga(importService);
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(new GameEventStart { RequestId = Guid.NewGuid(), FilePath = "2025ATH.EVA" }, context);
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                saga.Handle(new GameEventStart { RequestId = Guid.NewGuid(), FilePath = "2025ATH.EVA" }, context));
 
-            Assert.True(saga.Completed);
+            Assert.False(saga.Completed);
             Assert.Empty(context.SentMessages);
         }
 

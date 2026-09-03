@@ -36,23 +36,13 @@ namespace Retrosharp.Engine.Console.Saga
                 "Starting Game Log import for season {SeasonYear} from '{FilePath}'.",
                 message.SeasonYear, message.FilePath);
 
-            GameLogImportResult result;
-            try
-            {
-                result = await _gameLogImportService.ImportAsync(message.FilePath, message.SeasonYear);
-            }
-            catch (Exception ex) when (ImportFailureClassifier.IsUnrecoverable(ex))
-            {
-                // Retrying a mistyped/missing file path can never succeed -- fail the saga here
-                // rather than letting the exception reach NServiceBus's recoverability pipeline,
-                // which can't tell this apart from a transient failure like a dropped DB
-                // connection. See spec/defects.md, "Needless Retrying".
-                _logger.LogWarning(ex,
-                    "Game Log import for season {SeasonYear} from '{FilePath}' failed with an unrecoverable error; not retrying.",
-                    message.SeasonYear, message.FilePath);
-                MarkAsComplete();
-                return;
-            }
+            // Any failure propagates to the endpoint's recoverability policy
+            // (EngineRecoverabilityPolicy): a transient error is retried with backoff, an
+            // unrecoverable one (bad path, bad data) is routed straight to the error queue with
+            // no retries. The saga deliberately does not catch-and-complete unrecoverable
+            // failures itself -- doing so left a failed import invisible (see spec/defects.md,
+            // "Needless Retrying").
+            var result = await _gameLogImportService.ImportAsync(message.FilePath, message.SeasonYear);
 
             await context.SendLocal(new GameLogComplete
             {

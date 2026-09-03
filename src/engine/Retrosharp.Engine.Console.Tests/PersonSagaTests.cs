@@ -39,9 +39,11 @@ namespace Retrosharp.Engine.Console.Tests
         }
 
         [Fact]
-        public async Task Handle_Start_FileNotFound_MarksSagaCompleteWithoutSendingComplete()
+        public async Task Handle_Start_UnrecoverableException_PropagatesWithoutCompletingOrSendingComplete()
         {
-            // Regression test for spec/defects.md's "Needless Retrying".
+            // The saga no longer catch-and-completes unrecoverable failures (see spec/defects.md,
+            // "Needless Retrying"); every exception propagates, and EngineRecoverabilityPolicy
+            // decides an unrecoverable one goes straight to the error queue with no retries.
             var importService = new FakePersonImportService
             {
                 ExceptionToThrow = new FileNotFoundException("The file at path 'bad.csv' was not found.")
@@ -49,9 +51,10 @@ namespace Retrosharp.Engine.Console.Tests
             var saga = CreateSaga(importService);
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(new PersonStart { RequestId = Guid.NewGuid(), FilePath = "bad.csv" }, context);
+            await Assert.ThrowsAsync<FileNotFoundException>(() =>
+                saga.Handle(new PersonStart { RequestId = Guid.NewGuid(), FilePath = "bad.csv" }, context));
 
-            Assert.True(saga.Completed);
+            Assert.False(saga.Completed);
             Assert.Empty(context.SentMessages);
         }
 
