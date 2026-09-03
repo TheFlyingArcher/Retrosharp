@@ -654,7 +654,7 @@ within noise.
 
 ### Step 2 — concurrent event imports under the Pi overlay (2026-09-03)
 
-**Status**: In Progress — findings raised, one fix applied, re-run pending
+**Status**: Complete — Finding 1 fixed and verified; Findings 2-3 deferred
 
 Fresh DB, Pi overlay. Person + both game logs serially (unchanged: 24s / 30s / 31s),
 then all **30 2025 event files** POSTed within 2s of each other.
@@ -695,5 +695,34 @@ commits in batches, so a mid-file deadlock leaves the file partially imported
 rather than rolled back. Idempotent retry (Finding 1) recovers it, but a partial
 file is briefly observable. Tie off alongside Finding 2.
 
-**Memory/CPU under concurrency:** Docker-stats CSV captured; analysis pending the
-clean re-run (the deadlock-truncated run isn't a representative load sample).
+**Re-run against the fixed engine (2026-09-03):** same 30-file concurrent fire.
+Engine log shows **6 `40P01` deadlocks** (identical contention — it's consistent),
+all absorbed by the retry ladder. End state: `GameEventGameStatus` **2,430 / 2,430**,
+`GameEvent` **216,845**, Batting/Pitching/Fielding **770 / 1,015 / 2,272** — every
+count an exact match for a serial 2025 import. **Error queue ended at 0.** Concurrent
+phase wall 141s vs 530s serial (~3.75×). `docker inspect`: no OOM, no restarts on any
+container. This satisfies `project.md`'s "concurrent writes resolve via atomic,
+database-enforced idempotency checks... not serialization".
+
+**Resources under real concurrent load** (this run, not the truncated first one):
+
+| Container | CPU% peak / p95 / avg | MEM peak / p95 | limit | MEM peak vs limit |
+|---|---|---|---|---|
+| engine-console | 132 / 128 / 28 | 310M / 252M | 1.25c / 896M | 35% |
+| postgres | 76 / 54 / 10 | 178M / 178M | 1.0c / 1024M | 17% |
+| rabbitmq | 38 / 35 / 6 | 209M / 147M | 0.75c / 768M | 27% |
+| ui-api | 36 / 2 / 1 | 98M / 98M | 1.0c / 640M | 15% |
+
+- **Engine CPU is now cap-bound.** p95 128% against the 1.25-core limit, sustained
+  ~127-132% for the ~4.5 min concurrent burst (vs 88% p95 serial). The cap binds
+  under concurrency but the run still finished ~3.75× faster than serial — capped
+  parallelism still beats serial. On a real Pi 4 (4 slower cores) concurrent imports
+  would be more CPU-constrained and slower, not failing.
+- **Concurrency did not blow up memory.** The 310M engine peak is the Person
+  bulk-upsert (before the concurrent phase); during the concurrent event phase the
+  engine peaked ~253M and settled to ~192M — only ~60M over the serial steady state.
+  ~3.5× headroom to 896M. Postgres 178M peak, identical to serial. RabbitMQ well
+  under both its 768M cap and the 477 MiB watermark; no memory alarm, no blocked
+  connections.
+- Peak concurrent footprint across the four containers during the event phase ≈
+  740M. A 4 GB Pi has large headroom for concurrent import too.
