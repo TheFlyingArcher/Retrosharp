@@ -588,3 +588,70 @@ persisted ETL-run record is Phase 2 ("ETL activity feed/dashboard" in project.md
 **Next:** rebuild the engine image on the fixes, backfill `2024MIA.EVN`, verify GES
 2,348 → 2,429 and Marlins 2024 stats appear, then start the Pi-sized passes from
 Step 1.
+
+**Backfill (2026-09-03):** engine rebuilt from `fix/playcode-bare-fielded-out`
+(later merged to `main` as `20b59b1` + `f454df4`). Live verification of both fixes:
+- Observability: `POST` with a nonexistent path → 1 message in
+  `Retrosharp.Engine.Errors` carrying `ExceptionType`
+  `System.IO.FileNotFoundException`, the message, the stack, `FailedQ`,
+  `OriginatingEndpoint`, and the full original body (`FilePath` + `RequestId`) —
+  operator-retryable. Engine queue stayed 0 (no retry loop); audit queue unchanged
+  (not counted as success). Contrast the pre-fix behaviour where the same POST
+  incremented the audit queue and left the error queue empty.
+- Parser + backfill: `POST 2024MIA.EVN` completed in ~17s. 2024 `GameEventGameStatus`
+  2,348 → 2,429; 2024 games missing events 81 → 0; game 6 (2024-03-28 MIA v PIT),
+  previously eventless, returns 176 play-by-play entries via the API. Error queue
+  stayed empty. 2024 standings unchanged (derive from `Game`, not events).
+- Idempotency: re-`POST 2024MIA.EVN` → every count identical, error queue 0.
+
+### Step 1 — serial baseline under the Pi overlay (2026-09-03)
+
+Full three-file overlay (`+ docker-compose.pi.yml`), fresh DB (`down -v`), engine
+built from `main` with both fixes. Docker Desktop VM ~13.6 GiB (the overlay's
+per-container `deploy.resources.limits` are what constrain each service, not the VM).
+RabbitMQ watermark confirmed applied at 477 MiB (`rabbitmq-pi.conf` via `conf.d`,
+after `RABBITMQ_VM_MEMORY_HIGH_WATERMARK` as an env var was rejected by the 3.13
+image — fixed in `ebff973`). Same serial sequence as Run 1, two seasons.
+
+**Pass.** Total 1,174s. Final row counts identical to the post-backfill Run 1 state
+(Person 26,961 · Game 4,859 · GES 4,859 = 2024 2,429 + 2025 2,430 · GameEvent
+465,584 · Batting 1,511 · Pitching 1,991 · Fielding 4,463 · standings 30+30). Zero
+`[!]` warnings, error queue empty throughout, no saga resets. `docker inspect`:
+`OOMKilled=false RestartCount=0` on all four containers. `2024MIA.EVN` imported clean
+(GES +81, 26s) — parser fix confirmed under the Pi build.
+
+**Timing vs unconstrained Run 1** (post-backfill): Person 19s (=19s) · gl2024 32s
+(=32s) · gl2025 32s (=33s) · 2024 events 554s (Run 1 612s, but that included the MIA
+abort) · 2025 events 530s (589s) · standings 1s. **The Pi CPU caps do not affect
+serial ETL throughput** — event stages were marginally *faster* than unconstrained,
+within noise.
+
+**Resources** (sampled `docker stats`, 2min-bucketed peaks):
+
+| Container | CPU% peak / p95 / avg | MEM peak / p95 | limit | MEM peak vs limit |
+|---|---|---|---|---|
+| engine-console | 133 / 88 / 15 | 311M / 218M | 1.25c / 896M | 35% |
+| postgres | 55 / 33 / 5 | 176M / 173M | 1.0c / 1024M | 17% |
+| rabbitmq | 37 / 34 / 7 | 218M / 194M | 0.75c / 768M | 28% |
+| ui-api | 20 / 1 / 0 | 105M / 103M | 1.0c / 640M | 16% |
+
+- Engine CPU briefly touches the 1.25-core cap (133% peak) but p95 is 88% and avg
+  15% — the cap trims a transient without a throughput cost.
+- **No engine memory leak.** The 311M peak is the Person bulk-upsert (loads the
+  existing table into a dictionary); it settles to ~215M for the entire 60-file
+  event run and stays flat (per-2min peak series plateaus at 218M). The periodic
+  `SaveChangesAsync` bounds change-tracker growth as intended. ~4× headroom to 896M.
+- Postgres memory climbs 63M → 176M then plateaus — `shared_buffers=128MB` cache
+  warming, expected. RabbitMQ steady well under both the 768M cap and the 477 MiB
+  publish watermark; no memory alarm, no blocked connections.
+- Peak concurrent footprint across all four containers ≈ 810 MiB, and the peaks
+  don't even coincide (engine's 311M spike is during Person, before Postgres warms).
+  Steady-state ≈ 686 MiB. A 4 GB Pi (~3.3 GB usable) has large headroom for a
+  **serial** 2-season import.
+
+**Caveat:** serial only. Concurrent imports (Step 2) are where memory, the
+`max_connections=50` Postgres cap, and RabbitMQ queue depth are actually exercised.
+
+### Step 2 — concurrent event imports under the Pi overlay
+
+**Status**: Not Started
