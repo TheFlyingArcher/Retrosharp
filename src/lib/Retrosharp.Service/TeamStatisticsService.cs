@@ -1,4 +1,5 @@
 using Retrosharp.Contract.Game;
+using Retrosharp.Contract.League;
 using Retrosharp.Contract.Person;
 using Retrosharp.Contract.Pitching;
 using Retrosharp.Data;
@@ -103,6 +104,28 @@ namespace Retrosharp.Service
             if (pitchingRows.Count == 0)
                 return null;
 
+            // Single-team callers (TeamsController.GetStats) don't reuse anything -- throwaway caches.
+            return await GetPitchingCoreAsync(franchiseId, season, pitchingRows, new Dictionary<int, FipConstantResult>(), new Dictionary<int, League>());
+        }
+
+        /// <summary>
+        /// Shared body of <see cref="GetPitchingAsync"/>. Takes the franchise's already-fetched
+        /// <see cref="Pitching"/> rows (so the caller can reuse them -- e.g. for roster
+        /// person-ids), plus per-request FIP-constant and <see cref="League"/> caches. The FIP
+        /// constant is per (league, season) -- two distinct values for a modern season -- and
+        /// resolving it runs three full-league aggregate scans, so
+        /// <see cref="GetSeasonSummariesAsync"/> resolving it once per franchise instead of once
+        /// per league was the bulk of that endpoint's ~1.8s idle cost. See spec/defects.md,
+        /// "Slow /seasons/{year}/teams/stats endpoint", and the note on
+        /// <see cref="IFipConstantResolver"/>.
+        /// </summary>
+        private async Task<PitchingStatistics> GetPitchingCoreAsync(
+            int franchiseId,
+            short season,
+            IReadOnlyList<Pitching> pitchingRows,
+            IDictionary<int, FipConstantResult> fipCache,
+            IDictionary<int, League> leagueCache)
+        {
             // Authoritative team-earned figure, substituted for the ERA numerator instead of
             // summing each pitcher's own individually-earned runs. See spec/api.md.
             var teamEarnedRuns = await _gamePitchingStatisticsRepository.GetLeagueTeamEarnedRunsAsync([franchiseId], season);
@@ -139,11 +162,21 @@ namespace Retrosharp.Service
             var franchise = await _franchiseRepository.GetByIdAsync(franchiseId);
             if (franchise?.LeagueId is { } leagueId)
             {
-                var fip = await _fipConstantResolver.ResolveAsync(leagueId, season);
+                if (!fipCache.TryGetValue(leagueId, out var fip))
+                {
+                    fip = await _fipConstantResolver.ResolveAsync(leagueId, season);
+                    fipCache[leagueId] = fip;
+                }
+
                 stats.FipConstant = fip.FipConstant;
                 stats.FipConstantSeasonYear = season;
 
-                var league = await _leagueRepository.GetByIdAsync(leagueId);
+                if (!leagueCache.TryGetValue(leagueId, out var league))
+                {
+                    league = await _leagueRepository.GetByIdAsync(leagueId);
+                    leagueCache[leagueId] = league;
+                }
+
                 stats.FipConstantLeagueCode = league?.LeagueCode;
             }
 
@@ -159,6 +192,12 @@ namespace Retrosharp.Service
             // rosters that season (a trade) or on both the batting and pitching side
             // (pre-DH-era pitcher) is only ever looked up once.
             var personCache = new Dictionary<int, Person>();
+
+            // Per-request, resolved once per distinct league (2 for a modern season) instead of
+            // once per franchise -- resolving the FIP constant runs three full-league aggregate
+            // scans. See spec/defects.md, "Slow /seasons/{year}/teams/stats endpoint".
+            var fipCache = new Dictionary<int, FipConstantResult>();
+            var leagueCache = new Dictionary<int, League>();
 
             var hitting = new List<TeamSeasonBattingSummary>();
             var pitching = new List<TeamSeasonPitchingSummary>();
@@ -181,12 +220,13 @@ namespace Retrosharp.Service
                     });
                 }
 
-                var pitchingStats = await GetPitchingAsync(franchiseId, season);
-                if (pitchingStats != null)
+                // Fetch the franchise's Pitching rows once and reuse them for both the stat
+                // sums and the roster person-ids (previously two identical queries per franchise).
+                var pitchingRows = (await _pitchingRepository.GetByFranchiseAsync(franchiseId, season)).ToList();
+                if (pitchingRows.Count > 0)
                 {
-                    var pitcherPersonIds = (await _pitchingRepository.GetByFranchiseAsync(franchiseId, season))
-                        .Select(p => p.PersonId)
-                        .Distinct();
+                    var pitchingStats = await GetPitchingCoreAsync(franchiseId, season, pitchingRows, fipCache, leagueCache);
+                    var pitcherPersonIds = pitchingRows.Select(p => p.PersonId).Distinct();
 
                     pitching.Add(new TeamSeasonPitchingSummary
                     {

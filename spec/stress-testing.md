@@ -810,3 +810,49 @@ serialises saga *creation*; (2) `IsRunning` no-ops a duplicate once the saga exi
 (3) the per-game `GameEventGameStatus` claim gates *processing* even if two
 instances both run. `project.md`'s "atomic, database-enforced idempotency checks...
 not serialization" — satisfied, verified under load.
+
+### Step 4 — sustained API read load under the Pi overlay (2026-09-03)
+
+**Status**: Complete — pass (graceful degradation); one efficiency defect found & fixed
+
+k6 mixed read workload (11 endpoint families), ramping-VUs 2 → 150 over ~12 min,
+run from the Mac host (outside the compose limits). 14,119 requests, ~20 rps.
+
+**Result: graceful degradation, full recovery.** Clean 200s at normal concurrency
+(≤ ~25 VUs). Under heavier load latency climbed and ~14.8% of requests exceeded k6's
+60 s client timeout — **100% of them the single endpoint
+`GET /api/seasons/{year}/teams/stats`**. No 5xx storm, no crash, no OOM
+(`docker inspect`: `OOMKilled=false RestartCount=0`); connections and latencies
+returned to idle within seconds of ramp-down.
+
+**Bottleneck: Postgres CPU**, pegged at ~103% of its 1.0-core cap from minute 1
+(avg 92%). The API sat at 63% peak / 31% avg — waiting on the DB, not working.
+API memory 256 M / 640 M. Postgres connections reached 49-50 / 50 at ~40-50 VUs (a
+symptom of queries piling up behind a saturated single core, not the root cause).
+
+**Finding C (efficiency defect — fixed):** on a *completely idle* API,
+`/api/seasons/2025/teams/stats` takes **~1.8 s** while every other endpoint is
+10-70 ms (`/games/{id}/events`, the supposedly "heavy" one, is 22 ms).
+`TeamStatisticsService.GetSeasonSummariesAsync` runs an N+1 loop over all 30
+franchises, each iteration sequentially awaiting ~10 queries — and calling
+`FipConstantResolver.ResolveAsync` (itself 3 full-league aggregate scans) once *per
+franchise* even though the FIP constant is per (league, season), i.e. 2 distinct
+values. `IFipConstantResolver`'s own doc says callers resolving it for many rows
+should cache it (`PlayerStatisticsService` does; this service didn't). Fixed —
+see `spec/defects.md`, "Slow /seasons/{year}/teams/stats endpoint".
+
+**Finding D (minor, deferred):** during the meltdown the API logged nothing —
+`grep -icE 'timeout|pool|exhaust|npgsql'` over its logs → 0. No request-duration or
+slow-query logging, so a load-time problem isn't diagnosable from logs alone.
+
+**Finding E (config, deferred):** the API's Npgsql pool (default max 100) is larger
+than Postgres's `max_connections=50`; under load it tries to open a 51st connection,
+Postgres refuses, and Npgsql throws after its pool timeout instead of the request
+simply queuing. Capping `Maximum Pool Size` to ~40 in the API connection string
+would make it degrade by queuing in-process rather than erroring at the DB.
+
+**Pass criteria:** clean 200s at normal concurrency ✓; graceful degradation, no
+crash, full recovery ✓; no OOM ✓; pg connections hit the deliberate Pi cap of 50
+under extreme load (Finding E). The knee for this Pi config is ~5-10 VUs (where the
+1-core Postgres saturates); on a Pi 4 with Postgres given more than one core it
+moves up.

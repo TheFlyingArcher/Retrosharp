@@ -368,6 +368,46 @@ takes `RetrosharpContext` and uses `ExecuteUpdateAsync`/transactions/savepoints,
 the EF in-memory provider supports). Verified live by re-running Step 2: see
 `spec/stress-testing.md` for the zero-deadlock, zero-retry concurrent run.
 
+## Slow /seasons/{year}/teams/stats endpoint
+
+Actual:
+Stress-test Step 4 (`spec/stress-testing.md`): `GET /api/seasons/2025/teams/stats` takes
+**~1.8 s on an idle API**, while every other Data Viewing endpoint is 10-70 ms (the
+play-by-play endpoint `/games/{id}/events` is 22 ms). Under the k6 load ramp it was the only
+endpoint to fail -- 100% of the run's ~14.8% failures were this one URL exceeding k6's 60 s
+client timeout.
+
+Status: **Resolved**
+
+Level: Medium
+
+Root cause:
+`TeamStatisticsService.GetSeasonSummariesAsync` loops over all ~30 franchises in a season and,
+per franchise, sequentially awaits ~10 queries. The dominant cost is calling
+`IFipConstantResolver.ResolveAsync(leagueId, season)` (via `GetPitchingAsync`) **once per
+franchise** -- and that resolver itself runs three full-league aggregate scans
+(`GetLeagueTotalsAsync`, `GetLeagueTeamEarnedRunsAsync`, `GetLeagueHomerunsAllowedAsync`). The
+FIP constant is per `(league, season)`, i.e. exactly two distinct values for a modern season,
+so ~28 of the 30 resolutions redo the same three heavy scans. `IFipConstantResolver`'s own XML
+doc says callers resolving it for many rows in one request "should keep their own cache...
+rather than re-resolving the same league-season repeatedly" -- `PlayerStatisticsService.GetPitchingAsync`
+does; `TeamStatisticsService` did not. A secondary waste: `_pitchingRepository.GetByFranchiseAsync`
+is issued twice per franchise (once inside `GetPitchingAsync`, once again for the roster
+person-ids).
+
+Fix:
+Request-scoped memoisation in `GetSeasonSummariesAsync`: the FIP constant and the `League`
+lookup are each resolved once per distinct `leagueId` (2 instead of 30), and the per-franchise
+`Pitching` rows are fetched once and reused for both the stat sums and the roster person-ids.
+`GetPitchingAsync` gained optional cache parameters (`null` for the single-team
+`TeamsController.GetStats` path -- behaviour there is unchanged). No new repository methods, no
+change to any computed value.
+
+Verification:
+Captured the full `/api/seasons/2025/teams/stats` JSON before the change; after the change it
+is byte-identical (30 hitting + 30 pitching teams, all rate stats unchanged). Idle latency
+<see spec/stress-testing.md Step 4 re-measure>. `dotnet test` green.
+
 ## InvalidOperationException on base runners
 
 Actual:
