@@ -768,3 +768,45 @@ eliminated** the deadlocks — concurrent import now behaves like serial, just f
 
 **Fixes landed from Step 2:** transient-error reclassification (`240ab4d`),
 deterministic stat-row lock ordering + savepoint-guarded insert (`d7e1c40`).
+
+### Step 3 — duplicate / idempotency race under the Pi overlay (2026-09-03)
+
+**Status**: Complete — pass, no code changes needed
+
+Continued from the Step 2c database (full 2025 events, no 2024 events). Total 93s.
+
+**Part A — 10 concurrent re-POSTs of 5 already-complete 2025 files.** Every row count
+identical to baseline afterward; error queue 0. Duplicate submissions of a
+finished file are absorbed with no effect.
+
+**Part B — 5 fresh 2024 files, each POSTed twice within milliseconds (true
+in-progress race, 10 messages).** The Pi CPU cap widened the window — `engineQ` sat
+at 9-10 for ~35s while the engine drained the backlog — yet:
+
+| check | expected | actual |
+|---|---|---|
+| `GameEventGameStatus` (2024) | 405 (5 × 81) | **405** — no double-claim |
+| `GameEvent` rows vs distinct `Sequence` per game | equal | **equal** — no duplicate event rows |
+| duplicate `GameEventRunner` / `GameEventFieldingCredit` | 0 / 0 | **0 / 0** |
+| error queue | 0 | **0** |
+
+Batting/Pitching/Fielding each grew once (770→1,364 / 1,015→1,690 / 2,272→3,461),
+not doubled.
+
+**How the race resolved** (engine log): **9** `"already in progress; ignoring
+duplicate"` lines — for most pairs, one message hit `GameEventSaga.IsRunning` and
+no-op'd. **~14** combined `Index_Correlation` unique-constraint violations +
+immediate-retry lines (`40P01` count is 0 — the Step 2 deadlock fix holds): when
+both messages of a pair were picked up before either committed the saga row, the
+loser's saga-row INSERT hit NServiceBus SQL persistence's unique index on the
+correlation key (`FilePath`), that message immediate-retried, and by retry time the
+`IsRunning` guard caught it. The per-game `GameEventGameStatus` unique claim is the
+third backstop, and Part B's exact 405 / zero-dupes proves nothing slipped past all
+three. Every retry was immediate and succeeded — no delayed retries, nothing to the
+error queue.
+
+Three layers defend idempotency, in order: (1) the saga-correlation unique index
+serialises saga *creation*; (2) `IsRunning` no-ops a duplicate once the saga exists;
+(3) the per-game `GameEventGameStatus` claim gates *processing* even if two
+instances both run. `project.md`'s "atomic, database-enforced idempotency checks...
+not serialization" — satisfied, verified under load.
