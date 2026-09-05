@@ -26,6 +26,7 @@ namespace Retrosharp.Service
             // Business logic services
             services.AddTransient<IPersonService, PersonService>();
             services.AddTransient<IPersonImportService, PersonImportService>();
+            services.AddTransient<IBulkImportService, BulkImportService>();
             services.AddTransient<IGameLogImportService, GameLogImportService>();
             services.AddTransient<IGameEventImportService, GameEventImportService>();
             services.AddTransient<IGameService, GameService>();
