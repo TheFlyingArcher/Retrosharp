@@ -1053,4 +1053,6 @@ Note: the "Game Event files for every team" import is expected to be run through
 
 **Note**: `docs/csv/franchises.csv` and `ballparks.csv` were absent from the working tree (a pre-existing uncommitted deletion, unrelated to this step); restored from git since `Retrosharp.Data.Migration` copies them at build time and `dotnet ef` can't run without them.
 
-**Remaining**: messages + `BulkImportId` threading through `GameEventStart`/`GameEventComplete`/`GameEventSagaData`; `BulkGameEventImportSaga`; the `OnMessageSentToErrorQueue` hook; the two API endpoints + routing + compose volume; saga tests; live end-to-end verification.
+**Messages (complete)**: new `BulkGameEventImportStart` (`BulkImportId`, `ZipPath`, `SeasonYear?`, `BatchSize?`) and `GameEventImportFailed` (`BulkImportId`, `FileName`, `Error`) in `Retrosharp.Message.GameEvent`. `Guid BulkImportId` added to `GameEventStart`, `GameEventComplete`, and `GameEventCancel` (default `Guid.Empty` = standalone single-file import; nothing populates or reads it yet — that is the saga wiring below). Solution builds, 231 tests still pass.
+
+**Remaining**: persist/echo `BulkImportId` in `GameEventSagaData`/`GameEventSaga`; `BulkGameEventImportSaga`; the `OnMessageSentToErrorQueue` hook; the two API endpoints + routing + compose volume; saga tests; live end-to-end verification.
