@@ -42,6 +42,7 @@ namespace Retrosharp.Engine.Console.Saga
 
             Data.RequestId = message.RequestId;
             Data.FilePath = message.FilePath;
+            Data.BulkImportId = message.BulkImportId;
             Data.IsRunning = true;
 
             _logger.LogInformation("Starting Game Event import from '{FilePath}'.", message.FilePath);
@@ -65,6 +66,7 @@ namespace Retrosharp.Engine.Console.Saga
             {
                 RequestId = message.RequestId,
                 FilePath = message.FilePath,
+                BulkImportId = message.BulkImportId,
                 GamesInserted = result.GamesInserted,
                 GamesSkipped = result.GamesSkipped,
                 StatisticsApplied = result.StatisticsApplied,

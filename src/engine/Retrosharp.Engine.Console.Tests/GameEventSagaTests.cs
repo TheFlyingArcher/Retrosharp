@@ -47,6 +47,37 @@ namespace Retrosharp.Engine.Console.Tests
         }
 
         [Fact]
+        public async Task Handle_Start_WithBulkImportId_PersistsItAndEchoesItOnComplete()
+        {
+            // When the import was dispatched by BulkGameEventImportSaga, the correlation id
+            // must survive onto the GameEventComplete so the bulk saga can record the outcome.
+            var bulkImportId = Guid.NewGuid();
+            var saga = CreateSaga(new FakeGameEventImportService());
+            var context = new TestableMessageHandlerContext();
+
+            await saga.Handle(
+                new GameEventStart { RequestId = Guid.NewGuid(), FilePath = "2025SDN.EVN", BulkImportId = bulkImportId },
+                context);
+
+            Assert.Equal(bulkImportId, saga.Data.BulkImportId);
+            var complete = Assert.IsType<GameEventComplete>(Assert.Single(context.SentMessages).Message);
+            Assert.Equal(bulkImportId, complete.BulkImportId);
+        }
+
+        [Fact]
+        public async Task Handle_Start_WithoutBulkImportId_LeavesItEmptyOnComplete()
+        {
+            var saga = CreateSaga(new FakeGameEventImportService());
+            var context = new TestableMessageHandlerContext();
+
+            await saga.Handle(new GameEventStart { RequestId = Guid.NewGuid(), FilePath = "2025SDN.EVN" }, context);
+
+            Assert.Equal(Guid.Empty, saga.Data.BulkImportId);
+            var complete = Assert.IsType<GameEventComplete>(Assert.Single(context.SentMessages).Message);
+            Assert.Equal(Guid.Empty, complete.BulkImportId);
+        }
+
+        [Fact]
         public async Task Handle_Start_UnrecoverableException_PropagatesWithoutCompletingOrSendingComplete()
         {
             // The saga no longer catch-and-completes unrecoverable failures. Doing so meant a

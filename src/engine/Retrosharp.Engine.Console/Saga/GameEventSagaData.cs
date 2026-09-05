@@ -18,5 +18,14 @@ namespace Retrosharp.Engine.Console.Saga
         /// starting a second concurrent import of the same file.
         /// </summary>
         public bool IsRunning { get; set; }
+
+        /// <summary>
+        /// The bulk import run this file belongs to, copied from GameEventStart.BulkImportId
+        /// and echoed back on GameEventComplete so BulkGameEventImportSaga can correlate the
+        /// outcome. Guid.Empty for a standalone single-file import. Stored in the saga data's
+        /// JSONB blob -- no persistence schema change, since it is not a correlation property
+        /// (FilePath remains this saga's only correlation key). See spec/bulk-import.md.
+        /// </summary>
+        public Guid BulkImportId { get; set; }
     }
 }
