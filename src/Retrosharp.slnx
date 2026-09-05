@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/engine/">
-    <Project Path="engine/Retrosharp.Engine.Console/Retrosharp.Engine.Console.csproj" />
     <Project Path="engine/Retrosharp.Engine.Console.Tests/Retrosharp.Engine.Console.Tests.csproj" />
+    <Project Path="engine/Retrosharp.Engine.Console/Retrosharp.Engine.Console.csproj" />
   </Folder>
   <Folder Name="/lib/">
     <Project Path="lib/Retrosharp.Data.Migration/Retrosharp.Data.Migration.csproj" Id="71b0dc3f-373e-4e55-ab60-a055da8d25ba" />
@@ -23,6 +23,7 @@
     <File Path="../spec/game-event.md" />
     <File Path="../spec/game-log.md" />
     <File Path="../spec/seed-data.md" />
+    <File Path="bulk-import.md" />
   </Folder>
   <Folder Name="/ui/">
     <Project Path="ui/Retrosharp.UI.Api/Retrosharp.UI.Api.csproj" Id="41176f60-6d01-4560-b756-23782baaf6da" />

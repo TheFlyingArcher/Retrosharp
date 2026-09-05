@@ -38,6 +38,8 @@ Retrosheet data is imported through a series of ETL parsers, each responsible fo
 
 `Game` is populated exclusively by the Game Log Parser. The Game Event Parser requires a `Game` record to already exist before it can associate play-by-play events with it, and never creates `Game` records itself.
 
+Retrosheet distributes a full season's play-by-play as a per-season zip archive of team-season event files. The **Bulk Game Event Import** process extracts such an archive and orchestrates the existing Game Event Parser once per file, in configurable batches, with per-file status tracking and resumable reruns. It is orchestration over the Game Event Parser, not a new parser. See [bulk-import.md](./bulk-import.md).
+
 ## Deployable Components
 
 ### Retrosharp.Engine.Console

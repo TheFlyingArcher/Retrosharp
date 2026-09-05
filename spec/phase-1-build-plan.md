@@ -35,8 +35,14 @@ Step 1: Schema Alignment
                                    Step 8: Containerized Deployment
                                               │
                                               ▼
+                                   Step 10: Bulk Game Event Import
+                                              │
+                                              ▼
                                    Step 9: End-to-End Validation
 ```
+
+(Step 10 was added after Steps 8 and 9 were numbered; it depends on Step 6 and Step 8, and
+Step 9's "every team, one full season" is run through it.)
 
 ---
 
@@ -1014,3 +1020,37 @@ A subsequent research pass over the whole `src/` tree (before writing any code) 
 **Objective**: Validate the full pipeline against real, complete Retrosheet data for at least one full season — seed data, biofile, Game Logs, and Game Event files for every team — confirming statistics computed from the resulting data match known, independently-verifiable figures for that season (for example, published league leaders).
 
 **Definition of done**: a full season imports cleanly, statistics are queryable and correct, and the reconciliation warnings from Step 6e are silent (no unexpected discrepancies) against real data.
+
+Note: the "Game Event files for every team" import is expected to be run through Step 10's bulk import, not 30 individual `POST /api/gameevent/import` calls.
+
+---
+
+## Step 10: Bulk Game Event Import
+
+**Status**: In Progress
+
+**Governing spec**: [bulk-import.md](./bulk-import.md)
+
+**Depends on**: Step 6 (the Game Event saga it orchestrates) and Step 8 (the shared volume the archive and extraction directory live on). Feeds Step 9.
+
+**Objective**: Import a whole season of Retrosheet team-season event files from one zip archive with one API call, orchestrated by a new saga that drives the existing per-file Game Event saga in configurable batches, with per-file status tracking, resumable reruns, and cleanup.
+
+**Deliverables**:
+- `BulkImport` / `BulkImportFile` EF Core models + a migration; the SQL-persistence schema for the new saga generated the same way `GameEventSaga`'s was (Step 6f).
+- `BulkGameEventImportStart`, `GameEventImportFailed` messages; a `BulkImportId` field added to `GameEventStart`/`GameEventComplete` (echoed through `GameEventSagaData`), left unset by the existing single-file path.
+- `BulkGameEventImportSaga` in `Retrosharp.Engine.Console`: archive extraction + event-file discovery, up-front Game-Log-imported validation, `Pending`/`Skipped` seeding from prior-run history, an N-in-flight dispatch window, completion/failure handling, an overall watchdog timeout, and post-run cleanup.
+- An `OnMessageSentToErrorQueue` hook in `Retrosharp.Engine.Console`'s recoverability wiring that emits `GameEventImportFailed` for any errored message carrying a `BulkImportId`.
+- `POST /api/gameevent/bulkimport` and `GET /api/gameevent/bulkimport/{trackingId}` on `GameEventController`, plus `BulkGameEventImportStart` routing in `Retrosharp.UI.Api/Program.cs` and a shared-volume mount for both containers in `docker-compose.yml`.
+- Saga unit tests (`BulkGameEventImportSagaTests`) alongside the existing `GameEventSagaTests`.
+
+**Definition of done**: matches [bulk-import.md](./bulk-import.md)'s Acceptance Criteria in full — a season archive imports every file in batches of the configured size, a corrupt file fails without stalling the run and lands on the error queue, a rerun skips already-successful files, a missing Game Log is refused up front with a visible reason, and cleanup leaves only the failed files behind.
+
+### Progress Log
+
+**Data layer (complete)**: `Retrosharp.Contract.BulkImport` (`BulkImport`, `BulkImportFile` entities; `BulkImportStatus` = `Pending`/`InProgress`/`Completed`/`CompletedWithFailures`/`Failed`; `BulkImportFileStatus` = `Pending`/`InProgress`/`Success`/`Failed`/`Skipped`). `BulkImportModel`/`BulkImportFileModel` (`FailureReason`/`ErrorMessage` nullable — NULL means "no failure", not the `""` convention used for parsed-data fields). `RetrosharpContext`: `TrackingId` unique index, `SeasonYear` index, `BulkImportFile` cascade-deleted with its parent, `(BulkImportId, FileName)` unique, `FileName` index (backs the rerun lookup, which joins to `BulkImport` for `SeasonYear` rather than denormalizing the year). Hand-rolled `IBulkImportRepository`/`BulkImportRepository` (`CreateAsync` inserts the run + all seeded file rows in one transaction; `GetByTrackingIdAsync`; `GetMostRecentFileOutcomeAsync`; `MarkFileInProgressAsync`; `MarkFileCompletedAsync`; `UpdateBulkStatusAsync`), registered in `Retrosharp.Data`'s `IocRegistratrions`. Migration `20260905190139_AddBulkImport`.
+
+**Verification**: full solution build 0 errors; 231 existing unit tests still passing; every migration (including `AddBulkImport`) applied cleanly to a fresh scratch Postgres database, with `\d` confirming both tables, all indexes, and the cascade FK.
+
+**Note**: `docs/csv/franchises.csv` and `ballparks.csv` were absent from the working tree (a pre-existing uncommitted deletion, unrelated to this step); restored from git since `Retrosharp.Data.Migration` copies them at build time and `dotnet ef` can't run without them.
+
+**Remaining**: messages + `BulkImportId` threading through `GameEventStart`/`GameEventComplete`/`GameEventSagaData`; `BulkGameEventImportSaga`; the `OnMessageSentToErrorQueue` hook; the two API endpoints + routing + compose volume; saga tests; live end-to-end verification.

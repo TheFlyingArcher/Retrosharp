@@ -14,6 +14,7 @@ namespace Retrosharp.Data
             services.AddTransient<IFranchiseRepository, FranchiseRepository>();
             services.AddTransient<ILeagueRepository, LeagueRepository>();
             services.AddTransient<IBallparkRepository, BallparkRepository>();
+            services.AddTransient<IBulkImportRepository, BulkImportRepository>();
             services.AddTransient<IGameRepository, GameRepository>();
             services.AddTransient<IGameLineupRepository, GameLineupRepository>();
             services.AddTransient<IGameEventRepository, GameEventRepository>();

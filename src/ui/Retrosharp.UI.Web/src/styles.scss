@@ -1,2 +1,1 @@
-@import 'bootstrap/scss/bootstrap-grid.scss';
-@import 'bootstrap/scss/utilities';
+@use "../node_modules/bootstrap/scss/bootstrap" as *;

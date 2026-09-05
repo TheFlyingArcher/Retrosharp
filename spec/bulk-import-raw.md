@@ -1,0 +1,33 @@
+# Bulk Import of Retrosheet Game Events
+
+## Overview
+
+I imported the 2024 season game events from Retrosheet using the endpoint `/api/gameevent/import`. The import process was successful, however it was an exercise in tedium. Retrosheet has game events dating all the way back to 1871. Even if constraining to 1998, the last year that MLB expanded to 30 teams, 30 teams multiplied by 28 years amounts to **840** individual game event files. One person using one API call to import each file would take a long time. Therefore, a bulk insert process needs to be implemented. This document outlines the process of bulk importing Retrosheet game events.
+
+## Requirements
+
+1. The Retrosheet game event files are available in a zip file format. The bulk import process should be able to handle the extraction of these files.
+1. The amount of files that can be inserted at once is a configurable parameter. The default value is set to 10 files per batch.
+1. The bulk insert is an asynchronous process. The user should be able to initiate the bulk import and receive a response indicating that the process has started, along with a unique identifier for tracking the progress of the import.
+1. The bulk insert asynchronous process is a new saga within the `Retrosharp.Engine.Console` project.
+1. Bulk inserting will make use of the existing sagas for inserting individual game events. The bulk insert saga will orchestrate the insertion of multiple files by invoking the existing sagas for each file in the batch.
+1. Bulk inserting will record in the database the status of each file being processed, including success or failure, and any relevant error messages. This will allow users to track the progress of the bulk import and identify any issues that may arise during the process. Before importing begins, all event files discovered will be inserted into the database with a status of "Pending". As each file is processed, the status will be updated to "In Progress", and upon completion, the status will be updated to either "Success" or "Failed" based on the outcome of the import.
+1. The bulk insert process should be designed to handle failures gracefully. If a file fails to import, the process should continue with the remaining files in the batch, and the user should be notified of any failures at the end of the process.
+1. Rerunning the import process for the same season, the process should be able to detect and skip files that have already been successfully imported, based on the status recorded in the database. This will prevent duplicate imports and ensure that only new or failed files are processed. Failed files should be reprocessed, while successfully imported files should be skipped. The user should be notified of any skipped files at the end of the process.
+1. Before running the bulk import, it must validate that Retrosheet game log for that season has already been imported. If not, the bulk import process should not proceed and should return an error indicating that the game log must be imported first. This validation ensures that the necessary game log data is available for processing the game events.
+1. This bulk import shall be a new endpoint in the `Retrosharp.Engine.Api` project, accessible via `/api/gameevent/bulkimport`. The endpoint should accept a zip file containing the Retrosheet game event files and initiate the bulk import process. The response should include a unique identifier for tracking the progress of the import, along with any relevant information about the import process.
+1. This is part of Phase One of the Retrosharp project, which focuses on importing Retrosheet data into the system. The bulk import process is a critical component of this phase, as it allows for the efficient and streamlined import of large volumes of game event data.
+1. After the bulk import is complete, each of the extracted files shall be removed from the file system to free up space and maintain a clean working environment. A file is to be removed **if and only if** the import of that file was successful. If the import of a file fails, the file should remain in the file system for further investigation and troubleshooting.
+
+## Acceptance Criteria
+
+1. The bulk import process should be able to handle the extraction of Retrosheet game event files from a zip file format.
+1. The bulk import process should be able to process a configurable number of files per batch, with a default value of 10 files.
+1. The bulk import process should be asynchronous, allowing users to initiate the import and receive a response indicating that the process has started, along with a unique identifier for tracking progress.
+1. The bulk import process should utilize existing sagas for inserting individual game events, orchestrating the insertion of multiple files by invoking the existing sagas for each file in the batch.
+1. The bulk import process should record the status of each file being processed in the database, including success or failure, and any relevant error messages. The status should be updated as each file is processed, allowing users to track progress and identify any issues.
+1. The bulk import process should handle failures gracefully, continuing with the remaining files in the batch if a file fails to import, and notifying the user of any failures at the end of the process.
+1. The bulk import process should detect and skip files that have already been successfully imported, based on the status recorded in the database. Failed files should be reprocessed, while successfully imported files should be skipped, and the user should be notified of any skipped files at the end of the process.
+1. The bulk import process should validate that the Retrosheet game log for the specified season has already been imported before proceeding. If the game log has not been imported, the process should return an error indicating that the game log must be imported first.
+1. The bulk import process should be accessible via a new endpoint in the `Retrosharp.Engine.Api` project, `/api/gameevent/bulkimport`, accepting a zip file containing the Retrosheet game event files and initiating the bulk import process. The response should include a unique identifier for tracking progress and any relevant information about the import process.
+1. The bulk import process cleans up the extracted files from the file system after successful import, ensuring that only successfully imported files are removed, while failed files remain for further investigation and troubleshooting.

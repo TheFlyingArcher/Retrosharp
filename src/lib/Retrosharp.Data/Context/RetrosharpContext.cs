@@ -21,6 +21,8 @@ namespace Retrosharp.Data.Context
 
         // DbSet properties for each entity
         public DbSet<BallparkModel> Ballparks { get; set; }
+        public DbSet<BulkImportModel> BulkImports { get; set; }
+        public DbSet<BulkImportFileModel> BulkImportFiles { get; set; }
         public DbSet<BattingModel> Batting { get; set; }
         public DbSet<FieldingModel> Fielding { get; set; }
         public DbSet<FranchiseModel> Franchises { get; set; }
@@ -489,6 +491,35 @@ namespace Retrosharp.Data.Context
                     .WithMany()
                     .HasForeignKey(f => f.FranchiseId)
                     .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Configure BulkImport entity -- the parent row of one bulk Game Event import run.
+            // See spec/bulk-import.md.
+            modelBuilder.Entity<BulkImportModel>(entity =>
+            {
+                // TrackingId is the caller-facing identifier and the saga's correlation value;
+                // the status endpoint resolves a run by it, so it must be unique.
+                entity.HasIndex(e => e.TrackingId).IsUnique();
+                entity.HasIndex(e => e.SeasonYear);
+            });
+
+            // Configure BulkImportFile entity -- one row per event file discovered in the
+            // archive. Cascade-deleted with its BulkImport (unlike the Game* context tables,
+            // which Restrict, this table has no second incoming relationship to conflict with).
+            modelBuilder.Entity<BulkImportFileModel>(entity =>
+            {
+                entity.HasIndex(e => new { e.BulkImportId, e.FileName }).IsUnique();
+
+                // Backs the rerun lookup ("most recent outcome for this season + file name"),
+                // which joins BulkImportFile to BulkImport for SeasonYear rather than
+                // denormalizing the year onto this table. See spec/bulk-import.md, "Rerun
+                // skips files that already succeeded".
+                entity.HasIndex(e => e.FileName);
+
+                entity.HasOne(f => f.BulkImport)
+                    .WithMany(b => b.Files)
+                    .HasForeignKey(f => f.BulkImportId)
+                    .OnDelete(DeleteBehavior.Cascade);
             });
         }
     }
