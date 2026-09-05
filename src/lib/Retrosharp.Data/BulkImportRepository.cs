@@ -26,6 +26,14 @@ namespace Retrosharp.Data
             if (bulkImport == null)
                 throw new ArgumentNullException(nameof(bulkImport));
 
+            // Get-or-create on TrackingId: the bulk import start handler is not transactional
+            // with this write, so a handler that committed the row and then failed (before
+            // persisting its saga state) is retried from scratch -- returning the existing run
+            // here lets that retry converge instead of tripping the TrackingId unique index.
+            var existing = await GetByTrackingIdAsync(bulkImport.TrackingId);
+            if (existing != null)
+                return existing;
+
             var model = _mapper.Map<BulkImportModel>(bulkImport);
             // Mapster copies Id straight across; a create must let the database assign it, on
             // the parent and every child.

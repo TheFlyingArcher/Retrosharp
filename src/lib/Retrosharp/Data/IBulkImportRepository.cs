@@ -13,8 +13,10 @@ namespace Retrosharp.Data
         /// <summary>
         /// Inserts a bulk import run together with every discovered file row (already carrying
         /// its initial <see cref="BulkImportFile.Status"/> of <c>Pending</c> or <c>Skipped</c>)
-        /// as a single transaction. Returns the run with database-assigned <c>Id</c>s populated
-        /// on it and every file.
+        /// as a single transaction, and returns it with database-assigned <c>Id</c>s populated
+        /// on it and every file. Idempotent on <see cref="BulkImport.TrackingId"/>: if a run
+        /// with that id already exists it is returned unchanged, so a retried start handler
+        /// converges instead of violating the unique index.
         /// </summary>
         Task<BulkImport> CreateAsync(BulkImport bulkImport);
 

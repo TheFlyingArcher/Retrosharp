@@ -73,9 +73,19 @@ namespace Retrosharp.Engine.Console
                     errorContext.ImmediateProcessingFailures,
                     errorContext.DelayedDeliveriesPerformed));
 
+            // Assigned right after the host is built; the callback below only runs when a
+            // message actually fails at processing time -- well after startup -- so it is
+            // always populated by then. Lets a per-file GameEventStart that belongs to a bulk
+            // run notify BulkGameEventImportSaga when it lands on the error queue, without
+            // GameEventSaga having to catch and report its own failures. See spec/bulk-import.md.
+            IServiceProvider? runtimeServices = null;
+            recoverability.Failed(failed => failed.OnMessageSentToErrorQueue((failedMessage, cancellationToken) =>
+                BulkImportFailureNotifier.OnMessageSentToErrorQueueAsync(runtimeServices, failedMessage, cancellationToken)));
+
             builder.UseNServiceBus(endpointConfiguration);
 
             var host = builder.Build();
+            runtimeServices = host.Services;
 
             // A separate, minimal WebApplication rather than extending the NServiceBus host
             // itself -- this stays a plain worker process with no other web-hosting surface,
