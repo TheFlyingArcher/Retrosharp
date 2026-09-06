@@ -133,7 +133,7 @@ namespace Retrosharp.Engine.Console.Saga
                 WorkingDirectory = workingDirectory,
                 BatchSize = batchSize,
                 Status = BulkImportStatus.InProgress,
-                CreatedUtc = DateTime.UtcNow,
+                CreatedUtc = UtcNow,
                 Files = seeds
             });
 
@@ -185,7 +185,7 @@ namespace Retrosharp.Engine.Console.Saga
                 "Bulk Game Event import {BulkImportId} watchdog fired with {Count} file(s) still unfinished; marking them Failed.",
                 Data.BulkImportId, unfinished.Count);
 
-            var now = DateTime.UtcNow;
+            var now = UtcNow;
             foreach (var file in unfinished)
             {
                 file.Status = BulkImportFileStatus.Failed;
@@ -216,7 +216,7 @@ namespace Retrosharp.Engine.Console.Saga
 
             file.Status = outcome;
             await _bulkImportRepository.MarkFileCompletedAsync(
-                file.Id, outcome, DateTime.UtcNow, error, gamesInserted, gamesSkipped);
+                file.Id, outcome, UtcNow, error, gamesInserted, gamesSkipped);
 
             if (outcome == BulkImportFileStatus.Failed)
                 _logger.LogWarning("Bulk Game Event import {BulkImportId}: '{FileName}' failed -- {Error}",
@@ -231,7 +231,7 @@ namespace Retrosharp.Engine.Console.Saga
         private async Task DispatchAsync(IMessageHandlerContext context)
         {
             var inFlight = Data.Files.Count(f => f.Status == BulkImportFileStatus.InProgress);
-            var now = DateTime.UtcNow;
+            var now = UtcNow;
 
             while (inFlight < Data.BatchSize)
             {
@@ -264,7 +264,7 @@ namespace Retrosharp.Engine.Console.Saga
             TryRemoveEmptyDirectory(Data.WorkingDirectory);
 
             var status = failed > 0 ? BulkImportStatus.CompletedWithFailures : BulkImportStatus.Completed;
-            await _bulkImportRepository.UpdateBulkStatusAsync(Data.BulkImportRowId, status, failureReason: null, completedUtc: DateTime.UtcNow);
+            await _bulkImportRepository.UpdateBulkStatusAsync(Data.BulkImportRowId, status, failureReason: null, completedUtc: UtcNow);
 
             _logger.Log(failed > 0 ? LogLevel.Warning : LogLevel.Information,
                 "Bulk Game Event import {BulkImportId} for season {SeasonYear} {Status}: {Succeeded} succeeded, {Failed} failed, {Skipped} skipped (of {Total}).",
@@ -283,7 +283,7 @@ namespace Retrosharp.Engine.Console.Saga
             _logger.LogWarning(
                 "Bulk Game Event import {BulkImportId} rejected: {Reason}", message.BulkImportId, reason);
 
-            var now = DateTime.UtcNow;
+            var now = UtcNow;
             await _bulkImportRepository.CreateAsync(new ContractBulkImport
             {
                 TrackingId = message.BulkImportId,
@@ -303,6 +303,11 @@ namespace Retrosharp.Engine.Console.Saga
 
         private static bool IsTerminal(BulkImportFileStatus status) =>
             status is BulkImportFileStatus.Success or BulkImportFileStatus.Failed or BulkImportFileStatus.Skipped;
+
+        // Every DateTime column in this schema is "timestamp without time zone", which Npgsql
+        // will not write a Kind=Utc value into. Match the rest of the codebase (see
+        // GameStatisticsRepository) and hand it Kind=Unspecified wall-clock UTC.
+        private static DateTime UtcNow => DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
 
         private string ResolveWorkingDirectory(string zipPath, Guid trackingId)
         {

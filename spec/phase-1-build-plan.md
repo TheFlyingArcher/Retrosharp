@@ -1027,7 +1027,7 @@ Note: the "Game Event files for every team" import is expected to be run through
 
 ## Step 10: Bulk Game Event Import
 
-**Status**: In Progress
+**Status**: Complete
 
 **Governing spec**: [bulk-import.md](./bulk-import.md)
 
@@ -1071,4 +1071,10 @@ Solution builds, 233 tests still pass.
 
 **Config & compose (complete)**: `BulkImportConfiguration` (`Retrosharp.Configuration`, same `Instance()` pattern as `MessagingConfiguration`) — `DefaultBatchSize` (10), `WatchdogTimeoutHours` (6), `ExtractionRoot` (empty ⇒ `_bulk-import/<id>/` next to the zip). Registered as a singleton in the engine's `Program.cs` and injected into `BulkGameEventImportSaga` (replacing the stopgap constants). `BulkImport` section added to the engine `appsettings.json`; `BulkImport__*` overrides documented in `.env.example`. `docker-compose.yml`: `./data/retrosheet` bind-mounted into `retrosharp-engine-console` only (the API never reads the file), with `.gitignore` keeping the folder but not its contents (`data/retrosheet/.gitkeep`). `docs/deployment.md` gains a "Bulk Game Event import" section; `spec/bulk-import.md` corrected (engine-only mount, POST does not stat the path, extraction dir naming). Both compose files still `docker compose config`-valid; solution builds, 233 tests pass.
 
-**Remaining**: `BulkGameEventImportSagaTests` + `EventFileArchive`/`BulkImportFailureNotifier` unit tests; live end-to-end verification.
+**Tests (complete)**: `Retrosharp.Engine.Console.Tests` +42 (38 → 80): `EventFileArchiveTests` (filename grammar, season cross-check, flatten/filter, extract), `BulkGameEventImportSagaTests` (15: startup validation ×5, dispatch window, rerun skip, all-skipped short-circuit, complete/fail resolution + batch advance, ignore-not-in-flight, finish `Completed`/`CompletedWithFailures` + cleanup, watchdog, watchdog-after-finish no-op), `BulkImportFailureNotifierTests` (header match incl. no self-match, JSON body parse). `FakeBulkImportRepository` asserts no `Kind=Utc` DateTime reaches it (regression guard for the bug below). Full suite 275 pass.
+
+**Live end-to-end (complete)**: real Postgres + RabbitMQ, `Retrosharp.Data.Migration` applied to the dev DB (`AddBulkImport` + `BulkGameEventImportSaga_Create.sql`), engine + `UI.Api` run locally. `POST /api/gameevent/bulkimport` with a 3-event-file zip for 2024 (Game Log present) → `202` + trackingId; batch window honoured (`2024SEA.EVA` started only after `2024SDN.EVN` resolved, batchSize 2); each child `GameEventStart` failed parsing (synthetic files) → error queue → the `OnMessageSentToErrorQueue` hook logged "Notified bulk import … failed" and sent `GameEventImportFailed` → saga marked each file `Failed` with the exception summary → run ended `CompletedWithFailures`, `completedUtc` set, all 3 failed files left in the working dir, all 3 messages retained on the error queue. Also verified live: Game-Log-not-imported → `status: Failed` + `failureReason` and zero files/dispatch; `GET` unknown id → `404`; `POST` missing `zipPath` → `400`. Not exercised live (no real Retrosheet event files on disk): the per-file success path (`Success` + game counts + file deleted + run `Completed`) and rerun-skip — both covered by unit tests.
+
+**Bug found and fixed during the live run**: every timestamp the saga wrote (`CreatedUtc`, `ProcessedUtc`, …) used `DateTime.UtcNow` (`Kind=Utc`), which Npgsql rejects for this schema's `timestamp without time zone` columns — `CreateAsync` threw `DbUpdateException` on the first real insert. Fixed with a `DateTime.SpecifyKind(…, Unspecified)` helper in the saga, matching `GameStatisticsRepository`'s existing pattern; the fake repository now guards against a regression.
+
+**Observation (out of scope, pre-existing)**: `ImportFailureClassifier` does not list `EventFileParseException` as unrecoverable, so a genuinely malformed event file retries the full immediate+delayed ladder before reaching the error queue. Affects single-file import equally; not a bulk-import concern.

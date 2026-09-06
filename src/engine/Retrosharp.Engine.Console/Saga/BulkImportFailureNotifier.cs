@@ -35,10 +35,11 @@ namespace Retrosharp.Engine.Console.Saga
             if (runtimeServices is null)
                 return;
 
-            if (!IsGameEventStart(failedMessage))
+            failedMessage.Headers.TryGetValue(Headers.EnclosedMessageTypes, out var enclosedMessageTypes);
+            if (!IsGameEventStart(enclosedMessageTypes))
                 return;
 
-            if (!TryReadChildFields(failedMessage, out var bulkImportId, out var filePath) || bulkImportId == Guid.Empty)
+            if (!TryReadChildFields(failedMessage.Body, out var bulkImportId, out var filePath) || bulkImportId == Guid.Empty)
                 return;
 
             var session = runtimeServices.GetRequiredService<IMessageSession>();
@@ -62,26 +63,37 @@ namespace Retrosharp.Engine.Console.Saga
                     bulkImportId, Path.GetFileName(filePath));
         }
 
-        private static bool IsGameEventStart(FailedMessage failedMessage)
+        /// <summary>
+        /// True when the <c>NServiceBus.EnclosedMessageTypes</c> header names
+        /// <see cref="GameEventStart"/> as (one of) the message type(s) -- matched exactly
+        /// against each entry's type name, so it never matches <see cref="GameEventImportFailed"/>
+        /// and cannot feed itself.
+        /// </summary>
+        internal static bool IsGameEventStart(string? enclosedMessageTypes)
         {
-            if (!failedMessage.Headers.TryGetValue(Headers.EnclosedMessageTypes, out var enclosed) || string.IsNullOrEmpty(enclosed))
+            if (string.IsNullOrEmpty(enclosedMessageTypes))
                 return false;
 
             var expected = typeof(GameEventStart).FullName;
-            return enclosed
+            return enclosedMessageTypes
                 .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(t => t.Split(',', 2)[0].Trim())
                 .Any(t => t == expected);
         }
 
-        private static bool TryReadChildFields(FailedMessage failedMessage, out Guid bulkImportId, out string filePath)
+        /// <summary>
+        /// Pulls <c>BulkImportId</c> and <c>FilePath</c> out of a serialized
+        /// <see cref="GameEventStart"/> body. Returns false only if the body is not parseable
+        /// JSON; a body missing either field yields <see cref="Guid.Empty"/> / <c>""</c>.
+        /// </summary>
+        internal static bool TryReadChildFields(ReadOnlyMemory<byte> body, out Guid bulkImportId, out string filePath)
         {
             bulkImportId = Guid.Empty;
             filePath = string.Empty;
 
             try
             {
-                using var document = JsonDocument.Parse(failedMessage.Body);
+                using var document = JsonDocument.Parse(body);
                 var root = document.RootElement;
 
                 if (root.TryGetProperty("BulkImportId", out var idElement) && idElement.TryGetGuid(out var id))
