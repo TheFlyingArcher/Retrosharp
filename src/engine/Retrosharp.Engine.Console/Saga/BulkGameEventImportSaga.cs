@@ -112,8 +112,11 @@ namespace Retrosharp.Engine.Console.Saga
             var toProcess = new List<string>();
             foreach (var fileName in archiveFiles)
             {
+                // A most-recent outcome of Success OR Skipped both mean "this file's games
+                // are already imported for this season" -- a later run that skipped it does
+                // not un-import it. Only Failed (or no prior row) warrants reprocessing.
                 var priorOutcome = await _bulkImportRepository.GetMostRecentFileOutcomeAsync(season, fileName);
-                var status = priorOutcome == BulkImportFileStatus.Success
+                var status = priorOutcome is BulkImportFileStatus.Success or BulkImportFileStatus.Skipped
                     ? BulkImportFileStatus.Skipped
                     : BulkImportFileStatus.Pending;
 

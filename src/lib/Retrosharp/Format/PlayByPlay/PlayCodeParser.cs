@@ -988,9 +988,9 @@ namespace Retrosharp.Format.PlayByPlay
         /// Parses one "&lt;start&gt;-&lt;end&gt;" (safe) or "&lt;start&gt;X&lt;end&gt;(fielders)" (out)
         /// advance segment, including trailing "(...)" annotation groups: a fielder chain for
         /// an out, "(E&lt;n&gt;...)" for an error charged during a safe advance, "(NR)"/"(NORBI)" to
-        /// deny an otherwise-implied RBI, and "(UR)" to mark an otherwise-implied earned run as
-        /// unearned. Explicit segments always override whatever the primary code implied by
-        /// default for that runner.
+        /// deny an otherwise-implied RBI (and "(RBI)" to affirm one), and "(UR)"/"(TUR)" to
+        /// mark an otherwise-implied earned run as unearned. Explicit segments always override
+        /// whatever the primary code implied by default for that runner.
         /// </summary>
         private static void ApplyAdvanceSegment(string segment, string rawEventText, IDictionary<BaseState, MutableRunner> runners)
         {
@@ -1043,9 +1043,9 @@ namespace Retrosharp.Format.PlayByPlay
             }
             else if (endBase == BaseState.Home)
             {
-                // A scored run is an RBI and earned by default; only an explicit annotation
-                // denies either -- confirmed empirically against the real reference files,
-                // where "(RBI)" itself never appears but "(NR)"/"(UR)" do.
+                // A scored run is an RBI and earned by default; an explicit annotation can
+                // deny either ("(NR)"/"(NORBI)", "(UR)"/"(TUR)") or, rarely, affirm the RBI
+                // ("(RBI)" -- one occurrence across the entire 2023 archive; see below).
                 runner.IsRBI = true;
                 runner.IsEarnedRun = true;
             }
@@ -1068,6 +1068,16 @@ namespace Retrosharp.Format.PlayByPlay
                             Sequence = runner.FieldingCredits.Count + 1
                         });
                     }
+                }
+                else if (annotation is "RBI")
+                {
+                    // Explicit RBI affirmation. Rare -- exactly one occurrence across the
+                    // whole 2023 season archive, 2023BOS.EVA's "C/E2.3-H(RBI)(UR);2-3;1-2;B-1"
+                    // (a catcher's-interference play where the run is unearned but still an
+                    // RBI). A scored run already defaults to IsRBI = true above, so this only
+                    // matters where the play type would otherwise suppress it; setting it
+                    // explicitly is correct either way. Found during spec/bulk-insert-qa.md.
+                    runner.IsRBI = true;
                 }
                 else if (annotation is "NR" or "NORBI")
                 {

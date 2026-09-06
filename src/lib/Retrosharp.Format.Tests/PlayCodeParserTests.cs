@@ -206,6 +206,23 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Parse_ExplicitRbiAnnotationOnAnUnearnedRun_IsRbiButNotEarned()
+        {
+            // docs/csv/2023/gameevent/2023eve.zip -> 2023BOS.EVA:6527
+            // play,4,1,mcgur002,00,X,C/E2.3-H(RBI)(UR);2-3;1-2;B-1
+            // Catcher's interference with an error on the catcher: the runner from third
+            // scores, is explicitly flagged "(RBI)", and the run is "(UR)" (unearned).
+            // The "(RBI)" annotation must parse (it previously threw -- see
+            // spec/bulk-insert-qa-results.md, Finding A).
+            var result = PlayCodeParser.Parse("C/E2.3-H(RBI)(UR);2-3;1-2;B-1", "00", "X");
+
+            var scored = Assert.Single(result.Runners, r => r.EndBase == BaseState.Home);
+            Assert.Equal(BaseState.Third, scored.StartBase);
+            Assert.True(scored.IsRBI);
+            Assert.False(scored.IsEarnedRun);
+        }
+
+        [Fact]
         public void Parse_WalkWithBasesLoaded_OnlyForcedRunnerFromThirdGetsRbi()
         {
             // play,8,1,tatif002,32,BBCCFFFFB>B,W.3-H;2-3;1-2

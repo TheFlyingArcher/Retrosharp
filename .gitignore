@@ -67,8 +67,15 @@ nunit-*.xml
 **/.vs
 
 # Retrosheet source data downloaded locally for ETL testing (referenced by file path
-# at runtime, not a build-embedded resource -- see spec/person.md, spec/game-log.md)
+# at runtime, not a build-embedded resource -- see spec/person.md, spec/game-log.md).
+# Recursive: season data is sometimes organised into docs/csv/<year>/... subfolders.
 biodata/
+docs/csv/**/gl*.txt
+docs/csv/**/biofile*.csv
+docs/csv/**/*.EVN
+docs/csv/**/*.EVA
+docs/csv/**/*.ROS
+docs/csv/**/*eve.zip
 docs/csv/gl*.txt
 docs/csv/biofile*.csv
 docs/csv/*.EVN
@@ -80,3 +87,8 @@ docs/csv/*.ROS
 # ignore its contents. See spec/bulk-import.md.
 /data/retrosheet/*
 !/data/retrosheet/.gitkeep
+
+# Transient per-run extraction directory the bulk import saga creates next to the
+# source zip (or under BulkImport__ExtractionRoot) and normally cleans up itself;
+# left behind for any file that failed to import. Never belongs in source control.
+_bulk-import/

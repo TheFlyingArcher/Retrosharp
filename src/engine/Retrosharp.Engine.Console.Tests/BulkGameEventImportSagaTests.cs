@@ -173,21 +173,24 @@ namespace Retrosharp.Engine.Console.Tests
         }
 
         [Fact]
-        public async Task Start_RerunSkipsAlreadySucceededFiles()
+        public async Task Start_RerunSkipsFilesWhoseMostRecentOutcomeIsSuccessOrSkipped()
         {
             var bulkRepo = new FakeBulkImportRepository();
             bulkRepo.PriorOutcomes[(2024, "2024ARI.EVN")] = BulkImportFileStatus.Success;
-            bulkRepo.PriorOutcomes[(2024, "2024LAN.EVN")] = BulkImportFileStatus.Failed; // failed => reprocess
+            bulkRepo.PriorOutcomes[(2024, "2024LAN.EVN")] = BulkImportFileStatus.Skipped; // already imported on an earlier rerun => still skip
+            bulkRepo.PriorOutcomes[(2024, "2024SDN.EVN")] = BulkImportFileStatus.Failed;  // failed => reprocess
+            // 2024SEA.EVA has no prior row => reprocess
             var saga = CreateSaga(bulkRepo, GameLogImported(), batchSize: 10);
             var context = new TestableMessageHandlerContext();
 
             await saga.Handle(StartFor(Guid.NewGuid(), CreateArchive("2024eve.zip", FourFiles)), context);
 
             Assert.Equal(BulkImportFileStatus.Skipped, bulkRepo.FileNamed("2024ARI.EVN").Status);
+            Assert.Equal(BulkImportFileStatus.Skipped, bulkRepo.FileNamed("2024LAN.EVN").Status);
             Assert.False(File.Exists(Path.Combine(saga.Data.WorkingDirectory, "2024ARI.EVN")));
+            Assert.False(File.Exists(Path.Combine(saga.Data.WorkingDirectory, "2024LAN.EVN")));
             var dispatched = SentStarts(context).Select(s => Path.GetFileName(s.FilePath)).ToList();
-            Assert.DoesNotContain("2024ARI.EVN", dispatched);
-            Assert.Equal(new[] { "2024LAN.EVN", "2024SDN.EVN", "2024SEA.EVA" }, dispatched.OrderBy(n => n));
+            Assert.Equal(new[] { "2024SDN.EVN", "2024SEA.EVA" }, dispatched.OrderBy(n => n));
         }
 
         [Fact]

@@ -118,7 +118,9 @@ Re-running bulk import for a season that was partly imported before must not red
 Before dispatching, for each event file in the archive the saga looks for the most recent
 `BulkImportFile` row for that `(SeasonYear, FileName)`:
 
-- most recent status `Success` → the new row is created as `Skipped`, never dispatched.
+- most recent status `Success` **or `Skipped`** → the new row is created as `Skipped`,
+  never dispatched. (`Skipped` on an earlier rerun still means the file's games are already
+  imported — a rerun does not un-import them.)
 - most recent status `Failed`, or no prior row → created as `Pending` and processed.
 
 Skipped files are counted and reported in the completion summary. (Per-game idempotency
@@ -297,6 +299,8 @@ Returns `404 Not Found` if no `BulkImport` has that tracking id. Read-only; anon
    on the status endpoint.
 1. After a run, the working directory contains exactly the files that ended `Failed` (or is
    gone if there were none), and the source `.zip` still exists.
-1. Two files in the archive that share a physical game still apply that game's statistics
-   exactly once (the `GameEventGameStatus` claim from [game-event.md](./game-event.md) is
-   unaffected by running under the bulk orchestrator).
+1. A game's statistics are applied **at most once** regardless of how the archive is
+   processed — the Game Event Parser's `GameEventGameStatus` claim (see
+   [game-event.md](./game-event.md)) is unaffected by running under the bulk orchestrator.
+   (Modern Retrosheet team files are home-games-only, so a game appears in just one file and
+   the claim never actually contends; the guarantee still holds if that ever changes.)
