@@ -43,7 +43,13 @@ curl http://localhost:5197/api/teams/search?code=SDN   # only returns data once 
 docker compose ps                          # all 5 services should show "healthy" (migration shows "Exited (0)")
 ```
 
-`retrosharp-migration` seeds `Franchise`/`Ballpark` reference data automatically, but **does not** import any Retrosheet play-by-play/biofile data -- that still requires triggering the existing ETL endpoints (`POST /api/Person/import`, `POST /api/GameLog/import`, `POST /api/GameEvent/import`) with a file path the `retrosharp-engine-console` container can actually read. On a real deployment, mount your Retrosheet reference files into that container (e.g. a bind-mounted `docs/csv` volume) and pass container-local paths to those endpoints.
+`retrosharp-migration` seeds `Franchise`/`Ballpark` reference data automatically, but **does not** import any Retrosheet play-by-play/biofile data -- that still requires triggering the existing ETL endpoints (`POST /api/Person/import`, `POST /api/GameLog/import`, `POST /api/GameEvent/import`) with a file path the `retrosharp-engine-console` container can actually read.
+
+`docker-compose.yml` bind-mounts `./data/retrosheet` on the host to `/data/retrosheet` in `retrosharp-engine-console` for exactly this: drop your Retrosheet source files there (biofiles, game logs, and -- for bulk import -- a season's event-file zip) and pass container paths like `/data/retrosheet/2024eve.zip` to the endpoints. Only the engine container mounts it; the API never reads the files, it just forwards the path on the bus.
+
+### Bulk Game Event import
+
+`POST /api/gameevent/bulkimport` with `{ "zipPath": "/data/retrosheet/2024eve.zip" }` imports a whole season of team-season event files in one call (batched, resumable, per-file status). It returns `202` with a `trackingId`; poll `GET /api/gameevent/bulkimport/{trackingId}` for progress. The season's Game Log must already be imported or the run is rejected (visible as `status: "Failed"` on the status endpoint). The engine extracts into an `_bulk-import/<id>/` subfolder of the mount and deletes each file once it imports successfully; failed files are left for inspection. Tuning (`BulkImport__DefaultBatchSize`, `BulkImport__WatchdogTimeoutHours`, `BulkImport__ExtractionRoot`) is in `.env.example`. See [spec/bulk-import.md](../spec/bulk-import.md).
 
 ## Build contexts -- not uniform, and that's intentional
 

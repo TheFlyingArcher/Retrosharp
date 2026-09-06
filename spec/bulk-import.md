@@ -35,18 +35,20 @@ Every existing ETL endpoint (`/api/person/import`, `/api/gamelog/import`,
 not a multipart upload — Retrosheet source data is downloaded locally and referenced by path
 at runtime (see [game-log.md](./game-log.md), [person.md](./person.md), and the `.gitignore`
 entries for `docs/csv/*.EV*`). Bulk import follows the same convention: the endpoint accepts
-the path to a `.zip` on a volume visible to **both** `Retrosharp.UI.Api` and
-`Retrosharp.Engine.Console`. `Retrosharp.UI.Api` does not read or extract the archive; it
-validates that the path exists and places a message on the bus. Extraction happens inside
-the saga, in `Retrosharp.Engine.Console`.
+the path to a `.zip` on a volume mounted into `Retrosharp.Engine.Console`. `Retrosharp.UI.Api`
+never touches the file — like the sibling `import` endpoints, it only checks the request is
+well-formed (`ZipPath` non-empty) and places a message on the bus. All reading, extraction,
+and validation of the archive happen inside the saga, in `Retrosharp.Engine.Console`; a bad
+path surfaces as a `Failed` run on the status endpoint, not a `400` from the POST.
 
 ### Extraction target and season scoping
 
-The saga extracts the archive into a per-import working directory under a configurable root
-(default a `bulk-import/{trackingId}/` subdirectory of the same volume). Only entries whose
-name matches a Retrosheet event file — `20YYTTT.EVN` (National League) or `20YYTTT.EVA`
-(American League), year-first, per [game-event.md](./game-event.md#considerations) — are
-extracted and considered; anything else in the archive is ignored and logged.
+The saga extracts the archive into a per-run working directory named by the tracking id.
+The parent is `BulkImport__ExtractionRoot` when configured, otherwise an `_bulk-import/`
+folder next to the source zip. Only entries whose name matches a Retrosheet event file —
+`20YYTTT.EVN` (National League) or `20YYTTT.EVA` (American League), year-first, per
+[game-event.md](./game-event.md#considerations) — are extracted and considered; anything
+else in the archive is ignored and logged.
 
 The season year is parsed from those file names. Every event file in the archive must be for
 the same season; a mixed-season archive is rejected before any file is processed. The caller
@@ -227,9 +229,9 @@ Returns `404 Not Found` if no `BulkImport` has that tracking id. Read-only; anon
    `Ballpark` populated (see [game-event.md](./game-event.md#prerequisites)).
 1. The target season's **Game Log** has been imported (`Game` has at least one row for the
    season). Bulk import validates this up front and refuses to proceed otherwise.
-1. The source `.zip` is on a volume mounted into both `Retrosharp.UI.Api` and
-   `Retrosharp.Engine.Console`, and the extraction root is writable by
-   `Retrosharp.Engine.Console`.
+1. The source `.zip` is on a volume mounted into `Retrosharp.Engine.Console` (in
+   `docker-compose.yml`, the `./data/retrosheet` bind mount), and the extraction root is
+   writable by that container.
 
 ## Requirements
 

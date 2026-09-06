@@ -49,6 +49,14 @@ services:
       dockerfile: engine/Retrosharp.Engine.Console/Dockerfile
     restart: unless-stopped
     env_file: .env
+    # Retrosheet source files the ETL endpoints reference by path -- biofiles, game
+    # logs, and (for bulk import) a season's event-file zip. Drop them into
+    # ./data/retrosheet/ on the host, then pass container paths like
+    # /data/retrosheet/2024eve.zip to POST /api/gameevent/bulkimport. The bulk
+    # import saga also extracts into (and cleans up) an _bulk-import/ subfolder here.
+    # See spec/bulk-import.md and docs/deployment.md.
+    volumes:
+      - ./data/retrosheet:/data/retrosheet
     depends_on:
       retrosharp-migration:
         condition: service_completed_successfully

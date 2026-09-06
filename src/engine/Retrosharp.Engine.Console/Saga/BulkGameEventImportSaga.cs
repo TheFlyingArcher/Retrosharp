@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using NServiceBus;
 
+using Retrosharp.Configuration;
 using Retrosharp.Contract.BulkImport;
 using Retrosharp.Data;
 using Retrosharp.Message.GameEvent;
@@ -24,24 +25,25 @@ namespace Retrosharp.Engine.Console.Saga
         IHandleMessages<GameEventImportFailed>,
         IHandleTimeouts<BulkGameEventImportSaga.Watchdog>
     {
-        // Stopgap defaults -- replaced by configuration in Step 7 (see
-        // spec/phase-1-build-plan.md Step 10, "config & compose").
-        private const int DefaultBatchSize = 10;
-        private static readonly TimeSpan WatchdogTimeout = TimeSpan.FromHours(6);
+        // The subdirectory name used under "next to the zip" when no ExtractionRoot is
+        // configured (a configured root is already dedicated, so it gets no extra segment).
         private const string ExtractionDirectoryName = "_bulk-import";
 
         private readonly ILogger<BulkGameEventImportSaga> _logger;
         private readonly IBulkImportRepository _bulkImportRepository;
         private readonly IGameRepository _gameRepository;
+        private readonly BulkImportConfiguration _configuration;
 
         public BulkGameEventImportSaga(
             ILogger<BulkGameEventImportSaga> logger,
             IBulkImportRepository bulkImportRepository,
-            IGameRepository gameRepository)
+            IGameRepository gameRepository,
+            BulkImportConfiguration configuration)
         {
             _logger = logger;
             _bulkImportRepository = bulkImportRepository;
             _gameRepository = gameRepository;
+            _configuration = configuration;
         }
 
         protected override void ConfigureHowToFindSaga(SagaPropertyMapper<BulkGameEventImportSagaData> mapper)
@@ -65,7 +67,7 @@ namespace Retrosharp.Engine.Console.Saga
                 return;
             }
 
-            var batchSize = message.BatchSize is > 0 ? message.BatchSize.Value : DefaultBatchSize;
+            var batchSize = message.BatchSize is > 0 ? message.BatchSize.Value : _configuration.DefaultBatchSize;
             var workingDirectory = ResolveWorkingDirectory(message.ZipPath, message.BulkImportId);
 
             // --- Validation: any failure here records the run as Failed and stops, with the
@@ -156,7 +158,8 @@ namespace Retrosharp.Engine.Console.Saga
                 return;
             }
 
-            await RequestTimeout(context, WatchdogTimeout, new Watchdog { BulkImportId = message.BulkImportId });
+            await RequestTimeout(context, TimeSpan.FromHours(_configuration.WatchdogTimeoutHours),
+                new Watchdog { BulkImportId = message.BulkImportId });
             await DispatchAsync(context);
         }
 
@@ -287,7 +290,7 @@ namespace Retrosharp.Engine.Console.Saga
                 SeasonYear = season,
                 SourceZipPath = message.ZipPath ?? string.Empty,
                 WorkingDirectory = workingDirectory,
-                BatchSize = message.BatchSize is > 0 ? message.BatchSize.Value : DefaultBatchSize,
+                BatchSize = message.BatchSize is > 0 ? message.BatchSize.Value : _configuration.DefaultBatchSize,
                 Status = BulkImportStatus.Failed,
                 FailureReason = reason,
                 CreatedUtc = now,
@@ -301,10 +304,13 @@ namespace Retrosharp.Engine.Console.Saga
         private static bool IsTerminal(BulkImportFileStatus status) =>
             status is BulkImportFileStatus.Success or BulkImportFileStatus.Failed or BulkImportFileStatus.Skipped;
 
-        private static string ResolveWorkingDirectory(string zipPath, Guid trackingId)
+        private string ResolveWorkingDirectory(string zipPath, Guid trackingId)
         {
-            var root = Path.GetDirectoryName(Path.GetFullPath(zipPath)) ?? Directory.GetCurrentDirectory();
-            return Path.Combine(root, ExtractionDirectoryName, trackingId.ToString("N"));
+            if (!string.IsNullOrWhiteSpace(_configuration.ExtractionRoot))
+                return Path.Combine(_configuration.ExtractionRoot, trackingId.ToString("N"));
+
+            var zipDirectory = Path.GetDirectoryName(Path.GetFullPath(zipPath)) ?? Directory.GetCurrentDirectory();
+            return Path.Combine(zipDirectory, ExtractionDirectoryName, trackingId.ToString("N"));
         }
 
         private void TryDelete(string path)

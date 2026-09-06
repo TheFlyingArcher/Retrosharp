@@ -28,6 +28,10 @@ namespace Retrosharp.Engine.Console
             builder.Services.AddMapster();
             builder.Services.AddDbContext<RetrosharpContext>(b => b.UseNpgsql(config.ConnectionString));
 
+            // Consumed by BulkGameEventImportSaga. Registered as an instance the same way the
+            // other Instance()-built configs are used elsewhere in this endpoint.
+            builder.Services.AddSingleton(BulkImportConfiguration.Instance());
+
             await ContainerRegistration.RegisterContainer(builder.Services, typeof(Program).Assembly);
 
             var endpointConfiguration = new EndpointConfiguration(messagingConfig.EndpointName);

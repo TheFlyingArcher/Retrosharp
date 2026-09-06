@@ -74,3 +74,9 @@ docs/csv/biofile*.csv
 docs/csv/*.EVN
 docs/csv/*.EVA
 docs/csv/*.ROS
+
+# docker-compose bind mount for the ETL containers' Retrosheet source files
+# (season event-file zips for bulk import, biofiles, game logs). Keep the folder,
+# ignore its contents. See spec/bulk-import.md.
+/data/retrosheet/*
+!/data/retrosheet/.gitkeep

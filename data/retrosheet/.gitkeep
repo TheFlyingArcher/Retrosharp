@@ -1,0 +1,3 @@
+# Placeholder so the docker-compose bind-mount target exists in a fresh clone.
+# Drop Retrosheet source files here (season event-file zips for bulk import, etc.).
+# See spec/bulk-import.md and docs/deployment.md.
