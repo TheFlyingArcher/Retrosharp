@@ -470,6 +470,32 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Parse_PickoffCaughtStealingWithThrowingErrorMidChain_StripsModifierAndRunnerSafe()
+        {
+            // play,9,0,thoml002,11,BC111,POCS2(13E4/TH).3-H(NR) -- docs/csv/2022/gameevent/2022NYN.EVN:10762.
+            // The paren group is a raw fielder chain ("13E4...", not the structured "(E1/TH)"
+            // form), and its embedded error carries a "/TH" throwing-error modifier
+            // (Retrosheet eventfile.htm). Before this was fixed, ParseFielderChain threw
+            // "Unexpected character '/'". The modifier is informational -- fielders 1 and 3
+            // assist, fielder 4 is charged the (throwing) error, and the runner is safe.
+            var result = PlayCodeParser.Parse("POCS2(13E4/TH).3-H(NR)", "11", "BC111");
+
+            Assert.Equal(GameEventType.PickoffCaughtStealing, result.EventType);
+
+            var caught = Assert.Single(result.Runners, r => r.IsCaughtStealingAttempt);
+            Assert.Equal(BaseState.First, caught.StartBase);
+            Assert.False(caught.IsOut);
+            Assert.Equal(
+                new[] { (1, FieldingCreditType.Assist), (3, FieldingCreditType.Assist), (4, FieldingCreditType.Error) },
+                caught.FieldingCredits.Select(c => ((int)c.Position, c.CreditType)));
+
+            var scored = Assert.Single(result.Runners, r => r.EndBase == BaseState.Home);
+            Assert.Equal(BaseState.Third, scored.StartBase);
+            Assert.False(scored.IsOut);
+            Assert.False(scored.IsRBI);
+        }
+
+        [Fact]
         public void Parse_CatcherInterferenceWithErrorModifier_CreditsCatcherError()
         {
             // play,1,0,sprig001,01,CX,C/E2.2-3;1-2;B-1 -- docs/csv/2025BOS.EVA. "E2" here is a

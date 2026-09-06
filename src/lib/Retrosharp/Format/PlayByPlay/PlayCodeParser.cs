@@ -352,6 +352,19 @@ namespace Retrosharp.Format.PlayByPlay
         /// </summary>
         private static List<ParsedFieldingCredit> ParseFielderChain(string chain, string rawEventText)
         {
+            // A fielder chain can carry a trailing "/"-modifier that qualifies its last error
+            // rather than naming another fielder: "/TH" (throwing error), "/TH1".."/THH"
+            // (throwing error on a throw toward that base), and the "/INT" (interference)
+            // alternate form -- see Retrosheet's eventfile.htm error notation. It is purely
+            // informational (it does not add or reassign a fielding credit), so drop it before
+            // tokenising. Callers that build the chain from a paren group already strip this in
+            // some paths (ApplyAdvanceSegment's out-advance case) but not others
+            // (ParseCaughtStealingLike's raw-chain branch, e.g. "POCS2(13E4/TH).3-H(NR)" from
+            // docs/csv/2022/gameevent/2022NYN.EVN) -- handling it here covers every call site.
+            var modifier = chain.IndexOf('/');
+            if (modifier >= 0)
+                chain = chain[..modifier];
+
             var tokens = new List<(byte Position, bool IsError)>();
             var i = 0;
             while (i < chain.Length)
