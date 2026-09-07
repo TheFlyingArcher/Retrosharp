@@ -224,8 +224,14 @@ namespace Retrosharp.Format.PlayByPlay
                 if (modifier.Length == 0)
                     continue;
 
-                if (battedBallType is null)
+                if (battedBallType is null && modifier is not "FO")
                 {
+                    // "FO" is the force-out marker, not a trajectory -- it starts with 'F' but
+                    // must not be read as a fly ball. It always accompanies a ground-ball
+                    // fielder's choice ("64(1)/FO/G6"), so leaving battedBallType null here lets
+                    // the real "/G6" modifier set GroundBall on the next iteration. Before this,
+                    // every "/FO" force out was misclassified FlyOut/FlyBall (3,745 plays in the
+                    // 2021 archive alone). Found during the 2021 bulk import.
                     battedBallType = modifier[0] switch
                     {
                         'G' => Contract.GameEvent.BattedBallType.GroundBall,
@@ -526,7 +532,20 @@ namespace Retrosharp.Format.PlayByPlay
                 // "4E3"-style codes (an error partway through the sequence, e.g. an
                 // errant relay) mean nobody was actually put out -- the notable outcome is
                 // the error, not a ground/fly out, and trajectory is irrelevant to it.
-                return hadError ? (GameEventType.Error, false) : (GameEventType.GroundOut, true);
+                if (hadError)
+                    return (GameEventType.Error, false);
+
+                // A "(runner)" force group with no trailing putout digit leaves the batter
+                // safe at first (see ParseFieldedOutGroups) -- that is a fielder's choice, not
+                // a batter ground out. Stat treatment is identical for the batter's line
+                // (plate appearance + at-bat, no hit), but this reads correctly in the
+                // play-by-play and keeps the GDP heuristic (which keys on GroundOut) from
+                // misfiring. BattedBallType is still set from the real "/G$" modifier.
+                if (runners.TryGetValue(BaseState.BattersBox, out var batter)
+                    && !batter.IsOut && batter.EndBase == BaseState.First)
+                    return (GameEventType.FieldersChoice, false);
+
+                return (GameEventType.GroundOut, true);
             }
 
             if (code.StartsWith("FLE", StringComparison.Ordinal) && code.Length > 3 && char.IsDigit(code[3]))
@@ -702,6 +721,16 @@ namespace Retrosharp.Format.PlayByPlay
                         runner.EndBase = startBase;
                         runner.IsOut = true;
                         runner.FieldingCredits.AddRange(ParseFielderChain(annotation, rawEventText));
+
+                        // "PO1(2E3)" -- the throw on the pickoff was misplayed (chain ends on an
+                        // error), so the runner is safe at the base, not out. Same rule
+                        // ParseCaughtStealingLike and ApplyAdvanceSegment already apply to their
+                        // own "(...E$)" chains. Found in 2021NYN.EVN:12149 ("PO1(2E3)"), which
+                        // otherwise dropped the runner and made the next play's "1-H" advance
+                        // throw "runner on First ... no record of".
+                        if (runner.FieldingCredits.Count > 0
+                            && runner.FieldingCredits[^1].CreditType == FieldingCreditType.Error)
+                            runner.IsOut = false;
                     }
                 }
                 else
@@ -906,7 +935,26 @@ namespace Retrosharp.Format.PlayByPlay
             }
 
             if (current.Length > 0)
+            {
                 AssignFieldedOutGroup(runners, BaseState.BattersBox, current.ToString(), carryOverFielder, rawEventText);
+            }
+            else if (!hadError && !runners.ContainsKey(BaseState.BattersBox))
+            {
+                // The code ended on a parenthetical runner-out group ("64(1)/FO/G6",
+                // "46(1)/FO/G4.2-3") with no trailing unassigned fielder digit and no "(B)"
+                // group -- a fielder's choice / force out where the batter is safe at first.
+                // Retrosheet frequently omits the explicit ".B-1"/";B-1" advance segment in
+                // this case (confirmed against 2021 data, where the same "46(1)/FO/G4.2-3"
+                // appears with and without a trailing ";B-1"). Without placing the batter here,
+                // first base is left empty and the next play that references that runner (a
+                // steal, a ".1-2" advance, a force) throws "runner on First ... no record of".
+                // An explicit later "B-x"/"BXx" segment in ApplyAdvanceSegment still overrides
+                // this. (hadError already places the batter safe; a "(B)" group already added
+                // the batter as out -- hence the guards.)
+                var batter = GetOrAddRunner(runners, BaseState.BattersBox);
+                batter.EndBase = BaseState.First;
+                batter.IsOut = false;
+            }
 
             return hadError;
         }
@@ -1124,6 +1172,14 @@ namespace Retrosharp.Format.PlayByPlay
                     // nothing to count it toward.
                     if (annotation == "WP")
                         runner.CausedWildPitch = true;
+                }
+                else if (annotation is "TH" or "TH1" or "TH2" or "TH3" or "THH")
+                {
+                    // "B-2(TH)"/"B-3(THH)" -- the advance was aided by a throw (the optional
+                    // trailing digit/H names the base the throw went to), per Retrosheet's
+                    // eventfile.htm advance annotations. Purely informational, like "(WP)"/"(PB)"
+                    // above -- no RBI/earned-run/fielding-credit effect. Found in 2021 data
+                    // (2021MIL.EVN "S9/G34.3-H;2-H;B-2(TH)", 2021NYN.EVN "D7/F7LD.2-H;B-3(THH)").
                 }
                 else if (annotation.Length >= 3 && annotation.StartsWith("SB", StringComparison.Ordinal)
                     && annotation[2..] is "2" or "3" or "H")

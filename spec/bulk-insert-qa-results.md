@@ -265,3 +265,80 @@ how the archive is processed".
   config. A malformed event file under those defaults still runs the full retry ladder
   before reaching the error queue — see the separately-tracked
   `ImportFailureClassifier` / `EventFileParseException` item (not a bulk-import defect).
+
+---
+
+## Follow-up seasons (post-QA regression sweep)
+
+Importing further seasons surfaced more play-code parser gaps. Each was fixed against
+Retrosheet's [eventfile.htm](https://www.retrosheet.org/eventfile.htm) and verified by
+re-importing the whole season end to end.
+
+### 2022 season
+
+| File(s) | Symptom | Cause | Fix |
+|---|---|---|---|
+| `2022NYN.EVN` (1 of 30) | `PlayCodeParseException: Unexpected character '/' in fielder chain '13E4/TH'` on `POCS2(13E4/TH).3-H(NR)` (`NYN202209030`, WAS @ NYM, Sep 3) | `ParseFielderChain` rejected a trailing `/`-modifier on an embedded error (`E$/TH` throwing error, `/INT`) inside a fielder-credit paren. The out-advance path stripped it; `ParseCaughtStealingLike`'s raw-chain branch (POCS/CS) did not. | Strip from the first `/` inside `ParseFielderChain` (covers every call site). Commit `4e352e7`. |
+
+Re-import: `2022NYN.EVN` → `Success`, 2022 coverage 2430/2430.
+
+### 2021 season — nine files failed; four distinct bugs
+
+The user's 2021 bulk import ended `CompletedWithFailures` (21/30). Root causes:
+
+| # | Bug | Files hard-failed | Also affects |
+|---|---|---|---|
+| 1 | `(TH)` / `(THH)` / `(TH1..3)` **advance annotation** not recognised → `PlayCodeParseException` | `2021MIL.EVN`, `2021NYN.EVN`, `2021OAK.EVA` | any season with a throw-aided advance |
+| 2 | A fielded-out primary code ending in `(runner)` with **no trailing putout digit and no `;B-1`** (`64(1)/FO/G6`) left the **batter unplaced** — first base silently empty; the next play referencing that runner threw `runner on First … no record of` | `2021ANA.EVA`, `2021BAL.EVA`, `2021KCA.EVA`, `2021NYA.EVA`, `2021PHI.EVN`, `2021TEX.EVA` | **every imported season** (see below) |
+| 3 | The `/FO` **force-out marker** was misread as an `F` (fly-ball) trajectory → `EventType = FlyOut`, `BattedBallType = FlyBall` for every force-out fielder's choice | — (no hard failure) | **every imported season** — ~3,400–3,840 plays per season |
+| 4 | A pickoff whose fielder chain ends on an error (`PO1(2E3)`) marked the runner **out** instead of safe → runner dropped, next play's `1-H` advance threw | `2021NYN.EVN` | rare (1 occurrence in 2021) |
+
+**Fixes** (all in `PlayCodeParser`, verified against real 2021 plays, 283 unit tests pass):
+
+1. `(TH)`/`(THH)`/`(TH1)`/`(TH2)`/`(TH3)` handled as an informational advance annotation
+   (like `(WP)`/`(PB)`).
+2. `ParseFieldedOutGroups` now places the batter safe at first when it ends on a
+   `(runner)` group with no trailing digit and no `(B)` / mid-chain error group. The
+   EventType for that play becomes `FieldersChoice` (stat-neutral for the batter's line —
+   still a plate appearance + at-bat, no hit — and keeps the GDP heuristic, which keys on
+   `GroundOut`, from misfiring).
+3. `"FO"` is excluded from the single-letter trajectory map, so the real `/G$` modifier
+   sets `BattedBallType = GroundBall`.
+4. The `PO<base>(<chain>)` raw-chain branch applies the same "chain ends on an error ⇒
+   runner safe" rule already used by `ParseCaughtStealingLike` and `ApplyAdvanceSegment`.
+
+Re-import of the full 2021 archive after all four fixes: **`Completed`, 30/30 `Success`,
+2429/2429 games have play-by-play.**
+
+### Latent data in already-imported seasons — re-import recommended
+
+Bugs 2 and 3 predate this QA and silently corrupted data in **every season imported so
+far**:
+
+- **Bug 3** — misclassified force-out fielder's choices, per `GameEvent` rows still in the
+  database: **2022: 3,840 · 2023: 3,607 · 2024: 3,482 · 2025: 3,371** (100%), 2021: 2,583.
+  These carry `EventType = FlyOut` and `BattedBallType = FlyBall` when they are ground-ball
+  fielder's choices. This inflates every pitcher's **HR/FB** denominator (`FlyBallsAllowed`)
+  and distorts ground-ball / fly-ball splits.
+- **Bug 2** — those same plays have **no `GameEventRunner` row for the batter**, so the
+  batter is not recorded as reaching base on the fielder's choice (affects LOB and any
+  "runners aboard" derivation). It only hard-failed a file when a later play referenced the
+  dropped runner before the inning ended — rare, which is why 2022–2025 imported with few
+  failures despite the bug being present.
+
+Re-running `bulkimport` does **not** repair this — the games are already claimed via
+`GameEventGameStatus` and get skipped. To correct a season, clear its derived data and
+re-import: delete that season's `GameEvent` (runners/credits cascade), `GameEventGameStatus`,
+`GameEventContext`, and the season's `Batting`/`Pitching`/`Fielding` contributions, then
+`POST /api/gameevent/bulkimport` again. Recommended for 2021–2025 before relying on
+`HR/FB`, batted-ball splits, or play-by-play `EventType`.
+
+### Not a bug — `Batting` unique-constraint (23505) under concurrency
+
+`duplicate key value violates unique constraint "IX_Batting_PersonId_FranchiseId_SeasonYear"`
+is **caught and handled**: `GameStatisticsRepository.TrySaveNewSeasonRowAsync` wraps the
+insert in a savepoint, and on a `23505` from a concurrently-processing file it rolls back to
+the savepoint and falls through to an additive `ExecuteUpdateAsync` (the designed
+concurrency path — `spec/stress-testing.md` Step 2). EF Core logs the failed command at
+Error level before the `catch` filter runs, so it is visible in the log, but it never fails
+an import. A smaller `BulkImport__DefaultBatchSize` reduces the contention.

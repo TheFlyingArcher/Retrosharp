@@ -223,6 +223,83 @@ namespace Retrosharp.Format.Tests
         }
 
         [Fact]
+        public void Parse_ForceOutWithNoTrailingPutout_IsFieldersChoiceAndBatterSafeAtFirst()
+        {
+            // 2021 archive: "64(1)/FO/G6" appears ~638 times. The batter is safe at first on a
+            // fielder's choice, and Retrosheet often omits the explicit ".B-1" segment. Before
+            // this fix: no batter runner at all (so the next play referencing a runner on first
+            // threw "no record of"), EventType FlyOut, BattedBallType FlyBall (the "/FO" marker
+            // was misread as an "F" trajectory). See spec/bulk-insert-qa-results.md.
+            var result = PlayCodeParser.Parse("64(1)/FO/G6", "22", "1BC1BFX");
+
+            Assert.Equal(GameEventType.FieldersChoice, result.EventType);
+            Assert.Equal(BattedBallType.GroundBall, result.BattedBallType);
+
+            var forced = Assert.Single(result.Runners, r => r.StartBase == BaseState.First);
+            Assert.True(forced.IsOut);
+            Assert.Equal(BaseState.Second, forced.EndBase);
+
+            var batter = Assert.Single(result.Runners, r => r.StartBase == BaseState.BattersBox);
+            Assert.False(batter.IsOut);
+            Assert.Equal(BaseState.First, batter.EndBase);
+        }
+
+        [Fact]
+        public void Parse_PickoffWithErrorOnThrow_RunnerSafeAtBase()
+        {
+            // 2021NYN.EVN:12149 -- play,7,0,seguj002,11,.CB+1,PO1(2E3)
+            // Catcher throws to first on a pickoff, first baseman muffs it: the runner is safe
+            // at first, not out. Before this fix the runner was dropped, and the next play's
+            // "1-H" advance threw "runner on First ... no record of". See
+            // spec/bulk-insert-qa-results.md.
+            var result = PlayCodeParser.Parse("PO1(2E3)", "11", ".CB+1");
+
+            Assert.Equal(GameEventType.Pickoff, result.EventType);
+            var runner = Assert.Single(result.Runners);
+            Assert.Equal(BaseState.First, runner.StartBase);
+            Assert.Equal(BaseState.First, runner.EndBase);
+            Assert.False(runner.IsOut);
+            Assert.Equal(FieldingCreditType.Error, runner.FieldingCredits[^1].CreditType);
+        }
+
+        [Fact]
+        public void Parse_CleanPickoff_RunnerOut()
+        {
+            // Regression guard: a pickoff whose fielder chain ends on a putout still retires the runner.
+            var result = PlayCodeParser.Parse("PO1(3)", "11", ".CB");
+
+            var runner = Assert.Single(result.Runners);
+            Assert.True(runner.IsOut);
+        }
+
+        [Fact]
+        public void Parse_ForceOutWithTrailingPutoutDigit_StillGroundOutWithBatterOut()
+        {
+            // Regression guard: "64(1)3/GDP/G6" -- the trailing "3" IS the batter's putout, so
+            // this stays a batter GroundOut (a real 6-4-3 GDP), not a fielder's choice.
+            var result = PlayCodeParser.Parse("64(1)3/GDP/G6", "12", "X");
+
+            Assert.Equal(GameEventType.GroundOut, result.EventType);
+            var batter = Assert.Single(result.Runners, r => r.StartBase == BaseState.BattersBox);
+            Assert.True(batter.IsOut);
+        }
+
+        [Theory]
+        [InlineData("S9/G34.3-H;2-H;B-2(TH)", "01", "CX", BaseState.Second)]   // 2021MIL.EVN:7494
+        [InlineData("D7/F7LD.2-H;B-3(THH)", "02", "FCFX", BaseState.Third)]    // 2021NYN.EVN:8540
+        public void Parse_ThrowAidedAdvanceAnnotation_IsInformationalNoOp(string code, string count, string pitches, BaseState batterEnd)
+        {
+            // "(TH)"/"(THH)"/"(TH1..3)" on an advance means the runner took the base on a throw
+            // (Retrosheet eventfile.htm). Purely informational. Previously threw
+            // "Unrecognized advance annotation". See spec/bulk-insert-qa-results.md.
+            var result = PlayCodeParser.Parse(code, count, pitches);
+
+            var batter = Assert.Single(result.Runners, r => r.StartBase == BaseState.BattersBox);
+            Assert.Equal(batterEnd, batter.EndBase);
+            Assert.False(batter.IsOut);
+        }
+
+        [Fact]
         public void Parse_WalkWithBasesLoaded_OnlyForcedRunnerFromThirdGetsRbi()
         {
             // play,8,1,tatif002,32,BBCCFFFFB>B,W.3-H;2-3;1-2
