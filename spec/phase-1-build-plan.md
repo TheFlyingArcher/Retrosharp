@@ -1088,7 +1088,7 @@ Solution builds, 233 tests still pass.
 
 ## Step 11: Automatic Retrosheet Download
 
-**Status**: In Progress (11a–11h complete; 11i live end-to-end pending)
+**Status**: Complete
 
 **Governing spec**: [retrosheet-auto-download.md](./retrosheet-auto-download.md)
 
@@ -1121,6 +1121,18 @@ Solution builds, 233 tests still pass.
 
 **11h (compose/docs) — complete.** Bind mount removed from `docker-compose.yml`; `docker-compose.pi.yml` header note updated; `data/retrosheet/.gitkeep` deleted; `.gitignore` reworded; `docs/deployment.md`, `spec/game-log.md`, `spec/bulk-import.md`, this ordering note updated. `spec/api.md` needed no change (the ETL import endpoints were never in its read-only API Surface table).
 
-**Verification so far**: full solution build, 0 errors; **346 unit tests pass** (283 before Step 11). No schema/migration change (saga-data fields are JSONB, `BulkImport.SourceZipPath` reused for the URL).
+**Verification**: full solution build, 0 errors; **346 unit tests pass** (283 before Step 11). No schema/migration change (saga-data fields are JSONB, `BulkImport.SourceZipPath` reused for the URL).
 
-**11i (live end-to-end) — pending.**
+**11i (live end-to-end) — complete (2026-09-08)**, against the standalone dev Postgres + RabbitMQ (`Person`/`Franchise`/`Ballpark`/`League` already populated), engine + `UI.Api` run from their build output. Real Retrosheet, nothing staged on disk:
+- **400 validation**: `{"seasonYear":1300}` / `{"seasonYear":3000}` / `{}` → `400 "seasonYear must be between 1871 and 2027"`; `{"seasonYear":2018,"batchSize":0}` → `400 "batchSize must be a positive number."`
+- **Game Log 2018**: `POST /api/gamelog/import {"seasonYear":2018}` → `202`; engine downloaded `gl2018.zip` (462 655 B) into `%TEMP%\retrosharp-import\gamelog\<requestId>\`, imported **2 431 games / 0 skipped**, then deleted the per-run working dir.
+- **Bulk events 2018**: `POST /api/gameevent/bulkimport {"seasonYear":2018}` → `202` + trackingId; downloaded `2018eve.zip`, discovered 30 team files, ran batch size 10, finished `CompletedWithFailures` in ~2 min — **23 `Success` / 7 `Failed`**, 1 864 games with events. `BulkImport.SourceZipPath` = `https://www.retrosheet.org/events/2018eve.zip`; `WorkingDirectory` = `%TEMP%\retrosharp-import\<trackingId>`; after the run that dir held **exactly the 7 failed `.EV*` files and no `2018eve.zip`** (downloaded zip always deleted, successes deleted). 7 messages on `Retrosharp.Engine.Errors`.
+- **404 → error queue**: `POST /api/gamelog/import {"seasonYear":2027}` (in range, unpublished) → `202`; engine issued a **single** `GET gl2027.zip` → `404` → `RetrosheetArchiveNotFoundException` → moved straight to the error queue, **no immediate/delayed retry lines** in the log.
+- **Rerun-skip**: a second `POST /api/gameevent/bulkimport {"seasonYear":2018}` → `CompletedWithFailures` with `success:0 / skipped:23 / failed:7`; 2018 event-game count **unchanged at 1 864** (idempotent — the 23 prior successes were never re-dispatched).
+- **Transient (503) recovery**: pointed `RetrosheetSource__BaseUrl` at a local stub that returned `503, 503, 200` for `gl2019.zip`; engine logged two `NServiceBus.ImmediateRetry ... RetrosheetArchiveUnavailableException: HTTP 503` then `Downloaded ... (465 409 B)` → **2 429 games imported, no operator action**.
+
+**The 7 bulk failures are pre-existing Game Event Parser gaps, not Step 11 regressions** (Step 11 touches neither `PlayCodeParser` nor the resolvers): 6 × `PlayCodeParseException: Unexpected character '!'` in fielded-out codes (`9!`, `8!`, `5!3`, `4!6(1)/FO/...` — `!` is Retrosheet's "great play" fielding marker, first surfaced by 2018 data, same class as the per-season parser fixes for 2021–2023) and 1 × `InvalidOperationException: No person found for Retrosheet ID '0'` (2018CIN.EVN). The bulk orchestration handled all 7 exactly as designed: recorded with the exception summary, run continued, batch window advanced, `CompletedWithFailures` with `completedUtc` set. **Flagged as a Game Event Parser follow-up**, not tracked under Step 11.
+
+**Doc correction from 11i**: `BulkImport.SourceZipPath` holds the download URL on the row but is **not** returned by `GET /api/gameevent/bulkimport/{trackingId}` (`BulkImportStatusResponse` never carried it); the earlier "status payload now shows the URL" note in [retrosheet-auto-download.md](./retrosheet-auto-download.md) was corrected.
+
+**Note**: 11i left real 2018 + 2019 game-log data and partial 2018 event data in the dev database (idempotent; re-runnable).

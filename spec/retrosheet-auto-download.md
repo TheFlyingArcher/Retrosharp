@@ -143,8 +143,9 @@ row is written until the download and validation succeed, so a retried start is 
 
 The `BulkImport.SourceZipPath` column previously recorded the operator-supplied path. It now
 records the Retrosheet URL the archive was fetched from. The column is reused as-is (no
-migration, no rename) — it is a provenance/audit field, and a URL is the natural value for
-it now. The status endpoint surfaces it unchanged.
+migration, no rename) — it is a provenance/audit field on the row, and a URL is the natural
+value for it now. It is not exposed by `GET /api/gameevent/bulkimport/{trackingId}`
+(`BulkImportStatusResponse` has never carried it); it is visible only in the database.
 
 ## Configuration
 
@@ -203,8 +204,9 @@ Request body becomes:
 
 `zipPath` is removed from `BulkGameEventImportRequest` and from the `BulkGameEventImportStart`
 message. `seasonYear` is required and range-checked (`400`); `batchSize` stays optional.
-Response and `GET /api/gameevent/bulkimport/{trackingId}` are unchanged (except
-`sourceZipPath` in the status payload now shows the URL).
+The `202` response and `GET /api/gameevent/bulkimport/{trackingId}` payload are unchanged —
+the download URL is recorded on the `BulkImport` row (`SourceZipPath`) but not surfaced by
+the status endpoint.
 
 ### `POST /api/gameevent/import` (single file)
 
