@@ -66,9 +66,11 @@ nunit-*.xml
 # Visual Studio
 **/.vs
 
-# Retrosheet source data downloaded locally for ETL testing (referenced by file path
-# at runtime, not a build-embedded resource -- see spec/person.md, spec/game-log.md).
-# Recursive: season data is sometimes organised into docs/csv/<year>/... subfolders.
+# Retrosheet source data kept locally for ad-hoc ETL testing and test fixtures.
+# The application downloads its own archives at runtime now (see
+# spec/retrosheet-auto-download.md); these entries just keep a dev's manually
+# downloaded copies out of source control. Recursive: season data is sometimes
+# organised into docs/csv/<year>/... subfolders.
 biodata/
 docs/csv/**/gl*.txt
 docs/csv/**/biofile*.csv
@@ -82,13 +84,8 @@ docs/csv/*.EVN
 docs/csv/*.EVA
 docs/csv/*.ROS
 
-# docker-compose bind mount for the ETL containers' Retrosheet source files
-# (season event-file zips for bulk import, biofiles, game logs). Keep the folder,
-# ignore its contents. See spec/bulk-import.md.
-/data/retrosheet/*
-!/data/retrosheet/.gitkeep
-
-# Transient per-run extraction directory the bulk import saga creates next to the
-# source zip (or under BulkImport__ExtractionRoot) and normally cleans up itself;
-# left behind for any file that failed to import. Never belongs in source control.
+# The ETL sagas stage each run's downloaded archive in a per-run working directory
+# under the system temp dir by default (RetrosheetSource__WorkingRoot overrides it).
+# Ignore it here in case someone points that at a path inside the repo.
 _bulk-import/
+retrosharp-import/

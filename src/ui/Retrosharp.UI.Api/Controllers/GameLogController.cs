@@ -5,7 +5,9 @@ using Retrosharp.Message.GameLog;
 namespace Retrosharp.UI.Api.Controllers
 {
     /// <summary>
-    /// Initiates ETL processing of Retrosheet's game log file. See spec/game-log.md.
+    /// Initiates ETL processing of a season's Retrosheet game log. The engine downloads the
+    /// archive from Retrosheet itself -- the request carries only the season year. See
+    /// spec/game-log.md and spec/retrosheet-auto-download.md.
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
@@ -19,19 +21,19 @@ namespace Retrosharp.UI.Api.Controllers
         }
 
         /// <summary>
-        /// Places a message on the service bus to begin parsing the game log file at the given
-        /// path. Processing happens asynchronously in Retrosharp.Engine.Console.
+        /// Places a message on the service bus to begin importing the given season's game log.
+        /// Retrosharp.Engine.Console downloads <c>gl{season}.zip</c> from Retrosheet, extracts
+        /// the game-log file, and processes it asynchronously.
         /// </summary>
         [HttpPost("import")]
         public async Task<IActionResult> Import([FromBody] GameLogImportRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.FilePath))
-                return BadRequest("FilePath is required.");
+            if (!RetrosheetSeason.IsPlausible(request.SeasonYear))
+                return BadRequest(RetrosheetSeason.RangeMessage);
 
             var message = new GameLogStart
             {
                 RequestId = Guid.NewGuid(),
-                FilePath = request.FilePath,
                 SeasonYear = request.SeasonYear
             };
             await _messageSession.Send(message);
@@ -41,8 +43,6 @@ namespace Retrosharp.UI.Api.Controllers
 
     public class GameLogImportRequest
     {
-        public string FilePath { get; set; } = string.Empty;
-
         public int SeasonYear { get; set; }
     }
 }

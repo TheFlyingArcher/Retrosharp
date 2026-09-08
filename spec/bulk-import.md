@@ -14,6 +14,15 @@ Bulk import is part of **Phase One** — it is the ETL tooling that makes
 [phase-1-build-plan.md](./phase-1-build-plan.md)'s Step 9 ("a full season across every
 team") practical to run.
 
+> **Step 11 update ([retrosheet-auto-download.md](./retrosheet-auto-download.md)):** the
+> request no longer carries a zip path. It carries a **season year**; the engine downloads
+> `{season}eve.zip` from Retrosheet into a per-run working directory (under the system temp
+> dir by default) and validates it before any file is queued. Everything below about
+> extraction, batching, per-file status, rerun-skip, and cleanup is unchanged except that
+> the downloaded zip is always deleted when the run finishes, and `SourceZipPath` records
+> the download URL. Where the old text says "the path supplied in the request" / "the
+> `.zip` on the mounted volume", read "the archive downloaded for the requested season".
+
 ## Considerations
 
 ### Bulk import is orchestration, not a new parser
@@ -28,32 +37,31 @@ cleans up. All per-file parsing, idempotency, atomicity, retry/backoff, and reco
 behavior is inherited unchanged from [game-event.md](./game-event.md) and
 [parser.md](parser.md).
 
-### The archive is delivered by path, not uploaded
+### The archive is downloaded by the engine, not supplied
 
-Every existing ETL endpoint (`/api/person/import`, `/api/gamelog/import`,
-`/api/gameevent/import`) takes a **file path** to data already present on a mounted volume,
-not a multipart upload — Retrosheet source data is downloaded locally and referenced by path
-at runtime (see [game-log.md](./game-log.md), [person.md](./person.md), and the `.gitignore`
-entries for `docs/csv/*.EV*`). Bulk import follows the same convention: the endpoint accepts
-the path to a `.zip` on a volume mounted into `Retrosharp.Engine.Console`. `Retrosharp.UI.Api`
-never touches the file — like the sibling `import` endpoints, it only checks the request is
-well-formed (`ZipPath` non-empty) and places a message on the bus. All reading, extraction,
-and validation of the archive happen inside the saga, in `Retrosharp.Engine.Console`; a bad
-path surfaces as a `Failed` run on the status endpoint, not a `400` from the POST.
+The endpoint accepts a **season year**, not a path or an upload. `Retrosharp.UI.Api` only
+range-checks the year and places a message on the bus; the saga in
+`Retrosharp.Engine.Console` downloads `{season}eve.zip` from Retrosheet (see
+[retrosheet-auto-download.md](./retrosheet-auto-download.md)) and does all reading,
+extraction, and validation. A season Retrosheet has no archive for surfaces as a `Failed`
+run on the status endpoint, not a `400` from the POST; a transient download failure is
+retried and does not create a run row. (Originally the endpoint took a `.zip` path on a
+volume mounted into the engine — Step 11 replaced that.)
 
 ### Extraction target and season scoping
 
-The saga extracts the archive into a per-run working directory named by the tracking id.
-The parent is `BulkImport__ExtractionRoot` when configured, otherwise an `_bulk-import/`
-folder next to the source zip. Only entries whose name matches a Retrosheet event file —
+The saga downloads and extracts the archive into a per-run working directory named by the
+tracking id. The parent is `RetrosheetSource__WorkingRoot` when configured, otherwise a
+`retrosharp-import/` folder under the system temp directory. Only entries whose name matches
+a Retrosheet event file —
 `20YYTTT.EVN` (National League) or `20YYTTT.EVA` (American League), year-first, per
 [game-event.md](./game-event.md#considerations) — are extracted and considered; anything
 else in the archive is ignored and logged.
 
-The season year is parsed from those file names. Every event file in the archive must be for
-the same season; a mixed-season archive is rejected before any file is processed. The caller
-may also pass an explicit `SeasonYear` in the request, in which case it must match what the
-file names say.
+The season comes from the request (it is what builds the download URL). The saga still
+parses the season out of the downloaded archive's file names and rejects the run if they
+disagree with the requested season, or span more than one season — this now doubles as a
+check that Retrosheet served the archive that was actually asked for.
 
 ### Game Log must already be imported for the season
 
@@ -131,9 +139,11 @@ partially-applied file never double-counts.)
 ### Cleanup removes only what succeeded
 
 When the bulk import finishes, each extracted file whose `BulkImportFile` status is
-`Success` is deleted from the working directory. Files that ended `Failed` are left in place
-for investigation. The working directory is removed only if it ends up empty; the source
-`.zip` is never touched.
+`Success` is deleted from the working directory, and the downloaded `{season}eve.zip` is
+**always** deleted (it is re-downloadable). Files that ended `Failed` are left in place for
+investigation. The working directory is removed only if it ends up empty — so a fully
+successful run leaves nothing behind, and a run with failures leaves only the failed
+`.EVN`/`.EVA` files. A startup failure removes the whole working directory.
 
 ## Data Model
 
@@ -150,8 +160,8 @@ One row per bulk import request — the unit the tracking identifier refers to.
 | `Id` | int, PK identity | Internal key. |
 | `TrackingId` | Guid, unique | The identifier returned to the caller and used by the status endpoint. Also the saga's `BulkImportId` correlation value. |
 | `SeasonYear` | short | Parsed from the archive's file names. |
-| `SourceZipPath` | string | The path supplied in the request. |
-| `WorkingDirectory` | string | Where the archive was extracted. |
+| `SourceZipPath` | string | The Retrosheet URL the archive was downloaded from. |
+| `WorkingDirectory` | string | Where the archive was downloaded and extracted. |
 | `BatchSize` | int | Effective batch size for this run. |
 | `Status` | enum | `Pending`, `InProgress`, `Completed`, `CompletedWithFailures`, `Failed`. |
 | `FailureReason` | string, null | Set when `Status` is `Failed` (e.g. Game Log not imported, unreadable archive, mixed seasons). |
@@ -192,19 +202,21 @@ previously referred to a `Retrosharp.Engine.Api` project; the API project is
 Request body:
 
 ```json
-{ "zipPath": "/data/retrosheet/2024eve.zip", "seasonYear": 2024, "batchSize": 10 }
+{ "seasonYear": 2024, "batchSize": 10 }
 ```
 
-`seasonYear` and `batchSize` are optional (`seasonYear` is validated against the file names
-if given; `batchSize` defaults to the configured value). On success returns `202 Accepted`
-with `{ "trackingId": "<guid>" }` and places a `BulkGameEventImportStart` message on the
-bus. Returns `400 Bad Request` if `zipPath` is missing or does not point to an existing
-`.zip` file.
+`seasonYear` is required and range-checked (`1871`..current year + 1); `batchSize` is
+optional and defaults to the configured value. On success returns `202 Accepted` with
+`{ "trackingId": "<guid>" }` and places a `BulkGameEventImportStart` message on the bus.
+Returns `400 Bad Request` if `seasonYear` is missing or out of range, or `batchSize` is not
+positive.
 
-Prerequisite failures (Game Log for the season not imported, archive unreadable, mixed or
-mismatched seasons, no event files in the archive) are detected inside the saga, not by the
-endpoint: the endpoint still returns `202` with a tracking id, and the `BulkImport` row is
-recorded with `Status = Failed` and a `FailureReason` the status endpoint surfaces.
+Prerequisite failures (Game Log for the season not imported, the season's archive not
+published on Retrosheet, a corrupt download, mixed or mismatched seasons, no event files in
+the archive) are detected inside the saga, not by the endpoint: the endpoint still returns
+`202` with a tracking id, and the `BulkImport` row is recorded with `Status = Failed` and a
+`FailureReason` the status endpoint surfaces. A transient download failure is the exception
+— it is retried and no `BulkImport` row is written until the archive is in hand.
 
 ### `GET /api/gameevent/bulkimport/{trackingId}`
 
@@ -231,15 +243,16 @@ Returns `404 Not Found` if no `BulkImport` has that tracking id. Read-only; anon
    `Ballpark` populated (see [game-event.md](./game-event.md#prerequisites)).
 1. The target season's **Game Log** has been imported (`Game` has at least one row for the
    season). Bulk import validates this up front and refuses to proceed otherwise.
-1. The source `.zip` is on a volume mounted into `Retrosharp.Engine.Console` (in
-   `docker-compose.yml`, the `./data/retrosheet` bind mount), and the extraction root is
-   writable by that container.
+1. `Retrosharp.Engine.Console` has outbound HTTPS to `www.retrosheet.org` (or a mirror set
+   via `RetrosheetSource__BaseUrl`) and a writable working root (`RetrosheetSource__WorkingRoot`,
+   default: the system temp directory). No host bind mount is required. See
+   [retrosheet-auto-download.md](./retrosheet-auto-download.md).
 
 ## Requirements
 
-1. Bulk import accepts a Retrosheet game event archive as a `.zip` **path** on a shared
-   volume and extracts the event files (`20YYTTT.EVN`/`20YYTTT.EVA`) from it inside
-   `Retrosharp.Engine.Console`. Non-event entries are ignored and logged.
+1. Bulk import accepts a **season year**, downloads that season's Retrosheet event archive
+   (`{season}eve.zip`), and extracts the event files (`20YYTTT.EVN`/`20YYTTT.EVA`) from it
+   inside `Retrosharp.Engine.Console`. Non-event entries are ignored and logged.
 1. The number of files processed concurrently is configurable, default **10**.
 1. Bulk import is asynchronous: the endpoint returns immediately with a unique tracking
    identifier, and processing continues in the background.
@@ -266,8 +279,8 @@ Returns `404 Not Found` if no `BulkImport` has that tracking id. Read-only; anon
    `Retrosharp.UI.Api`.
 1. Bulk import is part of Phase One.
 1. After the run completes, each extracted file whose import succeeded is deleted from the
-   working directory; files whose import failed are left in place. The working directory is
-   removed if empty. The source `.zip` is not deleted.
+   working directory, and the downloaded `{season}eve.zip` is always deleted; files whose
+   import failed are left in place. The working directory is removed if empty.
 1. Per-file parsing, record-level idempotency, atomicity, retry/backoff, and
    `Game*Statistics`/`EarnedRuns` reconciliation are inherited unchanged from
    [game-event.md](./game-event.md) and [parser.md](parser.md); bulk import adds no new
@@ -275,9 +288,10 @@ Returns `404 Not Found` if no `BulkImport` has that tracking id. Read-only; anon
 
 ## Acceptance Criteria
 
-1. A single `POST /api/gameevent/bulkimport` with a season archive path imports every event
-   file in it, and `GET /api/gameevent/bulkimport/{trackingId}` reports one `Success` row
-   per file with per-file `GamesInserted`/`GamesSkipped`.
+1. A single `POST /api/gameevent/bulkimport` with `{ "seasonYear": Y }` downloads that
+   season's event archive and imports every event file in it, and
+   `GET /api/gameevent/bulkimport/{trackingId}` reports one `Success` row per file with
+   per-file `GamesInserted`/`GamesSkipped`.
 1. The batch size is honoured: with `batchSize` = N, no more than N child `GameEventStart`
    messages are outstanding at once (verifiable from `BulkImportFile.StartedUtc`/`ProcessedUtc`
    overlap and the engine logs).
@@ -297,8 +311,8 @@ Returns `404 Not Found` if no `BulkImport` has that tracking id. Read-only; anon
 1. Bulk importing a season whose Game Log has not been imported does not extract or queue
    any file; the `BulkImport` row is `Failed` with a Game-Log-first `FailureReason` visible
    on the status endpoint.
-1. After a run, the working directory contains exactly the files that ended `Failed` (or is
-   gone if there were none), and the source `.zip` still exists.
+1. After a run, the working directory contains exactly the event files that ended `Failed`
+   (or is gone if there were none), and the downloaded `{season}eve.zip` has been deleted.
 1. A game's statistics are applied **at most once** regardless of how the archive is
    processed — the Game Event Parser's `GameEventGameStatus` claim (see
    [game-event.md](./game-event.md)) is unaffected by running under the bulk orchestrator.

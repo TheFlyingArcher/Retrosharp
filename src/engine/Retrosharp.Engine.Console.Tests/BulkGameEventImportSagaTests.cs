@@ -10,6 +10,7 @@ using Retrosharp.Contract.Game;
 using Retrosharp.Engine.Console.Saga;
 using Retrosharp.Engine.Console.Tests.Fakes;
 using Retrosharp.Message.GameEvent;
+using Retrosharp.Service.Interface.ETL;
 
 namespace Retrosharp.Engine.Console.Tests
 {
@@ -18,14 +19,16 @@ namespace Retrosharp.Engine.Console.Tests
         // Sorted, so the first N dispatched files are predictable.
         private static readonly string[] FourFiles = { "2024ARI.EVN", "2024LAN.EVN", "2024SDN.EVN", "2024SEA.EVA" };
 
+        private const string EventArchiveUrl2024 = "https://www.retrosheet.org/events/2024eve.zip";
+
         private readonly string _tempRoot;
-        private readonly string _extractionRoot;
+        private readonly string _workingRoot;
 
         public BulkGameEventImportSagaTests()
         {
             _tempRoot = Path.Combine(Path.GetTempPath(), "retrosharp-bulk-tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_tempRoot);
-            _extractionRoot = Path.Combine(_tempRoot, "extract");
+            _workingRoot = Path.Combine(_tempRoot, "work");
         }
 
         public void Dispose()
@@ -36,9 +39,10 @@ namespace Retrosharp.Engine.Console.Tests
 
         // --- helpers ---
 
-        private string CreateArchive(string name, params string[] entryNames)
+        /// <summary>Writes a zip (outside any working dir) the fake download client copies in.</summary>
+        private string BuildSeasonZip(params string[] entryNames)
         {
-            var zipPath = Path.Combine(_tempRoot, name);
+            var zipPath = Path.Combine(_tempRoot, $"source-{Guid.NewGuid():N}.zip");
             using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create);
             foreach (var entryName in entryNames)
             {
@@ -49,23 +53,48 @@ namespace Retrosharp.Engine.Console.Tests
             return zipPath;
         }
 
+        /// <summary>
+        /// A download fake that copies <paramref name="sourceZip"/> (default: a zip of
+        /// <see cref="FourFiles"/>) into the run's working directory, or throws
+        /// <paramref name="throws"/>.
+        /// </summary>
+        private FakeRetrosheetArchiveClient ArchiveClient(string? sourceZip = null, Exception? throws = null)
+        {
+            if (throws is not null)
+                return new FakeRetrosheetArchiveClient { ExceptionToThrow = throws };
+
+            var zip = sourceZip ?? BuildSeasonZip(FourFiles);
+            return new FakeRetrosheetArchiveClient
+            {
+                OnDownload = (url, dir) =>
+                {
+                    var dest = Path.Combine(dir, Path.GetFileName(url.LocalPath));
+                    File.Copy(zip, dest, overwrite: true);
+                    return dest;
+                }
+            };
+        }
+
         private BulkGameEventImportSaga CreateSaga(
             FakeBulkImportRepository bulkRepo,
             FakeGameRepository gameRepo,
+            FakeRetrosheetArchiveClient archiveClient,
             int batchSize = 2)
             => new(
                 NullLogger<BulkGameEventImportSaga>.Instance,
                 bulkRepo,
                 gameRepo,
-                new BulkImportConfiguration { DefaultBatchSize = batchSize, WatchdogTimeoutHours = 1, ExtractionRoot = _extractionRoot })
+                archiveClient,
+                new BulkImportConfiguration { DefaultBatchSize = batchSize, WatchdogTimeoutHours = 1 },
+                new RetrosheetSourceConfiguration { WorkingRoot = _workingRoot })
             {
                 Data = new BulkGameEventImportSagaData()
             };
 
         private static FakeGameRepository GameLogImported() => new() { GamesBySeason = { new Game() } };
 
-        private static BulkGameEventImportStart StartFor(Guid trackingId, string zipPath, int? season = null, int? batchSize = null) =>
-            new() { RequestId = trackingId, BulkImportId = trackingId, ZipPath = zipPath, SeasonYear = season, BatchSize = batchSize };
+        private static BulkGameEventImportStart StartFor(Guid trackingId, int? season = 2024, int? batchSize = null) =>
+            new() { RequestId = trackingId, BulkImportId = trackingId, SeasonYear = season, BatchSize = batchSize };
 
         private static IReadOnlyList<GameEventStart> SentStarts(TestableMessageHandlerContext context) =>
             context.SentMessages.Select(m => m.Message).OfType<GameEventStart>().ToList();
@@ -73,14 +102,30 @@ namespace Retrosharp.Engine.Console.Tests
         // --- startup validation ---
 
         [Fact]
+        public async Task Start_SeasonYearMissing_MarksRunFailed()
+        {
+            var bulkRepo = new FakeBulkImportRepository();
+            var archiveClient = ArchiveClient();
+            var saga = CreateSaga(bulkRepo, GameLogImported(), archiveClient);
+            var context = new TestableMessageHandlerContext();
+
+            await saga.Handle(StartFor(Guid.NewGuid(), season: null), context);
+
+            Assert.Equal(BulkImportStatus.Failed, bulkRepo.Run!.Status);
+            Assert.Contains("season year", bulkRepo.Run.FailureReason);
+            Assert.False(archiveClient.WasCalled);
+            Assert.True(saga.Completed);
+        }
+
+        [Fact]
         public async Task Start_GameLogNotImported_MarksRunFailedAndDispatchesNothing()
         {
             var bulkRepo = new FakeBulkImportRepository();
             var trackingId = Guid.NewGuid();
-            var saga = CreateSaga(bulkRepo, new FakeGameRepository()); // GamesBySeason empty
+            var saga = CreateSaga(bulkRepo, new FakeGameRepository(), ArchiveClient()); // GamesBySeason empty
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(StartFor(trackingId, CreateArchive("2024eve.zip", FourFiles)), context);
+            await saga.Handle(StartFor(trackingId), context);
 
             Assert.Equal(BulkImportStatus.Failed, bulkRepo.Run!.Status);
             Assert.Contains("Game Log for season 2024", bulkRepo.Run.FailureReason);
@@ -90,27 +135,59 @@ namespace Retrosharp.Engine.Console.Tests
         }
 
         [Fact]
-        public async Task Start_ArchiveMissing_MarksRunFailed()
+        public async Task Start_ArchiveNotFound_MarksRunFailed()
         {
             var bulkRepo = new FakeBulkImportRepository();
-            var saga = CreateSaga(bulkRepo, GameLogImported());
+            var saga = CreateSaga(bulkRepo, GameLogImported(),
+                ArchiveClient(throws: new RetrosheetArchiveNotFoundException("HTTP 404 for 2024eve.zip")));
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(StartFor(Guid.NewGuid(), Path.Combine(_tempRoot, "does-not-exist.zip")), context);
+            await saga.Handle(StartFor(Guid.NewGuid()), context);
 
             Assert.Equal(BulkImportStatus.Failed, bulkRepo.Run!.Status);
-            Assert.Contains("could not be read", bulkRepo.Run.FailureReason);
+            Assert.Contains("could not be downloaded", bulkRepo.Run.FailureReason);
             Assert.True(saga.Completed);
+        }
+
+        [Fact]
+        public async Task Start_DownloadedArchiveNotAZip_MarksRunFailed()
+        {
+            var bulkRepo = new FakeBulkImportRepository();
+            var saga = CreateSaga(bulkRepo, GameLogImported(),
+                ArchiveClient(throws: new InvalidDataException("unexpected header bytes")));
+            var context = new TestableMessageHandlerContext();
+
+            await saga.Handle(StartFor(Guid.NewGuid()), context);
+
+            Assert.Equal(BulkImportStatus.Failed, bulkRepo.Run!.Status);
+            Assert.Contains("not a valid zip", bulkRepo.Run.FailureReason);
+        }
+
+        [Fact]
+        public async Task Start_DownloadUnavailable_PropagatesForRetryWithoutCreatingRun()
+        {
+            var bulkRepo = new FakeBulkImportRepository();
+            var saga = CreateSaga(bulkRepo, GameLogImported(),
+                ArchiveClient(throws: new RetrosheetArchiveUnavailableException("HTTP 503")));
+            var context = new TestableMessageHandlerContext();
+
+            await Assert.ThrowsAsync<RetrosheetArchiveUnavailableException>(() =>
+                saga.Handle(StartFor(Guid.NewGuid()), context));
+
+            Assert.Null(bulkRepo.Run);
+            Assert.False(saga.Completed);
+            Assert.Empty(context.SentMessages);
         }
 
         [Fact]
         public async Task Start_MultiSeasonArchive_MarksRunFailed()
         {
             var bulkRepo = new FakeBulkImportRepository();
-            var saga = CreateSaga(bulkRepo, GameLogImported());
+            var saga = CreateSaga(bulkRepo, GameLogImported(),
+                ArchiveClient(sourceZip: BuildSeasonZip("2024SDN.EVN", "2023ARI.EVN")));
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(StartFor(Guid.NewGuid(), CreateArchive("mixed.zip", "2024SDN.EVN", "2023ARI.EVN")), context);
+            await saga.Handle(StartFor(Guid.NewGuid()), context);
 
             Assert.Equal(BulkImportStatus.Failed, bulkRepo.Run!.Status);
             Assert.Contains("multiple seasons", bulkRepo.Run.FailureReason);
@@ -120,10 +197,11 @@ namespace Retrosharp.Engine.Console.Tests
         public async Task Start_RequestedSeasonMismatch_MarksRunFailed()
         {
             var bulkRepo = new FakeBulkImportRepository();
-            var saga = CreateSaga(bulkRepo, GameLogImported());
+            // Request 2023, but the (mock) host serves an archive of 2024 files.
+            var saga = CreateSaga(bulkRepo, GameLogImported(), ArchiveClient(sourceZip: BuildSeasonZip(FourFiles)));
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(StartFor(Guid.NewGuid(), CreateArchive("2024eve.zip", FourFiles), season: 2023), context);
+            await saga.Handle(StartFor(Guid.NewGuid(), season: 2023), context);
 
             Assert.Equal(BulkImportStatus.Failed, bulkRepo.Run!.Status);
             Assert.Contains("2023", bulkRepo.Run.FailureReason);
@@ -134,13 +212,15 @@ namespace Retrosharp.Engine.Console.Tests
         public async Task Start_WhenAlreadyProcessing_IgnoresDuplicate()
         {
             var bulkRepo = new FakeBulkImportRepository();
-            var saga = CreateSaga(bulkRepo, GameLogImported());
+            var archiveClient = ArchiveClient();
+            var saga = CreateSaga(bulkRepo, GameLogImported(), archiveClient);
             saga.Data.ProcessingStarted = true;
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(StartFor(Guid.NewGuid(), CreateArchive("2024eve.zip", FourFiles)), context);
+            await saga.Handle(StartFor(Guid.NewGuid()), context);
 
             Assert.Null(bulkRepo.Run);
+            Assert.False(archiveClient.WasCalled);
             Assert.Empty(context.SentMessages);
             Assert.False(saga.Completed);
         }
@@ -148,16 +228,19 @@ namespace Retrosharp.Engine.Console.Tests
         // --- happy path / dispatch window ---
 
         [Fact]
-        public async Task Start_HappyPath_SeedsExtractsAndDispatchesUpToBatchSize()
+        public async Task Start_HappyPath_DownloadsSeasonArchiveSeedsExtractsAndDispatchesUpToBatchSize()
         {
             var bulkRepo = new FakeBulkImportRepository();
             var trackingId = Guid.NewGuid();
-            var saga = CreateSaga(bulkRepo, GameLogImported(), batchSize: 2);
+            var archiveClient = ArchiveClient();
+            var saga = CreateSaga(bulkRepo, GameLogImported(), archiveClient, batchSize: 2);
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(StartFor(trackingId, CreateArchive("2024eve.zip", FourFiles)), context);
+            await saga.Handle(StartFor(trackingId), context);
 
-            Assert.Equal(BulkImportStatus.InProgress, bulkRepo.Run!.Status);
+            Assert.Equal(EventArchiveUrl2024, archiveClient.LastUrl!.ToString());
+            Assert.Equal(EventArchiveUrl2024, bulkRepo.Run!.SourceZipPath);
+            Assert.Equal(BulkImportStatus.InProgress, bulkRepo.Run.Status);
             Assert.Equal(4, bulkRepo.Run.Files.Count);
 
             var starts = SentStarts(context);
@@ -180,10 +263,10 @@ namespace Retrosharp.Engine.Console.Tests
             bulkRepo.PriorOutcomes[(2024, "2024LAN.EVN")] = BulkImportFileStatus.Skipped; // already imported on an earlier rerun => still skip
             bulkRepo.PriorOutcomes[(2024, "2024SDN.EVN")] = BulkImportFileStatus.Failed;  // failed => reprocess
             // 2024SEA.EVA has no prior row => reprocess
-            var saga = CreateSaga(bulkRepo, GameLogImported(), batchSize: 10);
+            var saga = CreateSaga(bulkRepo, GameLogImported(), ArchiveClient(), batchSize: 10);
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(StartFor(Guid.NewGuid(), CreateArchive("2024eve.zip", FourFiles)), context);
+            await saga.Handle(StartFor(Guid.NewGuid()), context);
 
             Assert.Equal(BulkImportFileStatus.Skipped, bulkRepo.FileNamed("2024ARI.EVN").Status);
             Assert.Equal(BulkImportFileStatus.Skipped, bulkRepo.FileNamed("2024LAN.EVN").Status);
@@ -194,20 +277,21 @@ namespace Retrosharp.Engine.Console.Tests
         }
 
         [Fact]
-        public async Task Start_AllFilesAlreadySucceeded_CompletesImmediatelyWithNoDispatchOrTimeout()
+        public async Task Start_AllFilesAlreadySucceeded_CompletesImmediatelyWithNoDispatchOrTimeout_AndCleansUp()
         {
             var bulkRepo = new FakeBulkImportRepository();
             foreach (var f in FourFiles)
                 bulkRepo.PriorOutcomes[(2024, f)] = BulkImportFileStatus.Success;
-            var saga = CreateSaga(bulkRepo, GameLogImported());
+            var saga = CreateSaga(bulkRepo, GameLogImported(), ArchiveClient());
             var context = new TestableMessageHandlerContext();
 
-            await saga.Handle(StartFor(Guid.NewGuid(), CreateArchive("2024eve.zip", FourFiles)), context);
+            await saga.Handle(StartFor(Guid.NewGuid()), context);
 
             Assert.Empty(context.SentMessages);
             Assert.Empty(context.TimeoutMessages);
             Assert.Equal(BulkImportStatus.Completed, bulkRepo.Run!.Status);
             Assert.True(saga.Completed);
+            Assert.False(Directory.Exists(saga.Data.WorkingDirectory)); // downloaded zip removed, dir emptied
         }
 
         // --- resolution / completion ---
@@ -259,10 +343,11 @@ namespace Retrosharp.Engine.Console.Tests
         }
 
         [Fact]
-        public async Task Run_FinishesWithCompletedWithFailures_WhenAnyFileFailed_AndCleansUpOnlySuccesses()
+        public async Task Run_FinishesWithCompletedWithFailures_WhenAnyFileFailed_KeepsFailedFileButDeletesArchiveAndSuccesses()
         {
             var (saga, bulkRepo, context, trackingId) = await StartedRun(batchSize: 4);
             var workingDir = saga.Data.WorkingDirectory;
+            var downloadedZip = saga.Data.DownloadedArchivePath;
 
             await saga.Handle(new GameEventComplete { BulkImportId = trackingId, FilePath = "2024ARI.EVN", GamesInserted = 10 }, context);
             await saga.Handle(new GameEventImportFailed { BulkImportId = trackingId, FileName = "2024LAN.EVN", Error = "boom" }, context);
@@ -276,6 +361,7 @@ namespace Retrosharp.Engine.Console.Tests
 
             Assert.False(File.Exists(Path.Combine(workingDir, "2024ARI.EVN")));
             Assert.False(File.Exists(Path.Combine(workingDir, "2024SDN.EVN")));
+            Assert.False(File.Exists(downloadedZip)); // downloaded archive always removed
             Assert.True(File.Exists(Path.Combine(workingDir, "2024LAN.EVN"))); // failed file kept
         }
 
@@ -329,9 +415,9 @@ namespace Retrosharp.Engine.Console.Tests
         {
             var bulkRepo = new FakeBulkImportRepository();
             var trackingId = Guid.NewGuid();
-            var saga = CreateSaga(bulkRepo, GameLogImported(), batchSize);
+            var saga = CreateSaga(bulkRepo, GameLogImported(), ArchiveClient(), batchSize);
             var context = new TestableMessageHandlerContext();
-            await saga.Handle(StartFor(trackingId, CreateArchive("2024eve.zip", FourFiles)), context);
+            await saga.Handle(StartFor(trackingId), context);
             return (saga, bulkRepo, context, trackingId);
         }
     }

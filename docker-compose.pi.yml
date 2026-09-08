@@ -4,14 +4,18 @@
 # usable for containers after 64-bit Pi OS Lite) so that RAM pressure and CPU
 # contention surface on the Mac *before* the stack goes onto real hardware.
 #
-# Layer it LAST so its limits win. Include the import bind-mount override too,
-# or the ETL endpoints can't see the Retrosheet files:
+# Layer it LAST so its limits win:
 #
 #   docker compose \
 #     -f docker-compose.yml \
-#     -f docker-compose.override.yml \
 #     -f docker-compose.pi.yml \
 #     up -d --build
+#
+# The ETL sagas download their Retrosheet source archives themselves (see
+# spec/retrosheet-auto-download.md), so there is no source-file bind mount to
+# include -- but retrosharp-engine-console now needs outbound HTTPS to
+# www.retrosheet.org, and enough writable temp space for one season archive
+# (a few MB zipped, ~40 MB extracted, deleted after the run).
 #
 # WHAT THIS REPRODUCES
 #   - .NET heap / GC behaviour under a hard cgroup memory ceiling

@@ -5,6 +5,7 @@ using NServiceBus;
 using Retrosharp.Configuration;
 using Retrosharp.Engine.Console.Saga;
 using Retrosharp.Format.PlayByPlay;
+using Retrosharp.Service.Interface.ETL;
 
 namespace Retrosharp.Engine.Console.Tests
 {
@@ -21,6 +22,8 @@ namespace Retrosharp.Engine.Console.Tests
             new object[] { new DirectoryNotFoundException("bad dir") },
             new object[] { new InvalidOperationException("no matching franchise for this input") },
             new object[] { new PlayCodeParseException("2", "no trajectory modifier") },
+            new object[] { new RetrosheetArchiveNotFoundException("HTTP 404 for gl2099.zip") },
+            new object[] { new InvalidDataException("the downloaded body is not a zip archive") },
         };
 
         [Theory]
@@ -54,6 +57,21 @@ namespace Retrosharp.Engine.Console.Tests
                 immediateProcessingFailures: 0, delayedDeliveriesPerformed: 0);
 
             Assert.IsType<ImmediateRetry>(action);
+        }
+
+        [Fact]
+        public void Decide_RetrosheetArchiveUnavailable_WalksTheRetryLadder()
+        {
+            // A 5xx/timeout download from Retrosheet -- transient, not straight to the error
+            // queue: retried, then delayed-retried, then moved to error once exhausted.
+            var unavailable = new RetrosheetArchiveUnavailableException("Retrosheet returned HTTP 503");
+
+            Assert.IsType<ImmediateRetry>(EngineRecoverabilityPolicy.Decide(
+                Config, ErrorQueue, unavailable, immediateProcessingFailures: 0, delayedDeliveriesPerformed: 0));
+            Assert.IsType<DelayedRetry>(EngineRecoverabilityPolicy.Decide(
+                Config, ErrorQueue, unavailable, immediateProcessingFailures: 3, delayedDeliveriesPerformed: 0));
+            Assert.IsType<MoveToError>(EngineRecoverabilityPolicy.Decide(
+                Config, ErrorQueue, unavailable, immediateProcessingFailures: 3, delayedDeliveriesPerformed: 5));
         }
 
         [Fact]

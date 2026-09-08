@@ -27,6 +27,12 @@ namespace Retrosharp.Engine.Console.Saga
             !string.IsNullOrEmpty(name) && EventFileNameRegex().IsMatch(name);
 
         /// <summary>
+        /// True if <paramref name="season"/> is within the range Retrosheet could plausibly
+        /// have event data for.
+        /// </summary>
+        public static bool IsPlausibleSeason(int season) => season is >= EarliestSeason and <= LatestSeason;
+
+        /// <summary>
         /// The season year encoded in the first four characters of an event file name.
         /// </summary>
         public static short SeasonOf(string eventFileName) =>

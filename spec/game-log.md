@@ -4,6 +4,8 @@
 
 Game logs from Retrosheet contain comprehensive information about each game played in a season, including the teams, players, scores, and other relevant statistics. The Game Log Parser is responsible for parsing these game logs and populating the Retrosharp database with the extracted information. The Game Log Parser is only for the game itself. It does not contain individual player statistics or play-by-play information. The Game Event Parser is responsible for parsing the play-by-play event files and populating the database with individual player statistics.
 
+The game-log file is no longer staged on disk by an operator: given a season year, the engine downloads `gl{season}.zip` from Retrosheet, extracts `GL{season}.TXT`, and imports it, then cleans up. See [retrosheet-auto-download.md](./retrosheet-auto-download.md).
+
 ## Format
 
 This is how the datafile is formatted:
@@ -163,7 +165,7 @@ Missing fields will be NULL.
 	1. `GameFieldingStatistics` - this table contains the total fielding statistics for each game, and each team that played in the game, including putouts, assists, errors, and other relevant statistics.
 1. The Game Log Parser should be able to handle large volumes of data and process multiple game logs in a batch mode.
 1. The file format is `glYYYY.TXT` where `YYYY` is the year of the game logs. The Game Log Parser should be able to process multiple files in a batch mode, allowing for efficient processing of large volumes of data. Despite having a `.txt` extension, the file is actually CSV formatted.
-1. An API endpoint exists to place a message on the service bus to initiate the processing of a game log file. This allows for external systems or users to trigger the processing of game log files as needed.
+1. An API endpoint (`POST /api/gamelog/import`) exists to place a message on the service bus to initiate processing of a season's game log. The request body is `{ "seasonYear": <year> }` -- no file path; the year is range-checked (`1871`..current+1) and the engine downloads the archive. See [retrosheet-auto-download.md](./retrosheet-auto-download.md).
 
 ## Acceptance Criteria
 

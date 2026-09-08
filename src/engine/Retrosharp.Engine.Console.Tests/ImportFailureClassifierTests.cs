@@ -2,6 +2,7 @@ using Npgsql;
 
 using Retrosharp.Engine.Console.Saga;
 using Retrosharp.Format.PlayByPlay;
+using Retrosharp.Service.Interface.ETL;
 
 namespace Retrosharp.Engine.Console.Tests
 {
@@ -11,6 +12,7 @@ namespace Retrosharp.Engine.Console.Tests
         [InlineData(typeof(FileNotFoundException))]
         [InlineData(typeof(DirectoryNotFoundException))]
         [InlineData(typeof(InvalidOperationException))]
+        [InlineData(typeof(InvalidDataException))] // a downloaded archive that is not a usable zip
         public void IsUnrecoverable_KnownUnrecoverableTypes_ReturnsTrue(Type exceptionType)
         {
             var exception = (Exception)Activator.CreateInstance(exceptionType)!;
@@ -25,6 +27,28 @@ namespace Retrosharp.Engine.Console.Tests
             var exception = new PlayCodeParseException("1/BL1S", "Fielded-out code has no trajectory modifier.");
 
             Assert.True(ImportFailureClassifier.IsUnrecoverable(exception));
+        }
+
+        [Fact]
+        public void IsUnrecoverable_RetrosheetArchiveNotFound_ReturnsTrue()
+        {
+            // Retrosheet 404 for the archive -- a bad season year, unchanged by retrying.
+            var exception = new RetrosheetArchiveNotFoundException("HTTP 404 for gl2099.zip");
+
+            Assert.True(ImportFailureClassifier.IsUnrecoverable(exception));
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void IsUnrecoverable_RetrosheetArchiveUnavailable_ReturnsFalse(bool withInnerTransportFault)
+        {
+            // A 5xx/timeout/transport fault -- transient, so it must walk the retry ladder.
+            var exception = withInnerTransportFault
+                ? new RetrosheetArchiveUnavailableException("HTTP 503", new HttpRequestException("connection reset"))
+                : new RetrosheetArchiveUnavailableException("HTTP 503");
+
+            Assert.False(ImportFailureClassifier.IsUnrecoverable(exception));
         }
 
         [Theory]

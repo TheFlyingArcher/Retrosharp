@@ -1,6 +1,7 @@
 using Npgsql;
 
 using Retrosharp.Format.PlayByPlay;
+using Retrosharp.Service.Interface.ETL;
 
 namespace Retrosharp.Engine.Console.Saga
 {
@@ -32,6 +33,15 @@ namespace Retrosharp.Engine.Console.Saga
     /// is unaffected -- it's a plain handler, not one of the three sagas this classifier feeds.
     /// PlayCodeParseException -- a Retrosheet play code this parser doesn't recognize; the same
     /// file produces the same unparseable code on every retry.
+    /// RetrosheetArchiveNotFoundException -- Retrosheet returned 404/410 for the archive
+    /// (spec/retrosheet-auto-download.md); a bad season year, unchanged by retrying. Its
+    /// sibling RetrosheetArchiveUnavailableException (a 5xx/timeout/transport fault) is
+    /// deliberately NOT listed -- that one is transient and should walk the retry ladder.
+    /// InvalidDataException -- the download completed but the payload is not a usable archive
+    /// (not a zip, or missing the expected entry); RetrosheetArchiveClient already retries a
+    /// genuinely interrupted transfer as RetrosheetArchiveUnavailableException, so what reaches
+    /// here is a deterministic content problem an operator needs to see, not retry into a loop.
+    /// (The bulk saga never gets this far -- it catches both at startup and fails the run.)
     /// </summary>
     internal static class ImportFailureClassifier
     {
@@ -44,7 +54,8 @@ namespace Retrosharp.Engine.Console.Saga
             }
 
             return exception is FileNotFoundException or DirectoryNotFoundException
-                or InvalidOperationException or PlayCodeParseException;
+                or InvalidOperationException or PlayCodeParseException
+                or RetrosheetArchiveNotFoundException or InvalidDataException;
         }
     }
 }

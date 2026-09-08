@@ -13,6 +13,8 @@ using Retrosharp.Configuration;
 using Retrosharp.Data.Context;
 using Retrosharp.DI;
 using Retrosharp.Engine.Console.Saga;
+using Retrosharp.Service.ETL;
+using Retrosharp.Service.Interface.ETL;
 
 namespace Retrosharp.Engine.Console
 {
@@ -31,6 +33,19 @@ namespace Retrosharp.Engine.Console
             // Consumed by BulkGameEventImportSaga. Registered as an instance the same way the
             // other Instance()-built configs are used elsewhere in this endpoint.
             builder.Services.AddSingleton(BulkImportConfiguration.Instance());
+
+            // Retrosheet auto-download (spec/retrosheet-auto-download.md). The typed client and
+            // its HttpClient are registered here, in the engine, only -- Retrosharp.UI.Api
+            // never downloads anything -- so this stays out of Retrosharp.Service's shared
+            // IocRegistrations.
+            var retrosheetSource = RetrosheetSourceConfiguration.Instance();
+            builder.Services.AddSingleton(retrosheetSource);
+            builder.Services.AddHttpClient<IRetrosheetArchiveClient, RetrosheetArchiveClient>(client =>
+            {
+                client.BaseAddress = new Uri(retrosheetSource.BaseUrl);
+                client.Timeout = TimeSpan.FromSeconds(retrosheetSource.HttpTimeoutSeconds);
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("Retrosharp/1.0 (+https://www.retrosheet.org; ETL)");
+            });
 
             await ContainerRegistration.RegisterContainer(builder.Services, typeof(Program).Assembly);
 

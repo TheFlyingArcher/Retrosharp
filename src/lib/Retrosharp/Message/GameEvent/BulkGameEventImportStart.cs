@@ -1,10 +1,11 @@
 namespace Retrosharp.Message.GameEvent
 {
     /// <summary>
-    /// Starts a bulk Game Event import: extract a season's zip archive of team-season event
-    /// files and orchestrate the existing per-file Game Event saga over them in batches.
-    /// Placed on the bus by <c>POST /api/gameevent/bulkimport</c>; started by
-    /// BulkGameEventImportSaga in Retrosharp.Engine.Console. See spec/bulk-import.md.
+    /// Starts a bulk Game Event import: download a season's zip archive of team-season event
+    /// files from Retrosheet and orchestrate the existing per-file Game Event saga over them
+    /// in batches. Placed on the bus by <c>POST /api/gameevent/bulkimport</c>; started by
+    /// BulkGameEventImportSaga in Retrosharp.Engine.Console. See spec/bulk-import.md and
+    /// spec/retrosheet-auto-download.md.
     /// </summary>
     public class BulkGameEventImportStart : BaseMessage, IMessage
     {
@@ -18,15 +19,11 @@ namespace Retrosharp.Message.GameEvent
         public Guid BulkImportId { get; set; }
 
         /// <summary>
-        /// Path to the <c>.zip</c> archive of event files, on a volume visible to both
-        /// Retrosharp.UI.Api and Retrosharp.Engine.Console.
-        /// </summary>
-        public string ZipPath { get; set; }
-
-        /// <summary>
-        /// Optional. When supplied, validated against the season parsed from the archive's
-        /// file names; a mismatch fails the run. When omitted, the season is taken from the
-        /// file names.
+        /// The season to import. Always populated by the controller (which range-checks it);
+        /// the engine builds the Retrosheet event-archive URL from it and cross-checks it
+        /// against the season encoded in the downloaded archive's file names. Nullable only so
+        /// a malformed message is caught as a validation failure rather than a deserialization
+        /// error.
         /// </summary>
         public int? SeasonYear { get; set; }
 

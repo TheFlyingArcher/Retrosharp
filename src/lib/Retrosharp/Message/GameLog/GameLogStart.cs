@@ -1,7 +1,3 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
 namespace Retrosharp.Message.GameLog
 {
     public class GameLogStart : BaseMessage, IMessage
@@ -9,13 +5,9 @@ namespace Retrosharp.Message.GameLog
         public GameLogStart() { }
 
         /// <summary>
-        /// The baseball season in which the game log is to be processed.
+        /// The baseball season whose game log is to be downloaded from Retrosheet and
+        /// processed. See spec/retrosheet-auto-download.md.
         /// </summary>
         public int SeasonYear { get; set; }
-
-        /// <summary>
-        /// The file path of the game log to be processed.
-        /// </summary>
-        public string FilePath { get; set; }
     }
 }

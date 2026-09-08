@@ -5,6 +5,7 @@ using Retrosharp.Configuration;
 using Retrosharp.Contract.BulkImport;
 using Retrosharp.Data;
 using Retrosharp.Message.GameEvent;
+using Retrosharp.Service.Interface.ETL;
 
 using ContractBulkImport = Retrosharp.Contract.BulkImport.BulkImport;
 
@@ -25,25 +26,27 @@ namespace Retrosharp.Engine.Console.Saga
         IHandleMessages<GameEventImportFailed>,
         IHandleTimeouts<BulkGameEventImportSaga.Watchdog>
     {
-        // The subdirectory name used under "next to the zip" when no ExtractionRoot is
-        // configured (a configured root is already dedicated, so it gets no extra segment).
-        private const string ExtractionDirectoryName = "_bulk-import";
-
         private readonly ILogger<BulkGameEventImportSaga> _logger;
         private readonly IBulkImportRepository _bulkImportRepository;
         private readonly IGameRepository _gameRepository;
+        private readonly IRetrosheetArchiveClient _archiveClient;
         private readonly BulkImportConfiguration _configuration;
+        private readonly RetrosheetSourceConfiguration _source;
 
         public BulkGameEventImportSaga(
             ILogger<BulkGameEventImportSaga> logger,
             IBulkImportRepository bulkImportRepository,
             IGameRepository gameRepository,
-            BulkImportConfiguration configuration)
+            IRetrosheetArchiveClient archiveClient,
+            BulkImportConfiguration configuration,
+            RetrosheetSourceConfiguration source)
         {
             _logger = logger;
             _bulkImportRepository = bulkImportRepository;
             _gameRepository = gameRepository;
+            _archiveClient = archiveClient;
             _configuration = configuration;
+            _source = source;
         }
 
         protected override void ConfigureHowToFindSaga(SagaPropertyMapper<BulkGameEventImportSagaData> mapper)
@@ -68,33 +71,63 @@ namespace Retrosharp.Engine.Console.Saga
             }
 
             var batchSize = message.BatchSize is > 0 ? message.BatchSize.Value : _configuration.DefaultBatchSize;
-            var workingDirectory = ResolveWorkingDirectory(message.ZipPath, message.BulkImportId);
+            var workingDirectory = ResolveWorkingDirectory(message.BulkImportId);
 
             // --- Validation: any failure here records the run as Failed and stops, with the
-            // reason visible on GET /api/gameevent/bulkimport/{trackingId}. ---
+            // reason visible on GET /api/gameevent/bulkimport/{trackingId}. The one exception
+            // is a transient download failure (RetrosheetArchiveUnavailableException) -- it is
+            // left to propagate so the message is retried; no BulkImport row is written until
+            // the archive is in hand and validated. ---
+
+            if (message.SeasonYear is not { } requestedSeason || !EventFileArchive.IsPlausibleSeason(requestedSeason))
+            {
+                await FailStartupAsync(context, message, 0, workingDirectory,
+                    "No valid season year was supplied for the bulk import.");
+                return;
+            }
+            var season = (short)requestedSeason;
+
+            string archivePath;
+            try
+            {
+                archivePath = await _archiveClient.DownloadAsync(
+                    _source.EventArchiveUri(season), workingDirectory, context.CancellationToken);
+            }
+            catch (RetrosheetArchiveNotFoundException ex)
+            {
+                await FailStartupAsync(context, message, season, workingDirectory,
+                    $"The event archive for season {season} could not be downloaded: {ex.Message}");
+                return;
+            }
+            catch (InvalidDataException ex)
+            {
+                await FailStartupAsync(context, message, season, workingDirectory,
+                    $"The event archive downloaded for season {season} is not a valid zip: {ex.Message}");
+                return;
+            }
 
             IReadOnlyList<string> archiveFiles;
             try
             {
-                archiveFiles = EventFileArchive.ListEventFiles(message.ZipPath);
+                archiveFiles = EventFileArchive.ListEventFiles(archivePath);
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException or InvalidDataException)
             {
-                await FailStartupAsync(context, message, 0, workingDirectory,
-                    $"The archive at '{message.ZipPath}' could not be read: {ex.Message}");
+                await FailStartupAsync(context, message, season, workingDirectory,
+                    $"The downloaded event archive for season {season} could not be read: {ex.Message}");
                 return;
             }
 
-            if (!EventFileArchive.TryResolveSeason(archiveFiles, out var season, out var seasonError))
+            if (!EventFileArchive.TryResolveSeason(archiveFiles, out var archiveSeason, out var seasonError))
             {
-                await FailStartupAsync(context, message, 0, workingDirectory, seasonError!);
+                await FailStartupAsync(context, message, season, workingDirectory, seasonError!);
                 return;
             }
 
-            if (message.SeasonYear is { } requestedSeason && requestedSeason != season)
+            if (archiveSeason != season)
             {
                 await FailStartupAsync(context, message, season, workingDirectory,
-                    $"The request specified season {requestedSeason}, but the archive's event files are for {season}.");
+                    $"The request specified season {season}, but the downloaded archive's event files are for {archiveSeason}.");
                 return;
             }
 
@@ -126,13 +159,13 @@ namespace Retrosharp.Engine.Console.Saga
                 seeds.Add(new BulkImportFile { FileName = fileName, Status = status });
             }
 
-            EventFileArchive.ExtractFiles(message.ZipPath, workingDirectory, toProcess);
+            EventFileArchive.ExtractFiles(archivePath, workingDirectory, toProcess);
 
             var run = await _bulkImportRepository.CreateAsync(new ContractBulkImport
             {
                 TrackingId = message.BulkImportId,
                 SeasonYear = season,
-                SourceZipPath = message.ZipPath,
+                SourceZipPath = _source.EventArchiveUri(season).ToString(),
                 WorkingDirectory = workingDirectory,
                 BatchSize = batchSize,
                 Status = BulkImportStatus.InProgress,
@@ -144,6 +177,7 @@ namespace Retrosharp.Engine.Console.Saga
             Data.BulkImportRowId = run.Id;
             Data.SeasonYear = season;
             Data.WorkingDirectory = workingDirectory;
+            Data.DownloadedArchivePath = archivePath;
             Data.BatchSize = batchSize;
             Data.ProcessingStarted = true;
             Data.Files = run.Files
@@ -264,6 +298,11 @@ namespace Retrosharp.Engine.Console.Saga
             foreach (var file in Data.Files.Where(f => f.Status == BulkImportFileStatus.Success))
                 TryDelete(Path.Combine(Data.WorkingDirectory, file.FileName));
 
+            // The downloaded archive is always removed -- it is re-downloadable, and keeping it
+            // would defeat the "temp directory, cleaned up after the run" contract. Failed
+            // event files are still left in place for investigation.
+            TryDelete(Data.DownloadedArchivePath);
+
             TryRemoveEmptyDirectory(Data.WorkingDirectory);
 
             var status = failed > 0 ? BulkImportStatus.CompletedWithFailures : BulkImportStatus.Completed;
@@ -291,7 +330,7 @@ namespace Retrosharp.Engine.Console.Saga
             {
                 TrackingId = message.BulkImportId,
                 SeasonYear = season,
-                SourceZipPath = message.ZipPath ?? string.Empty,
+                SourceZipPath = season > 0 ? _source.EventArchiveUri(season).ToString() : string.Empty,
                 WorkingDirectory = workingDirectory,
                 BatchSize = message.BatchSize is > 0 ? message.BatchSize.Value : _configuration.DefaultBatchSize,
                 Status = BulkImportStatus.Failed,
@@ -300,6 +339,10 @@ namespace Retrosharp.Engine.Console.Saga
                 CompletedUtc = now,
                 Files = Array.Empty<BulkImportFile>()
             });
+
+            // The run never really started; a partly-downloaded archive is of no use to
+            // anyone. Remove the whole working directory.
+            WorkingDirectory.TryDelete(workingDirectory, _logger);
 
             MarkAsComplete();
         }
@@ -312,14 +355,8 @@ namespace Retrosharp.Engine.Console.Saga
         // GameStatisticsRepository) and hand it Kind=Unspecified wall-clock UTC.
         private static DateTime UtcNow => DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified);
 
-        private string ResolveWorkingDirectory(string zipPath, Guid trackingId)
-        {
-            if (!string.IsNullOrWhiteSpace(_configuration.ExtractionRoot))
-                return Path.Combine(_configuration.ExtractionRoot, trackingId.ToString("N"));
-
-            var zipDirectory = Path.GetDirectoryName(Path.GetFullPath(zipPath)) ?? Directory.GetCurrentDirectory();
-            return Path.Combine(zipDirectory, ExtractionDirectoryName, trackingId.ToString("N"));
-        }
+        private string ResolveWorkingDirectory(Guid trackingId) =>
+            Path.Combine(_source.ResolvedWorkingRoot, trackingId.ToString("N"));
 
         private void TryDelete(string path)
         {

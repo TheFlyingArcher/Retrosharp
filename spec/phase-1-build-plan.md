@@ -38,11 +38,16 @@ Step 1: Schema Alignment
                                    Step 10: Bulk Game Event Import
                                               │
                                               ▼
+                                   Step 11: Automatic Retrosheet Download
+                                              │
+                                              ▼
                                    Step 9: End-to-End Validation
 ```
 
 (Step 10 was added after Steps 8 and 9 were numbered; it depends on Step 6 and Step 8, and
-Step 9's "every team, one full season" is run through it.)
+Step 9's "every team, one full season" is run through it. Step 11, added after Step 10,
+depends on Step 5 and Step 10 and makes every ETL endpoint download its own Retrosheet
+source archive given only a season year — see [retrosheet-auto-download.md](./retrosheet-auto-download.md).)
 
 ---
 
@@ -1078,3 +1083,44 @@ Solution builds, 233 tests still pass.
 **Bug found and fixed during the live run**: every timestamp the saga wrote (`CreatedUtc`, `ProcessedUtc`, …) used `DateTime.UtcNow` (`Kind=Utc`), which Npgsql rejects for this schema's `timestamp without time zone` columns — `CreateAsync` threw `DbUpdateException` on the first real insert. Fixed with a `DateTime.SpecifyKind(…, Unspecified)` helper in the saga, matching `GameStatisticsRepository`'s existing pattern; the fake repository now guards against a regression.
 
 **Observation (out of scope, pre-existing)**: `ImportFailureClassifier` does not list `EventFileParseException` as unrecoverable, so a genuinely malformed event file retries the full immediate+delayed ladder before reaching the error queue. Affects single-file import equally; not a bulk-import concern.
+
+---
+
+## Step 11: Automatic Retrosheet Download
+
+**Status**: In Progress (11a–11h complete; 11i live end-to-end pending)
+
+**Governing spec**: [retrosheet-auto-download.md](./retrosheet-auto-download.md)
+
+**Depends on**: Step 5 (Game Log Parser) and Step 10 (Bulk Game Event Import). Feeds Step 9.
+
+**Objective**: Remove the manual "download the file and stage it on a mounted volume" step from every ETL path. Given only a season year (or nothing, for the biofile), the engine downloads the matching Retrosheet archive itself, extracts it into a per-run working directory under the system temp dir, imports it exactly as before, and cleans up. No request body carries a file path any more.
+
+**Deliverables**:
+- `RetrosheetSourceConfiguration` (`BaseUrl`, path templates, `WorkingRoot`, `HttpTimeoutSeconds`) + `RetrosheetArchiveNotFoundException`/`RetrosheetArchiveUnavailableException`; `BulkImportConfiguration.ExtractionRoot` removed.
+- `IRetrosheetArchiveClient`/`RetrosheetArchiveClient` over a named `HttpClient` registered in the engine's `Program.cs` only; maps 404/410 → not-found (unrecoverable), timeout/5xx/transport → unavailable (retryable), non-zip body → `InvalidDataException`.
+- `GameLogArchive` and `BioFileArchive` extraction helpers (siblings of `EventFileArchive`); a shared `WorkingDirectory.TryDelete`.
+- `GameLogSaga`, `BulkGameEventImportSaga`, and `PersonSaga` each download → extract → import → clean up; the bulk saga downloads `{season}eve.zip` at startup (unrecoverable download error → `FailStartupAsync`; transient → propagate for retry, no run row), always deletes the downloaded zip on finish, and stores the URL in `BulkImport.SourceZipPath`.
+- `GameLogController`/`GameEventController` require and range-check `seasonYear`; `POST /api/gameevent/import` (single file) + `GameEventImportRequest` **retired**; `PersonController.Import` takes no body; `FilePath` removed from `GameLogStart`/`PersonStart` and their saga data; `GameEventStart` routing dropped from `UI.Api/Program.cs`.
+- `ImportFailureClassifier` learns `RetrosheetArchiveNotFoundException` + `InvalidDataException` (unrecoverable); `RetrosheetArchiveUnavailableException` stays retryable.
+- `docker-compose.yml`/`docker-compose.pi.yml` bind mount removed; `.gitignore` + `data/retrosheet/.gitkeep` cleaned up; `.env.example`, `appsettings.json`, `docs/deployment.md`, `spec/game-log.md`, `spec/bulk-import.md` updated. Engine now needs outbound HTTPS to `www.retrosheet.org`.
+
+**Definition of done**: matches [retrosheet-auto-download.md](./retrosheet-auto-download.md)'s Acceptance Criteria — a game log and a full season of events both import with nothing staged on disk, a bad season year is a `Failed` run / error-queue message (no retry storm), a simulated 503 recovers on its own, and a clean run leaves no working directory behind.
+
+### Progress Log
+
+**11a–11c (config, download client, archive helpers) — complete.** `RetrosheetSourceConfiguration` (+ `Instance()`, URL helpers, `ResolvedWorkingRoot`); exception types in `Retrosharp.Service.Interface/ETL/`. `RetrosheetArchiveClient` streams to a file, verifies the `PK\x03\x04` header, maps failures per the spec; wired via `AddHttpClient` in the engine `Program.cs` (a real `User-Agent`, configurable timeout). `GameLogArchive` (`^gl\d{4}\.txt$`) and `BioFileArchive` (`^biofile0\.csv$` — the newer 32-column format; the archive also holds the legacy `biofile.csv` + six unrelated files) extract the one wanted entry. New tests: `RetrosheetSourceConfigurationTests`, `RetrosheetArchiveClientTests` (stub `HttpMessageHandler`), `GameLogArchiveTests`, `BioFileArchiveTests`.
+
+**11d (Game Log saga) — complete.** `GameLogSaga` injects the client + config; `Handle(GameLogStart)` downloads `gl{season}.zip` into `<WorkingRoot>/gamelog/<requestId>`, extracts, imports, and `finally`-deletes the working dir unconditionally. `GameLogController` body → `{ int SeasonYear }` (range-checked via a shared `RetrosheetSeason` helper). `FilePath` gone from `GameLogStart`/`GameLogSagaData` (JSONB blob — no migration). `GameLogSagaTests` rewritten around a `FakeRetrosheetArchiveClient`.
+
+**11e (Bulk Game Event saga) — complete.** Download `{season}eve.zip` first; `season` comes from the request and is cross-checked against the archive's file names. `RetrosheetArchiveNotFoundException`/`InvalidDataException` → `FailStartupAsync` (+ working-dir wipe); `RetrosheetArchiveUnavailableException` propagates (retry, no row). `FinishAsync` always deletes the downloaded zip. `ResolveWorkingDirectory` → `RetrosheetSourceConfiguration.ResolvedWorkingRoot`; `BulkImportConfiguration.ExtractionRoot` removed. `BulkGameEventImportStart.ZipPath` removed; `GameEventController` requires `seasonYear`, single-file `import` endpoint retired. `EventFileArchive.IsPlausibleSeason` added. `BulkGameEventImportSagaTests` reworked (15 → 18).
+
+**11f (Person biofile) — complete.** Verified against `retrosheet.org/biofile.htm`: the "Download biofile.zip" link is really `https://www.retrosheet.org/downloads/biodata.zip` (eight files). `PersonSaga` downloads it, `BioFileArchive` extracts `biofile0.csv`, imports, cleans up. `PersonController.Import` takes no body; `PersonStart`/`PersonSagaData` lose `FilePath` (`PersonSagaData` is now empty). `BioFileService` unchanged (still one CSV).
+
+**11g (recoverability) — complete.** `ImportFailureClassifier` + `ImportFailureClassifierTests` + `EngineRecoverabilityPolicyTests` updated: a game-log/person 404 now skips the retry ladder; a 503/timeout still backs off and recovers.
+
+**11h (compose/docs) — complete.** Bind mount removed from `docker-compose.yml`; `docker-compose.pi.yml` header note updated; `data/retrosheet/.gitkeep` deleted; `.gitignore` reworded; `docs/deployment.md`, `spec/game-log.md`, `spec/bulk-import.md`, this ordering note updated. `spec/api.md` needed no change (the ETL import endpoints were never in its read-only API Surface table).
+
+**Verification so far**: full solution build, 0 errors; **346 unit tests pass** (283 before Step 11). No schema/migration change (saga-data fields are JSONB, `BulkImport.SourceZipPath` reused for the URL).
+
+**11i (live end-to-end) — pending.**

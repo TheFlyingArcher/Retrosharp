@@ -10,11 +10,12 @@ namespace Retrosharp.Message.GameEvent
         public string FilePath { get; set; }
 
         /// <summary>
-        /// The bulk import run this file belongs to, when the import was initiated by
-        /// <see cref="BulkGameEventImportStart"/>. <see cref="System.Guid.Empty"/> for a
-        /// standalone single-file import through <c>POST /api/gameevent/import</c>. When set,
-        /// GameEventSaga persists it and echoes it back on <see cref="GameEventComplete"/>
-        /// so the bulk import saga can correlate the outcome. See spec/bulk-import.md.
+        /// The bulk import run this file belongs to. Always set now that bulk import is the
+        /// only path that produces a <see cref="GameEventStart"/> (the bulk saga sends one per
+        /// extracted event file, via <c>SendLocal</c>). <see cref="System.Guid.Empty"/> only
+        /// for a message constructed outside that flow. GameEventSaga persists it and echoes
+        /// it back on <see cref="GameEventComplete"/> so the bulk import saga can correlate
+        /// the outcome. See spec/bulk-import.md.
         /// </summary>
         public Guid BulkImportId { get; set; }
     }

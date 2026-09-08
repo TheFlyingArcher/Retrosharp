@@ -41,7 +41,6 @@ routing.RouteToEndpoint(typeof(PingMessage), messagingConfig.EndpointName);
 routing.RouteToEndpoint(typeof(FailingPingMessage), messagingConfig.EndpointName);
 routing.RouteToEndpoint(typeof(PersonStart), messagingConfig.EndpointName);
 routing.RouteToEndpoint(typeof(GameLogStart), messagingConfig.EndpointName);
-routing.RouteToEndpoint(typeof(GameEventStart), messagingConfig.EndpointName);
 routing.RouteToEndpoint(typeof(BulkGameEventImportStart), messagingConfig.EndpointName);
 
 builder.UseNServiceBus(endpointConfiguration);

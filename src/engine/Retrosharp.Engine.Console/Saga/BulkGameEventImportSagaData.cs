@@ -22,14 +22,22 @@ namespace Retrosharp.Engine.Console.Saga
         public int BulkImportRowId { get; set; }
 
         /// <summary>
-        /// Season parsed from the archive's file names.
+        /// The season being imported (from the request, cross-checked against the downloaded
+        /// archive's file names).
         /// </summary>
         public short SeasonYear { get; set; }
 
         /// <summary>
-        /// Directory the archive's event files were extracted into.
+        /// Per-run working directory: the downloaded event archive plus everything extracted
+        /// from it. Removed (bar any files that ended <c>Failed</c>) when the run finishes.
         /// </summary>
         public string WorkingDirectory { get; set; }
+
+        /// <summary>
+        /// Local path of the downloaded <c>{season}eve.zip</c>. Always deleted when the run
+        /// finishes -- it is re-downloadable. See spec/retrosheet-auto-download.md.
+        /// </summary>
+        public string DownloadedArchivePath { get; set; }
 
         /// <summary>
         /// Maximum number of files dispatched concurrently.

@@ -5,8 +5,9 @@ namespace Retrosharp.Configuration
     /// <summary>
     /// Tuning for the bulk Game Event import saga in Retrosharp.Engine.Console. Bound from the
     /// <c>BulkImport</c> section of <c>appsettings.json</c> (or <c>BulkImport__*</c> environment
-    /// variables), the same convention as <see cref="MessagingConfiguration"/>. See
-    /// spec/bulk-import.md.
+    /// variables), the same convention as <see cref="MessagingConfiguration"/>. Where archives
+    /// are downloaded and staged is in <see cref="RetrosheetSourceConfiguration"/>. See
+    /// spec/bulk-import.md and spec/retrosheet-auto-download.md.
     /// </summary>
     public sealed class BulkImportConfiguration
     {
@@ -14,7 +15,6 @@ namespace Retrosharp.Configuration
         {
             DefaultBatchSize = 10;
             WatchdogTimeoutHours = 6;
-            ExtractionRoot = string.Empty;
         }
 
         /// <summary>
@@ -30,13 +30,6 @@ namespace Retrosharp.Configuration
         /// this point.
         /// </summary>
         public int WatchdogTimeoutHours { get; set; }
-
-        /// <summary>
-        /// Directory the archive's event files are extracted into (a per-run subdirectory is
-        /// created beneath it). Empty means "an <c>_bulk-import/&lt;trackingId&gt;/</c>
-        /// subdirectory next to the source zip".
-        /// </summary>
-        public string ExtractionRoot { get; set; }
 
         public static BulkImportConfiguration Instance()
         {
@@ -59,8 +52,7 @@ namespace Retrosharp.Configuration
             return new BulkImportConfiguration
             {
                 DefaultBatchSize = int.TryParse(section["DefaultBatchSize"], out var batchSize) && batchSize > 0 ? batchSize : 10,
-                WatchdogTimeoutHours = int.TryParse(section["WatchdogTimeoutHours"], out var hours) && hours > 0 ? hours : 6,
-                ExtractionRoot = section["ExtractionRoot"] ?? string.Empty
+                WatchdogTimeoutHours = int.TryParse(section["WatchdogTimeoutHours"], out var hours) && hours > 0 ? hours : 6
             };
         }
     }

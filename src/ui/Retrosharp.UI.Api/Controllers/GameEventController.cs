@@ -8,9 +8,10 @@ using Retrosharp.UI.Api.Models;
 namespace Retrosharp.UI.Api.Controllers
 {
     /// <summary>
-    /// Initiates ETL processing of Retrosheet's play-by-play event files -- one file at a time
-    /// (<c>import</c>) or a whole season's zip archive (<c>bulkimport</c>). See
-    /// spec/game-event.md and spec/bulk-import.md.
+    /// Initiates a bulk ETL import of a season's Retrosheet play-by-play event files. The
+    /// engine downloads the season's event archive from Retrosheet itself -- the request
+    /// carries only the season year. See spec/bulk-import.md and
+    /// spec/retrosheet-auto-download.md.
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
@@ -26,31 +27,16 @@ namespace Retrosharp.UI.Api.Controllers
         }
 
         /// <summary>
-        /// Places a message on the service bus to begin parsing the game event file at the
-        /// given path. Processing happens asynchronously in Retrosharp.Engine.Console.
-        /// </summary>
-        [HttpPost("import")]
-        public async Task<IActionResult> Import([FromBody] GameEventImportRequest request)
-        {
-            if (string.IsNullOrWhiteSpace(request.FilePath))
-                return BadRequest("FilePath is required.");
-
-            var message = new GameEventStart { RequestId = Guid.NewGuid(), FilePath = request.FilePath };
-            await _messageSession.Send(message);
-            return Accepted(new { message.RequestId });
-        }
-
-        /// <summary>
-        /// Places a message on the service bus to begin a bulk import of a season's zip archive
-        /// of team-season event files. Returns immediately with a tracking id; the archive is
-        /// read, validated (Game Log for the season must already be imported), and processed
-        /// asynchronously in Retrosharp.Engine.Console. See spec/bulk-import.md.
+        /// Places a message on the service bus to begin a bulk import of a season's event
+        /// files. Returns immediately with a tracking id; Retrosharp.Engine.Console downloads
+        /// <c>{season}eve.zip</c> from Retrosheet, validates it (the season's Game Log must
+        /// already be imported), and processes it asynchronously. See spec/bulk-import.md.
         /// </summary>
         [HttpPost("bulkimport")]
         public async Task<IActionResult> BulkImport([FromBody] BulkGameEventImportRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.ZipPath))
-                return BadRequest("ZipPath is required.");
+            if (!RetrosheetSeason.IsPlausible(request.SeasonYear))
+                return BadRequest(RetrosheetSeason.RangeMessage);
 
             if (request.BatchSize is <= 0)
                 return BadRequest("batchSize must be a positive number.");
@@ -60,7 +46,6 @@ namespace Retrosharp.UI.Api.Controllers
             {
                 RequestId = trackingId,
                 BulkImportId = trackingId,
-                ZipPath = request.ZipPath,
                 SeasonYear = request.SeasonYear,
                 BatchSize = request.BatchSize
             });
@@ -120,23 +105,13 @@ namespace Retrosharp.UI.Api.Controllers
         }
     }
 
-    public class GameEventImportRequest
-    {
-        public string FilePath { get; set; } = string.Empty;
-    }
-
     public class BulkGameEventImportRequest
     {
         /// <summary>
-        /// Path to the <c>.zip</c> archive of the season's team-season event files, on a
-        /// volume visible to both Retrosharp.UI.Api and Retrosharp.Engine.Console.
+        /// The season to import. Range-checked by the controller; the engine builds the
+        /// Retrosheet event-archive URL from it.
         /// </summary>
-        public string ZipPath { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Optional. Validated against the season parsed from the archive's file names.
-        /// </summary>
-        public int? SeasonYear { get; set; }
+        public int SeasonYear { get; set; }
 
         /// <summary>
         /// Optional. Files processed concurrently; defaults to the engine's configured value.

@@ -9,7 +9,7 @@ The stack is five containers, defined in `docker-compose.yml` at the repo root:
 | `postgres` | PostgreSQL 16, the application database |
 | `rabbitmq` | RabbitMQ (management plugin included), the message bus |
 | `retrosharp-migration` | One-shot: applies EF Core migrations, seeds `Franchise`/`Ballpark`, installs the NServiceBus.Persistence.Sql saga/outbox schema, then exits |
-| `retrosharp-engine-console` | The ETL/saga processor -- receives `PersonStart`/`GameLogStart`/`GameEventStart` messages and does the actual parsing/import work |
+| `retrosharp-engine-console` | The ETL/saga processor -- receives `PersonStart`/`GameLogStart`/`BulkGameEventImportStart` messages, downloads the matching Retrosheet archive, and does the actual parsing/import work |
 | `retrosharp-ui-api` | The REST API (`Retrosharp.UI.Api`) -- everything under `/api`, plus `GET /health` |
 
 `retrosharp-engine-console` and `retrosharp-ui-api` both wait for `retrosharp-migration` to exit successfully before starting (`depends_on: condition: service_completed_successfully`), so a fresh `docker compose up` always has a ready schema before either app tries to use it.
@@ -43,13 +43,19 @@ curl http://localhost:5197/api/teams/search?code=SDN   # only returns data once 
 docker compose ps                          # all 5 services should show "healthy" (migration shows "Exited (0)")
 ```
 
-`retrosharp-migration` seeds `Franchise`/`Ballpark` reference data automatically, but **does not** import any Retrosheet play-by-play/biofile data -- that still requires triggering the existing ETL endpoints (`POST /api/Person/import`, `POST /api/GameLog/import`, `POST /api/GameEvent/import`) with a file path the `retrosharp-engine-console` container can actually read.
+`retrosharp-migration` seeds `Franchise`/`Ballpark` reference data automatically, but **does not** import any Retrosheet play-by-play/biofile data. Trigger the ETL endpoints for that -- and they take **no files**, only a season year (the engine downloads the archive from Retrosheet itself):
 
-`docker-compose.yml` bind-mounts `./data/retrosheet` on the host to `/data/retrosheet` in `retrosharp-engine-console` for exactly this: drop your Retrosheet source files there (biofiles, game logs, and -- for bulk import -- a season's event-file zip) and pass container paths like `/data/retrosheet/2024eve.zip` to the endpoints. Only the engine container mounts it; the API never reads the files, it just forwards the path on the bus.
+```bash
+curl -X POST http://localhost:5197/api/person/import                                   # biographical data
+curl -X POST http://localhost:5197/api/gamelog/import   -H 'Content-Type: application/json' -d '{"seasonYear":2024}'
+curl -X POST http://localhost:5197/api/gameevent/bulkimport -H 'Content-Type: application/json' -d '{"seasonYear":2024}'
+```
+
+There is **no host bind mount** for source files. `retrosharp-engine-console` needs **outbound HTTPS to `www.retrosheet.org`** (set `RetrosheetSource__BaseUrl` to an internal mirror if egress is restricted) and enough writable temp space for one season archive (a few MB zipped, ~40 MB extracted, deleted after a clean run). See [spec/retrosheet-auto-download.md](../spec/retrosheet-auto-download.md).
 
 ### Bulk Game Event import
 
-`POST /api/gameevent/bulkimport` with `{ "zipPath": "/data/retrosheet/2024eve.zip" }` imports a whole season of team-season event files in one call (batched, resumable, per-file status). It returns `202` with a `trackingId`; poll `GET /api/gameevent/bulkimport/{trackingId}` for progress. The season's Game Log must already be imported or the run is rejected (visible as `status: "Failed"` on the status endpoint). The engine extracts into an `_bulk-import/<id>/` subfolder of the mount and deletes each file once it imports successfully; failed files are left for inspection. Tuning (`BulkImport__DefaultBatchSize`, `BulkImport__WatchdogTimeoutHours`, `BulkImport__ExtractionRoot`) is in `.env.example`. See [spec/bulk-import.md](../spec/bulk-import.md).
+`POST /api/gameevent/bulkimport` with `{ "seasonYear": 2024 }` (optionally `"batchSize": N`) imports a whole season of team-season event files in one call (batched, resumable, per-file status). It returns `202` with a `trackingId`; poll `GET /api/gameevent/bulkimport/{trackingId}` for progress. The season's Game Log must already be imported or the run is rejected (visible as `status: "Failed"` on the status endpoint). The engine downloads `{season}eve.zip`, extracts into a per-run working directory under the system temp dir, deletes each event file once it imports successfully (and always deletes the downloaded zip); failed files are left for inspection. Tuning (`BulkImport__DefaultBatchSize`, `BulkImport__WatchdogTimeoutHours`, `RetrosheetSource__BaseUrl`, `RetrosheetSource__WorkingRoot`, `RetrosheetSource__HttpTimeoutSeconds`) is in `.env.example`. See [spec/bulk-import.md](../spec/bulk-import.md).
 
 ## Build contexts -- not uniform, and that's intentional
 
