@@ -989,3 +989,61 @@ zip). The deadlock fix (`d7e1c40`) already protects the new
 ### Step 6 — competing consumers (`--scale retrosharp-engine-console=2`)
 
 **Status**: Not Started (procedure updated 2026-09-10; see *Implementation Steps*)
+
+### Step 5 — failure injection under the Pi overlay (2026-09-10)
+
+**Status**: Complete — pass
+
+Engine rebuilt from current `main` first (the prior container predated Step 11 —
+`POST /api/gamelog/import { seasonYear: 2027 }` had surfaced as a bare
+`FileNotFoundException: "The file at path '' was not found"`, the pre-Step-11 saga
+using a `FilePath` the message no longer carries).
+
+**Part B — download failure classification (real Retrosheet 404s): pass.**
+
+| Trigger | Expected | Observed |
+|---|---|---|
+| `POST /api/gamelog/import { "seasonYear": 2027 }` (`gl2027.zip` → 404) | `RetrosheetArchiveNotFoundException`, error queue, no retries | ✓ `ExceptionType` = `…ETL.RetrosheetArchiveNotFoundException`; message names the URL and *"check the season year"*; engine queue 0 (no retry storm); original `GameLogStart` in the body for operator retry |
+| `POST /api/gameevent/bulkimport { "seasonYear": 1877 }` (`1877eve.zip` → 404) | `Failed` run row, queryable, no retries | ✓ `GET /api/gameevent/bulkimport/{id}` → 200, `status: "Failed"`, `failureReason` names the 404 URL, `counts` all 0, `createdUtc == completedUtc` |
+
+5xx / timeout / truncated-zip were not injected live (no fixture server this run) —
+covered by `RetrosheetArchiveClientTests` / `ImportFailureClassifierTests` /
+`EngineRecoverabilityPolicyTests` at the unit level.
+
+**Part A — infrastructure failure mid-bulk-import: pass (Postgres case isolated).**
+
+`POST /api/gameevent/bulkimport { "seasonYear": 2021, "batchSize": 20 }` — 20
+`GameEventStart` messages in flight — then `docker compose restart postgres`:
+
+```
+16:38:45  API status endpoint → unreachable        (Postgres restarting)
+16:38:53  inprog=20 ok=0  held ~75s                (20 dropped connections, NServiceBus retrying)
+16:39:57  ok 0 → 19, pend 10 → 0                   (all 20 retries land at once, Postgres back)
+16:40:29  Completed  30/30 success, 0 failed        (error queue 0 throughout)
+```
+
+Postgres died under 20 concurrent import transactions → every connection dropped →
+every message immediate-retried → all succeeded once Postgres recovered → the bulk
+run completed 30/30 with **zero error-queue traffic** and **zero duplicate rows**
+(`dupGameEventRunner` / `dupFieldCredit` = 0, `GameEventGameStatus` per-game
+idempotency held under retry). This is the transient-classification fix (`240ab4d`)
+doing its job — a dropped Npgsql connection is transient, so it rides the retry
+ladder, not the error queue.
+
+**RabbitMQ pause / engine restart**: injected on three earlier runs (fresh 2022 /
+2023 / 2024 bulk imports) but not isolated — all three runs completed clean, and
+the stack recovers faster than the 8 s poll granularity. NServiceBus handles a
+paused broker (messages redeliver on unpause) and an engine restart (the
+SQL-persisted `BulkGameEventImportSaga` + outbox resume) by design; the engine
+restart path was also exercised in Step 3.
+
+**End state:** five seasons (2021–2025) fully imported — `Game` 12,148 = `GES`
+12,148, `GameEvent` 1,114,560, no duplicate child rows, error queue empty, all saga
+tables empty.
+
+**Bonus finding — bulk import is much faster than the Step 2 manual runs.** A fresh
+30-file season imports in ~90 s (`batchSize` 10–20) or ~2 min fully serial —
+~2–4 s/file vs ~10–13 s/file in the pre-bulk Step 2 runs. The "Bulk import" desktop
+commits (`325fdc2`…`e2c1a3f`) optimised the per-file insert path. It also means
+a mid-run failure window under the Pi caps is now short — use `batchSize` ≥ 20
+(large in-flight backlog) or a fresh full import (person + game log) to widen it.
