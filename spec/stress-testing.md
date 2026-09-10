@@ -811,9 +811,9 @@ serialises saga *creation*; (2) `IsRunning` no-ops a duplicate once the saga exi
 instances both run. `project.md`'s "atomic, database-enforced idempotency checks...
 not serialization" — satisfied, verified under load.
 
-### Step 4 — sustained API read load under the Pi overlay (2026-09-03)
+### Step 4 — sustained API read load under the Pi overlay (2026-09-03, closed 2026-09-10)
 
-**Status**: Complete — pass (graceful degradation); one efficiency defect found & fixed
+**Status**: Complete — pass (graceful degradation); one efficiency defect found & partly fixed
 
 k6 mixed read workload (11 endpoint families), ramping-VUs 2 → 150 over ~12 min,
 run from the Mac host (outside the compose limits). 14,119 requests, ~20 rps.
@@ -830,16 +830,34 @@ returned to idle within seconds of ramp-down.
 API memory 256 M / 640 M. Postgres connections reached 49-50 / 50 at ~40-50 VUs (a
 symptom of queries piling up behind a saturated single core, not the root cause).
 
-**Finding C (efficiency defect — fixed):** on a *completely idle* API,
-`/api/seasons/2025/teams/stats` takes **~1.8 s** while every other endpoint is
-10-70 ms (`/games/{id}/events`, the supposedly "heavy" one, is 22 ms).
-`TeamStatisticsService.GetSeasonSummariesAsync` runs an N+1 loop over all 30
-franchises, each iteration sequentially awaiting ~10 queries — and calling
-`FipConstantResolver.ResolveAsync` (itself 3 full-league aggregate scans) once *per
-franchise* even though the FIP constant is per (league, season), i.e. 2 distinct
-values. `IFipConstantResolver`'s own doc says callers resolving it for many rows
-should cache it (`PlayerStatisticsService` does; this service didn't). Fixed —
-see `spec/defects.md`, "Slow /seasons/{year}/teams/stats endpoint".
+**Finding C (efficiency defect — ~1.9 s → ~1.0 s; further reduction deferred):** on a
+*completely idle* API, `/api/seasons/2025/teams/stats` took **~1.9 s** while every
+other endpoint is 10-70 ms (`/games/{id}/events`, the supposedly "heavy" one, is
+22 ms). `TeamStatisticsService.GetSeasonSummariesAsync` is an N+1 loop over all 30
+franchises — effectively the single-team `GetStats` path run 30 times.
+
+Diagnosed and fixed across two commits:
+- `17d9331` (landed in a desktop session): request-scoped caching of the FIP
+  constant + `League` lookup (per league, not per franchise) and dedupe of a double
+  per-franchise `Pitching` query. **Byte-identical output, but the wall time did not
+  move** — re-measured 2026-09-10 at ~1.9 s. The FIP resolution wasn't the dominant
+  cost.
+- `5e4be78`: the real cost was two per-franchise queries × 30 —
+  `GetTeamPitchingEventsAsync` (a `GameEvent`⋈`Game` scan filtered by
+  `EXTRACT(year FROM GameDate)`, not sargable, ~216k rows, no `PitcherId` index) and
+  `GetLeagueTeamEarnedRunsAsync`. Batched both to one season-wide query each
+  (`GetSeasonPitchingEventsAsync` + `GetTeamEarnedRunsBySeasonAsync`;
+  `PitcherEventAggregateResolver.Resolve` already groups by franchise). **~1.9 s →
+  ~1.0 s**, still byte-identical to the golden.
+
+**Remaining ~1.0 s** is the other per-franchise reads still done 30× (chiefly
+`GameBattingStatistics.GetByFranchiseSeasonAsync`, same non-sargable year filter)
+plus the ~0.3 s cost of materialising the one 216k-row season `GameEvent` scan.
+Getting below ~1 s needs either batching those reads too (moderate) or —
+recommended, and matching the existing pattern — **precomputing the endpoint into a
+table like `FranchiseSeasonStanding`** (season team stats are immutable once
+imported; a `POST .../compute` sibling → ~20 ms reads). Feature-sized; left for the
+API roadmap. See `spec/defects.md`, "Slow /seasons/{year}/teams/stats endpoint".
 
 **Finding D (minor, deferred):** during the meltdown the API logged nothing —
 `grep -icE 'timeout|pool|exhaust|npgsql'` over its logs → 0. No request-duration or
@@ -856,3 +874,48 @@ crash, full recovery ✓; no OOM ✓; pg connections hit the deliberate Pi cap o
 under extreme load (Finding E). The knee for this Pi config is ~5-10 VUs (where the
 1-core Postgres saturates); on a Pi 4 with Postgres given more than one core it
 moves up.
+
+---
+
+## Status after Step 4 (2026-09-10)
+
+Steps 1–4 complete. Six fixes shipped to `main` from this pass:
+
+| Commit | Fix |
+|---|---|
+| `20b59b1` | `PlayCodeParser`: bare fielded-out code with no trajectory modifier |
+| `f454df4` | Unrecoverable ETL failures routed to the error queue, not silently completed |
+| `240ab4d` | Transient Postgres errors (deadlock) no longer misclassified as unrecoverable |
+| `d7e1c40` | Deterministic stat-row lock ordering — removes concurrent-import deadlocks |
+| `17d9331` + `5e4be78` | `/seasons/{year}/teams/stats` N+1: FIP/query cleanup + batched the two heavy per-franchise scans (~1.9 s → ~1.0 s) |
+
+**Plan is now partly stale.** Between Step 4's run and its close-out, the import
+surface changed (build-plan Steps 10–11, `spec/bulk-import.md` +
+`spec/retrosheet-auto-download.md`):
+
+- `POST /api/gameevent/import` (single file) is **retired**. Import is now
+  `POST /api/person/import` (no body) → `POST /api/gamelog/import { "seasonYear" }` →
+  `POST /api/gameevent/bulkimport { "seasonYear", "batchSize"? }`, polled via
+  `GET /api/gameevent/bulkimport/{trackingId}`.
+- The engine **downloads** the Retrosheet archives itself — it needs outbound HTTPS
+  to `www.retrosheet.org` (or a mirror via `RetrosheetSource__BaseUrl`).
+- `docker-compose.override.yml` (the `./import` bind mount) is **gone**. The overlay
+  is now `-f docker-compose.yml -f docker-compose.pi.yml` (two files).
+- `docker-compose.pi.yml` gained the note about egress + temp space; no limit
+  changes.
+
+Before Steps 5–6 run, the **Environment** section above and the Step 5/6 procedures
+must be rewritten for the download-based API. The deadlock fix (`d7e1c40`) already
+protects the new `BulkGameEventImportSaga`, which runs `batchSize` files
+concurrently by design — the natural replacement for Step 2's manual concurrent
+fire. New surfaces worth a pass: the bulk saga under the Pi caps (batchSize
+tuning, watchdog timeout, per-file status writes), and download failure injection
+(404 / 5xx / timeout / truncated zip) against `RetrosheetArchiveClient`.
+
+### Step 5 — failure injection
+
+**Status**: Not Started (procedure needs updating for the download-based API)
+
+### Step 6 — competing consumers (`--scale retrosharp-engine-console=2`)
+
+**Status**: Not Started (procedure needs updating for the download-based API)
