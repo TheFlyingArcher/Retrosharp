@@ -383,30 +383,36 @@ Level: Medium
 
 Root cause:
 `TeamStatisticsService.GetSeasonSummariesAsync` loops over all ~30 franchises in a season and,
-per franchise, sequentially awaits ~10 queries. The dominant cost is calling
-`IFipConstantResolver.ResolveAsync(leagueId, season)` (via `GetPitchingAsync`) **once per
-franchise** -- and that resolver itself runs three full-league aggregate scans
-(`GetLeagueTotalsAsync`, `GetLeagueTeamEarnedRunsAsync`, `GetLeagueHomerunsAllowedAsync`). The
-FIP constant is per `(league, season)`, i.e. exactly two distinct values for a modern season,
-so ~28 of the 30 resolutions redo the same three heavy scans. `IFipConstantResolver`'s own XML
-doc says callers resolving it for many rows in one request "should keep their own cache...
-rather than re-resolving the same league-season repeatedly" -- `PlayerStatisticsService.GetPitchingAsync`
-does; `TeamStatisticsService` did not. A secondary waste: `_pitchingRepository.GetByFranchiseAsync`
-is issued twice per franchise (once inside `GetPitchingAsync`, once again for the roster
-person-ids).
+per franchise, sequentially awaits ~10 queries -- effectively calling the single-team
+`GetStats` path 30 times. Two of the per-franchise queries are the expensive ones:
+`GetTeamPitchingEventsAsync` scans `GameEvent` joined to `Game` filtered by
+`EXTRACT(year FROM GameDate)` (not sargable, no `PitcherId` index) -- ~216k rows, 30 times --
+and `GetLeagueTeamEarnedRunsAsync` scans `GamePitchingStatistics` the same way. The cheap
+per-franchise reads (`GameBattingStatistics` / player `Batting` / player `Pitching` by
+`(FranchiseId, SeasonYear)`) are indexed and account for little. A first fix (`17d9331`) also
+found the FIP constant being resolved once per franchise when it is per `(league, season)`
+(2 values, three full-league scans each) -- `IFipConstantResolver`'s own XML doc says
+many-row callers should cache it -- and a redundant second `_pitchingRepository.GetByFranchiseAsync`
+per franchise. Caching those helped correctness/query-count but **did not move the wall time**:
+re-measured at ~1.9 s, unchanged, because the 30 `GameEvent` scans dominate.
 
-Fix:
-Request-scoped memoisation in `GetSeasonSummariesAsync`: the FIP constant and the `League`
-lookup are each resolved once per distinct `leagueId` (2 instead of 30), and the per-franchise
-`Pitching` rows are fetched once and reused for both the stat sums and the roster person-ids.
-`GetPitchingAsync` gained optional cache parameters (`null` for the single-team
-`TeamsController.GetStats` path -- behaviour there is unchanged). No new repository methods, no
-change to any computed value.
+Fix (two commits):
+1. `17d9331` -- request-scoped memoisation of the FIP constant and `League` lookup (per
+   `leagueId`, not per franchise), and the per-franchise `Pitching` rows fetched once and
+   reused for both the stat sums and the roster person-ids.
+2. Batch the two heavy scans: new `IGameEventRepository.GetSeasonPitchingEventsAsync(season)`
+   (one scan; `PitcherEventAggregateResolver.Resolve` already groups by franchise, so it
+   yields every team's aggregate at once) and
+   `IGamePitchingStatisticsRepository.GetTeamEarnedRunsBySeasonAsync(season)` (one grouped
+   query -> `IReadOnlyDictionary<int,int>`). `GetSeasonSummariesAsync` resolves both once and
+   passes each franchise's slice into `GetPitchingCoreAsync` via new optional parameters; the
+   single-team `TeamsController.GetStats` path passes `null` and keeps its per-franchise
+   queries. No change to any computed value.
 
 Verification:
-Captured the full `/api/seasons/2025/teams/stats` JSON before the change; after the change it
-is byte-identical (30 hitting + 30 pitching teams, all rate stats unchanged). Idle latency
-<see spec/stress-testing.md Step 4 re-measure>. `dotnet test` green.
+Captured the full `/api/seasons/2025/teams/stats` JSON before the change; after both commits
+it is byte-identical (30 hitting + 30 pitching teams, all rate stats unchanged). Idle latency
+~1.9 s -> <see spec/stress-testing.md Step 4>. `dotnet test` green.
 
 ## InvalidOperationException on base runners
 

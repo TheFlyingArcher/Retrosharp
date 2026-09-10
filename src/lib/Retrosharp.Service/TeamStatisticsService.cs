@@ -1,4 +1,5 @@
 using Retrosharp.Contract.Game;
+using Retrosharp.Contract.GameEvent;
 using Retrosharp.Contract.League;
 using Retrosharp.Contract.Person;
 using Retrosharp.Contract.Pitching;
@@ -110,28 +111,35 @@ namespace Retrosharp.Service
 
         /// <summary>
         /// Shared body of <see cref="GetPitchingAsync"/>. Takes the franchise's already-fetched
-        /// <see cref="Pitching"/> rows (so the caller can reuse them -- e.g. for roster
-        /// person-ids), plus per-request FIP-constant and <see cref="League"/> caches. The FIP
-        /// constant is per (league, season) -- two distinct values for a modern season -- and
-        /// resolving it runs three full-league aggregate scans, so
-        /// <see cref="GetSeasonSummariesAsync"/> resolving it once per franchise instead of once
-        /// per league was the bulk of that endpoint's ~1.8s idle cost. See spec/defects.md,
-        /// "Slow /seasons/{year}/teams/stats endpoint", and the note on
-        /// <see cref="IFipConstantResolver"/>.
+        /// <see cref="Pitching"/> rows plus per-request caches so a season-wide caller
+        /// (<see cref="GetSeasonSummariesAsync"/>) can hand in work it has already batched:
+        /// the FIP constant and <see cref="League"/> lookup (per league, not per franchise --
+        /// see the note on <see cref="IFipConstantResolver"/>), the team's
+        /// <see cref="PitcherEventAggregate"/> (one season-wide GameEvent scan instead of one
+        /// per franchise -- the dominant cost, see spec/defects.md "Slow /seasons/{year}/teams/stats
+        /// endpoint"), and its summed team earned runs. Every override is optional; a null
+        /// falls back to the per-franchise query, which is what the single-team path uses.
         /// </summary>
         private async Task<PitchingStatistics> GetPitchingCoreAsync(
             int franchiseId,
             short season,
             IReadOnlyList<Pitching> pitchingRows,
             IDictionary<int, FipConstantResult> fipCache,
-            IDictionary<int, League> leagueCache)
+            IDictionary<int, League> leagueCache,
+            PitcherEventAggregate eventAggregate = null,
+            int? teamEarnedRunsOverride = null)
         {
             // Authoritative team-earned figure, substituted for the ERA numerator instead of
             // summing each pitcher's own individually-earned runs. See spec/api.md.
-            var teamEarnedRuns = await _gamePitchingStatisticsRepository.GetLeagueTeamEarnedRunsAsync([franchiseId], season);
+            var teamEarnedRuns = teamEarnedRunsOverride
+                ?? await _gamePitchingStatisticsRepository.GetLeagueTeamEarnedRunsAsync([franchiseId], season);
 
-            var teamEvents = await _gameEventRepository.GetTeamPitchingEventsAsync(franchiseId, season);
-            var aggregate = PitcherEventAggregateResolver.Resolve(0, teamEvents).FirstOrDefault();
+            var aggregate = eventAggregate;
+            if (aggregate == null)
+            {
+                var teamEvents = await _gameEventRepository.GetTeamPitchingEventsAsync(franchiseId, season);
+                aggregate = PitcherEventAggregateResolver.Resolve(0, teamEvents).FirstOrDefault();
+            }
 
             var stats = new PitchingStatistics
             {
@@ -199,6 +207,15 @@ namespace Retrosharp.Service
             var fipCache = new Dictionary<int, FipConstantResult>();
             var leagueCache = new Dictionary<int, League>();
 
+            // The two heavy per-franchise queries batched to one each: one GameEvent scan for
+            // the whole season (PitcherEventAggregateResolver groups it per franchise) and one
+            // grouped TeamEarnedRuns query -- replacing 30 of each. This is the bulk of the
+            // endpoint's cost; see spec/defects.md, "Slow /seasons/{year}/teams/stats endpoint".
+            var teamEarnedRunsByFranchiseId = await _gamePitchingStatisticsRepository.GetTeamEarnedRunsBySeasonAsync(season);
+            var eventAggregatesByFranchiseId = PitcherEventAggregateResolver
+                .Resolve(0, await _gameEventRepository.GetSeasonPitchingEventsAsync(season))
+                .ToDictionary(a => a.FranchiseId);
+
             var hitting = new List<TeamSeasonBattingSummary>();
             var pitching = new List<TeamSeasonPitchingSummary>();
 
@@ -225,7 +242,10 @@ namespace Retrosharp.Service
                 var pitchingRows = (await _pitchingRepository.GetByFranchiseAsync(franchiseId, season)).ToList();
                 if (pitchingRows.Count > 0)
                 {
-                    var pitchingStats = await GetPitchingCoreAsync(franchiseId, season, pitchingRows, fipCache, leagueCache);
+                    var pitchingStats = await GetPitchingCoreAsync(
+                        franchiseId, season, pitchingRows, fipCache, leagueCache,
+                        eventAggregatesByFranchiseId.GetValueOrDefault(franchiseId),
+                        teamEarnedRunsByFranchiseId.GetValueOrDefault(franchiseId));
                     var pitcherPersonIds = pitchingRows.Select(p => p.PersonId).Distinct();
 
                     pitching.Add(new TeamSeasonPitchingSummary

@@ -51,5 +51,16 @@ namespace Retrosharp.Data
                 .Where(gs => franchiseIdList.Contains(gs.FranchiseId) && gs.Game.GameDate.Year == season)
                 .SumAsync(gs => (int)gs.TeamEarnedRuns);
         }
+
+        public async Task<IReadOnlyDictionary<int, int>> GetTeamEarnedRunsBySeasonAsync(short season)
+        {
+            var rows = await Context.GamePitchingStatistics
+                .Where(gs => gs.Game.GameDate.Year == season)
+                .GroupBy(gs => gs.FranchiseId)
+                .Select(g => new { FranchiseId = g.Key, EarnedRuns = g.Sum(gs => (int)gs.TeamEarnedRuns) })
+                .ToListAsync();
+
+            return rows.ToDictionary(r => r.FranchiseId, r => r.EarnedRuns);
+        }
     }
 }

@@ -183,6 +183,26 @@ namespace Retrosharp.Data
             return records;
         }
 
+        public async Task<IEnumerable<PitcherGameEventRecord>> GetSeasonPitchingEventsAsync(short season)
+        {
+            // Same shape as GetTeamPitchingEventsAsync but without the per-franchise filter --
+            // FranchiseId is the pitching side (whichever team is NOT at bat), projected per
+            // row so PitcherEventAggregateResolver.Resolve can group the whole season into
+            // per-team aggregates in one pass. See spec/stress-testing.md Step 4 (Finding C).
+            return await _context.GameEvents
+                .Where(e => e.Game.GameDate.Year == season)
+                .Select(e => new PitcherGameEventRecord
+                {
+                    FranchiseId = e.TeamAtBat == "H" ? e.Game.VisitorFranchiseId : e.Game.HomeFranchiseId,
+                    SeasonYear = season,
+                    EventType = e.EventType,
+                    BattedBallType = e.BattedBallType,
+                    IsSacHit = e.IsSacHit,
+                    IsSacFly = e.IsSacFly
+                })
+                .ToListAsync();
+        }
+
         public async Task<int> GetLeagueHomerunsAllowedAsync(IEnumerable<int> franchiseIds, short season)
         {
             var franchiseIdList = franchiseIds.ToList();

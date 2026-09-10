@@ -36,5 +36,13 @@ namespace Retrosharp.Data
         /// <param name="franchiseIds">The franchises belonging to the league.</param>
         /// <param name="season">The season year.</param>
         Task<int> GetLeagueTeamEarnedRunsAsync(IEnumerable<int> franchiseIds, short season);
+
+        /// <summary>
+        /// Every franchise's summed <c>TeamEarnedRuns</c> for one season, keyed by franchise id,
+        /// in one grouped query -- so a season-wide caller doesn't issue one
+        /// <see cref="GetLeagueTeamEarnedRunsAsync"/> per franchise. See spec/stress-testing.md
+        /// Step 4 (Finding C).
+        /// </summary>
+        Task<IReadOnlyDictionary<int, int>> GetTeamEarnedRunsBySeasonAsync(short season);
     }
 }

@@ -73,6 +73,16 @@ namespace Retrosharp.Data
         Task<IEnumerable<PitcherGameEventRecord>> GetTeamPitchingEventsAsync(int franchiseId, short season);
 
         /// <summary>
+        /// Every franchise's pitching events for one season in a single scan, each row carrying
+        /// its own <see cref="PitcherGameEventRecord.FranchiseId"/>. Feeds one
+        /// <see cref="Format.PlayByPlay.PitcherEventAggregateResolver.Resolve"/> call, which
+        /// groups by franchise -- so the whole season's team pitching aggregates come from one
+        /// query instead of one <see cref="GetTeamPitchingEventsAsync"/> per franchise. See
+        /// spec/stress-testing.md Step 4 (Finding C).
+        /// </summary>
+        Task<IEnumerable<PitcherGameEventRecord>> GetSeasonPitchingEventsAsync(short season);
+
+        /// <summary>
         /// Reconstructs one game's full play-by-play for display, including
         /// <see cref="GameEventFieldingCredit"/> rows (deliberately omitted by
         /// <see cref="GetGamesPlayByPlayAsync"/>, which only needs to re-derive statistics),
