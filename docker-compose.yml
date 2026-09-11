@@ -51,10 +51,25 @@ services:
     env_file: .env
     # No host mount for source files: the ETL sagas download the Retrosheet game-log,
     # event, and biofile archives themselves, given only a season year, into a per-run
-    # working directory under the container's temp dir (cleaned up after the run). This
-    # container therefore needs outbound HTTPS to www.retrosheet.org -- point
-    # RetrosheetSource__BaseUrl at an internal mirror if egress is restricted. See
-    # spec/retrosheet-auto-download.md and docs/deployment.md.
+    # working directory (cleaned up after the run). This container therefore needs
+    # outbound HTTPS to www.retrosheet.org -- point RetrosheetSource__BaseUrl at an
+    # internal mirror if egress is restricted. See spec/retrosheet-auto-download.md
+    # and docs/deployment.md.
+    #
+    # The working directory is a named volume, not the container's local temp dir --
+    # required for BulkGameEventImportSaga to run safely under
+    # `--scale retrosharp-engine-console=N`: the saga instance that downloads and
+    # extracts an archive is not necessarily the replica NServiceBus later delivers
+    # each file's GameEventStart to (they're competing consumers on one shared
+    # queue), so every replica needs to see the same extracted files. Confirmed live
+    # (spec/stress-testing.md Step 6): with a per-container temp dir, 2 replicas
+    # completed only the files that happened to land back on the extracting replica
+    # (5 of 30) and FileNotFoundException'd the rest. Harmless overhead at the
+    # documented single-replica deployment.
+    environment:
+      RetrosheetSource__WorkingRoot: /data/retrosheet-import
+    volumes:
+      - retrosheet-import-data:/data/retrosheet-import
     depends_on:
       retrosharp-migration:
         condition: service_completed_successfully
@@ -91,3 +106,4 @@ services:
 
 volumes:
   postgres-data:
+  retrosheet-import-data:

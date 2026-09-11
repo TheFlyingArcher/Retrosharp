@@ -1593,3 +1593,63 @@ Putouts specifically, confirmed every out-runner in the affected game already ha
 credit, so it isn't a missing-credit gap of the kind found elsewhere in this entry. Not chased
 further without more evidence -- flagged here for whenever another occurrence surfaces.
 in the database.
+## Bulk import unsafe under a horizontally-scaled engine
+
+Actual:
+Stress-test Step 6 (`spec/stress-testing.md`): `docker compose ... --scale retrosharp-engine-console=2`,
+then `POST /api/gameevent/bulkimport { "seasonYear": 2019, "batchSize": 10 }`. Result:
+`CompletedWithFailures`, only 5 of 30 files `Success`, 25 `Failed`, 25 messages on the error
+queue, all `System.IO.FileNotFoundException` for paths under
+`/tmp/retrosharp-import/<trackingId>/2019XXX.EVx`.
+
+Status: **Resolved**
+
+Level: High (data-loss risk under a supported-looking scaling operation, though not the
+documented Phase 1 single-replica deployment)
+
+Root cause:
+`BulkGameEventImportSaga` downloads the season's event archive and extracts it into a
+per-run working directory (`RetrosheetSourceConfiguration.ResolvedWorkingRoot`, default
+`%TEMP%/retrosharp-import` -- the container's own local `/tmp`), all inside whichever
+engine replica's saga instance is handling that bulk run. It then does
+`context.SendLocal(new GameEventStart { FilePath = Path.Combine(Data.WorkingDirectory, ...) })`
+per file. `SendLocal` sends to the endpoint's shared input queue, not "run this in the
+current process" -- with two physical replicas competing on the one `Retrosharp.Engine`
+queue, NServiceBus can (and did) deliver a given file's message to the *other* replica,
+whose local `/tmp` never received that extraction. The old single-file `/api/gameevent/import`
+never hit this because its source file lived on a host bind-mounted volume identical on
+every replica; Step 11 replaced that with a per-container temp directory without anyone
+re-running the competing-consumers scenario against it. 5/30 succeeded -- exactly the files
+whose `GameEventStart` happened to be redelivered back to the extracting replica.
+
+No data corruption: `GameEventGameStatus` for the 5 successes was exactly `5 * 81 = 405`
+(confirmed against a direct query) and `dupGameEventRunner`/`dupFieldCredit` were both 0 --
+the failure is "file not found" before any DB work starts, so it's inherently clean. This is
+a file-locality bug, not an idempotency/race bug; the per-game claim and saga correlation
+machinery (Steps 2-3) held.
+
+Fix:
+Made the working directory shared storage instead of per-container local disk. New
+`retrosheet-import-data` named Docker volume, mounted into `retrosharp-engine-console` at
+`/data/retrosheet-import` in `docker-compose.yml`, with `RetrosheetSource__WorkingRoot` set
+to that path so every replica (however many) sees the same extracted files regardless of
+which one did the download. `Retrosharp.Engine.Console/Dockerfile` creates
+`/data/retrosheet-import` and `chown`s it to `$APP_UID` *before* the `USER` switch, so
+Docker's volume-initialization behavior (copying a mount point's existing ownership into a
+freshly-created named volume) leaves it writable by the unprivileged app user instead of
+defaulting to `root:root`. No application code changed -- `RetrosheetSourceConfiguration`
+already supported an externally-configured `WorkingRoot`; this only supplies one by default
+in the compose file. Per-run subdirectories are already namespaced by `trackingId`/`requestId`,
+so concurrent bulk runs don't collide on the shared volume.
+
+Considered and rejected for now: embedding each file's bytes directly in `GameEventStart`
+(more robust to a future non-shared-storage deployment, e.g. multi-host, but a bigger
+message-contract change for a Phase 1 target that is a single Pi); documenting a
+single-replica-only constraint instead of fixing it (leaves a silent data-loss footgun for
+anyone who scales without reading the fine print).
+
+Verification:
+`dotnet test` green (346 -- no unit-test harness covers actual multi-container file sharing;
+this is a deployment-topology fix, verified live). Re-run pending: reset to a fresh working
+volume, rebuild the engine image, re-run Step 6's 2-replica `bulkimport` and confirm 30/30
+`Success`, 0 `Failed`, error queue empty. See `spec/stress-testing.md` Step 6 for the result.

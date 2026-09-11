@@ -1047,3 +1047,38 @@ tables empty.
 commits (`325fdc2`…`e2c1a3f`) optimised the per-file insert path. It also means
 a mid-run failure window under the Pi caps is now short — use `batchSize` ≥ 20
 (large in-flight backlog) or a fresh full import (person + game log) to widen it.
+
+### Step 6 — competing consumers under the Pi overlay (2026-09-10/11)
+
+**Status**: In Progress — found a real defect, fix landed, live re-verify pending
+
+`docker compose ... up -d --scale retrosharp-engine-console=2` (memory limit
+dropped to 448M per replica, per the overlay note), confirmed `Retrosharp.Engine`
+queue `consumers=2`, then `POST /api/gameevent/bulkimport { "seasonYear": 2019,
+"batchSize": 10 }`.
+
+**Result: `CompletedWithFailures` — 5/30 `Success`, 25/30 `Failed`.** Every failure
+was `FileNotFoundException` for a path under `/tmp/retrosharp-import/<trackingId>/`.
+No corruption: `GameEventGameStatus` for 2019 = exactly `5*81 = 405`,
+`dupGameEventRunner`/`dupFieldCredit` = 0 — the per-game claim and saga-correlation
+machinery (Steps 2-3) held; this was a pure file-locality bug, not a race.
+
+**Root cause and fix**: see `spec/defects.md`, "Bulk import unsafe under a
+horizontally-scaled engine". `BulkGameEventImportSaga` extracted the season
+archive onto whichever replica's local disk ran the saga, then dispatched each
+file's `GameEventStart` to the *shared* `Retrosharp.Engine` queue — ordinary
+competing-consumer delivery, so a different replica than the one that extracted
+the files could pick up the message and find nothing on its own disk. 5/30
+succeeded — exactly the ones redelivered back to the extracting replica. Fixed by
+making the working directory shared storage: a new `retrosheet-import-data`
+named volume mounted into the engine service, `RetrosheetSource__WorkingRoot`
+pointed at it, and the Dockerfile pre-creating/chown-ing the mount point so the
+non-root app user can write into a freshly-created volume. No application code
+changed. This is exactly the kind of defect Step 6 exists to catch — invisible at
+the documented single-replica deployment, silent data loss the moment someone
+scales.
+
+**Re-verify pending**: rebuild the engine image with the shared volume, reset to a
+clean working-volume state, re-run the 2-replica `bulkimport` on a fresh season,
+confirm 30/30 `Success`, error queue empty, `GameEventGameStatus` matching the
+season's full game count.

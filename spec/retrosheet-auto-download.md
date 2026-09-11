@@ -99,9 +99,21 @@ A per-run working directory holds the downloaded zip and everything extracted fr
 - Biofile import (if in scope): `<WorkingRoot>/person/<requestId>/`
 
 `WorkingRoot` is `RetrosheetSource__WorkingRoot` when configured, otherwise
-`Path.Combine(Path.GetTempPath(), "retrosharp-import")`. Under the container that is `/tmp`,
-which needs no mount — a season event archive is a few MB zipped and ~40 MB extracted, and
-it is deleted on a clean run.
+`Path.Combine(Path.GetTempPath(), "retrosharp-import")`.
+
+**It must be shared storage, not each container's own `/tmp`, the moment more than one
+`retrosharp-engine-console` replica is running.** `BulkGameEventImportSaga` downloads and
+extracts an archive inside whichever replica's saga instance handles the run, then
+dispatches each file's `GameEventStart` to the shared `Retrosharp.Engine` queue -- ordinary
+competing-consumer delivery, so a *different* replica can pick it up. With a per-container
+temp dir that replica finds nothing on its own disk. Confirmed live under
+`--scale retrosharp-engine-console=2` (spec/stress-testing.md Step 6): 5 of 30 files
+succeeded (the ones redelivered back to the extracting replica), the other 25 threw
+`FileNotFoundException`. `docker-compose.yml` sets `RetrosheetSource__WorkingRoot` to a
+named volume (`retrosheet-import-data`) mounted into the engine service for exactly this
+reason -- harmless overhead at the documented single-replica deployment, required the
+moment the engine is scaled out. A season event archive is a few MB zipped and ~40 MB
+extracted, and it is deleted on a clean run.
 
 Cleanup rules, per import type:
 

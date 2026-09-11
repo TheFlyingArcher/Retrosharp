@@ -12,6 +12,14 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 # Kerberos/GSSAPI auth support, which this project doesn't use. Both must run as root, before
 # USER switches to the unprivileged app account.
 RUN apt-get update && apt-get install -y --no-install-recommends curl libgssapi-krb5-2 && rm -rf /var/lib/apt/lists/*
+# Shared working directory for the Retrosheet download/extract path (see
+# spec/retrosheet-auto-download.md). Created here, as root, so that when
+# docker-compose.yml mounts a fresh named volume over it, Docker's own
+# volume-initialization behavior copies this directory's ownership into the
+# volume -- without it, a new volume defaults to root:root and the unprivileged
+# app user below can't write to it. Only matters the first time the volume is
+# created; an existing volume keeps whatever ownership it already has.
+RUN mkdir -p /data/retrosheet-import && chown $APP_UID:$APP_UID /data/retrosheet-import
 USER $APP_UID
 WORKDIR /app
 
