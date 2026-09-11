@@ -1050,7 +1050,7 @@ a mid-run failure window under the Pi caps is now short — use `batchSize` ≥ 
 
 ### Step 6 — competing consumers under the Pi overlay (2026-09-10/11)
 
-**Status**: In Progress — found a real defect, fix landed, live re-verify pending
+**Status**: Complete — found a real defect, fixed, verified
 
 `docker compose ... up -d --scale retrosharp-engine-console=2` (memory limit
 dropped to 448M per replica, per the overlay note), confirmed `Retrosharp.Engine`
@@ -1078,7 +1078,18 @@ changed. This is exactly the kind of defect Step 6 exists to catch — invisible
 the documented single-replica deployment, silent data loss the moment someone
 scales.
 
-**Re-verify pending**: rebuild the engine image with the shared volume, reset to a
-clean working-volume state, re-run the 2-replica `bulkimport` on a fresh season,
-confirm 30/30 `Success`, error queue empty, `GameEventGameStatus` matching the
-season's full game count.
+**Re-verified (2026-09-11)**: engine rebuilt with the shared volume, still 2
+replicas (`consumers=2`). Re-`POST`ed the *same* `bulkimport { "seasonYear": 2019 }`
+(a fresh tracking id -- rerun does not resume the old run row, it re-scans the
+archive and re-checks each file). Result: **`Completed`, skip=5 (the previously-
+successful files, correctly recognised and left alone), ok=25 (every previously-
+failed file now completes), fail=0.** `GameEventGameStatus` for 2019 = 2,429,
+matching the game log exactly; `dupGameEventRunner`/`dupFieldCredit` = 0; error
+queue empty (confirmed after a stats-propagation lag in the RabbitMQ management
+API resolved itself). The fix resolved precisely the files that broke under 2
+replicas, not just a coincidentally-clean fresh run.
+
+**Stress-testing plan complete: Steps 1-6 all pass.** Seven fixes shipped to
+`main` across the pass (parser bare-fielded-out, error-queue observability,
+transient-Postgres reclassification, deadlock lock-ordering, teams/stats N+1
+x2, shared working-directory volume for competing consumers).
