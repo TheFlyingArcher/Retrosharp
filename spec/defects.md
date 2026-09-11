@@ -1650,6 +1650,13 @@ anyone who scales without reading the fine print).
 
 Verification:
 `dotnet test` green (346 -- no unit-test harness covers actual multi-container file sharing;
-this is a deployment-topology fix, verified live). Re-run pending: reset to a fresh working
-volume, rebuild the engine image, re-run Step 6's 2-replica `bulkimport` and confirm 30/30
-`Success`, 0 `Failed`, error queue empty. See `spec/stress-testing.md` Step 6 for the result.
+this is a deployment-topology fix, verified live). Engine image rebuilt with the shared
+volume, still 2 replicas (`consumers=2`); re-`POST`ed the same `bulkimport { "seasonYear":
+2019 }` (a fresh tracking id -- rerun re-scans and re-checks each file rather than resuming
+the old run row). Result: `Completed`, `skip=5` (the previously-`Success` files, correctly
+recognised and left alone by the rerun-skip logic), `ok=25` (every previously-`Failed` file
+now completes), `fail=0`. `GameEventGameStatus` for 2019 = 2,429, matching the game log
+exactly; `dupGameEventRunner`/`dupFieldCredit` = 0; error queue empty (the 25 stale
+pre-fix error messages purged cleanly on retry, after an initial management-API stats-
+propagation lag). The fix resolved precisely the files that had failed under 2 replicas,
+not just a coincidentally-clean fresh run. See `spec/stress-testing.md` Step 6.
