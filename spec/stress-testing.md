@@ -982,14 +982,6 @@ download-failure-injection part (fixture server → 404 / 5xx / timeout / trunca
 zip). The deadlock fix (`d7e1c40`) already protects the new
 `BulkGameEventImportSaga`, which runs `batchSize` files concurrently by design.
 
-### Step 5 — failure injection
-
-**Status**: Not Started (procedure updated 2026-09-10; see *Implementation Steps*)
-
-### Step 6 — competing consumers (`--scale retrosharp-engine-console=2`)
-
-**Status**: Not Started (procedure updated 2026-09-10; see *Implementation Steps*)
-
 ### Step 5 — failure injection under the Pi overlay (2026-09-10)
 
 **Status**: Complete — pass
