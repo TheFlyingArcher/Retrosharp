@@ -226,6 +226,13 @@ namespace Retrosharp.Service
                 {
                     LineupRecord lineup => new[] { lineup.RetrosheetId },
                     PlayRecord play => new[] { play.RetrosheetId },
+                    // "ladj" is the one adjustment record whose first field is not a player
+                    // id -- it's the batting team (0 = visitor, 1 = home). Harvesting it here
+                    // asks the Person repository for a player named "0" and throws. The proper
+                    // batter for an "ladj" is recovered from batting-order-slot state inside
+                    // GameContextResolver, from an id that's already collected via a "start"/
+                    // "sub" LineupRecord above.
+                    AdjustmentRecord { AdjustmentTypeCode: "ladj" } => Array.Empty<string>(),
                     AdjustmentRecord adjustment => new[] { adjustment.RetrosheetId },
                     DataRecord data => new[] { data.RetrosheetId },
                     _ => Array.Empty<string>()

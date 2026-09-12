@@ -1123,5 +1123,57 @@ namespace Retrosharp.Format.Tests
                 },
                 runner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
         }
+
+        [Theory]
+        // Every one of these aborted a 2018 bulk import with "Unexpected character '!'"; the
+        // '!' (exceptional play), '?' (scorer unsure) and '#' (uncertain) markers are purely
+        // editorial and carry no scoring meaning, so the parser strips them before tokenizing.
+        [InlineData("9!/F9D+")]
+        [InlineData("8!/L89D+")]
+        [InlineData("8!/F78XD+")]
+        [InlineData("8!/F8RXD+")]
+        public void Parse_EditorialMarkerInPrimaryCode_StrippedAndPlayParsesAsIfAbsent(string withMarker)
+        {
+            var withMarkerResult = PlayCodeParser.Parse(withMarker, "00", "X");
+            var withoutMarkerResult = PlayCodeParser.Parse(withMarker.Replace("!", ""), "00", "X");
+
+            Assert.Equal(GameEventType.FlyOut, withMarkerResult.EventType);
+            Assert.Equal(withoutMarkerResult.EventType, withMarkerResult.EventType);
+            Assert.Equal(withoutMarkerResult.BattedBallType, withMarkerResult.BattedBallType);
+            // RawEventText is deliberately kept verbatim -- only the parse ignores the marker.
+            Assert.Equal(withMarker, withMarkerResult.RawEventText);
+        }
+
+        [Fact]
+        public void Parse_ExclamationInFieldedOutWithParentheticalRunner_StrippedAndForceOutStillParses()
+        {
+            // play,...,4!6(1)/FO/G6M.2-3 -- 2018 data. The '!' sits between the two fielder
+            // digits of a fielder's-choice force out; stripping it must leave "46(1)/FO/G6M".
+            var withMarker = PlayCodeParser.Parse("4!6(1)/FO/G6M.2-3", "00", "X");
+            var withoutMarker = PlayCodeParser.Parse("46(1)/FO/G6M.2-3", "00", "X");
+
+            Assert.Equal(withoutMarker.EventType, withMarker.EventType);
+            var forcedRunner = Assert.Single(withMarker.Runners, r => r.StartBase == BaseState.First);
+            Assert.True(forcedRunner.IsOut);
+            Assert.Equal(
+                new[] { (4, FieldingCreditType.Assist, 1), (6, FieldingCreditType.Putout, 2) },
+                forcedRunner.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
+
+        [Fact]
+        public void Parse_ExclamationInBuntGroundOut_StrippedAndPlayParses()
+        {
+            // play,...,5!3/BG -- 2018 data: bunt grounder, 5-to-3 putout, with a '!' on the
+            // lead fielder digit.
+            var withMarker = PlayCodeParser.Parse("5!3/BG", "00", "X");
+            var withoutMarker = PlayCodeParser.Parse("53/BG", "00", "X");
+
+            Assert.Equal(withoutMarker.EventType, withMarker.EventType);
+            Assert.Equal(GameEventType.GroundOut, withMarker.EventType);
+            var batter = Assert.Single(withMarker.Runners);
+            Assert.Equal(
+                new[] { (5, FieldingCreditType.Assist, 1), (3, FieldingCreditType.Putout, 2) },
+                batter.FieldingCredits.Select(c => ((int)c.Position, c.CreditType, c.Sequence)));
+        }
     }
 }

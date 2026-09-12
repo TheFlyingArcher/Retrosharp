@@ -65,14 +65,15 @@ namespace Retrosharp.Format.Tests
         [Theory]
         [InlineData("badj", GameAdjustmentType.BattingHandedness)]
         [InlineData("padj", GameAdjustmentType.PitchingHandedness)]
-        [InlineData("ladj", GameAdjustmentType.LineupPosition)]
         [InlineData("radj", GameAdjustmentType.RunnerPlacement)]
         [InlineData("presadj", GameAdjustmentType.PitcherResponsibility)]
         public void Resolve_EveryAdjustmentTypeCode_MapsToCorrectEnumValue(string adjustmentTypeCode, GameAdjustmentType expected)
         {
-            // badj,seiga001,R (real, docs/csv/2025SEA.EVA) is the only one of the five with a
-            // real example in either reference file; the rest are exercised synthetically
-            // against the same shape, since padj/ladj/presadj don't occur in either file.
+            // badj,seiga001,R (real, docs/csv/2025SEA.EVA) is the only one of these with a real
+            // example in either reference file; the rest are exercised synthetically against
+            // the same shape, since padj/presadj don't occur in either file. "ladj" is excluded
+            // here -- its first field is the batting team, not a player id, so it has its own
+            // tests below.
             var records = new EventFileRecord[]
             {
                 new AdjustmentRecord { AdjustmentTypeCode = adjustmentTypeCode, RetrosheetId = "seiga001", Value = "R" }
@@ -86,6 +87,59 @@ namespace Retrosharp.Format.Tests
             Assert.Equal(7, adjustment.PersonId);
             Assert.Equal("R", adjustment.Value);
             Assert.Equal(1, adjustment.Sequence);
+        }
+
+        [Fact]
+        public void Resolve_LadjBattingOutOfOrder_ResolvesToPlayerInNamedSlotOfNamedTeam()
+        {
+            // ladj,0,4 -- the visiting team's 4th batting-order slot is due up. The record
+            // names the slot, not the player, so the resolver has to recover the batter from
+            // whoever the starting lineup put in that slot. A home-team slot 4 with a different
+            // player is present to prove the team field (0 = visitor) is honoured.
+            var records = new EventFileRecord[]
+            {
+                new StartRecord { RetrosheetId = "vis4th001", Name = "Visitor Four", IsHomeTeam = false, BattingOrder = 4, Position = 5 },
+                new StartRecord { RetrosheetId = "home4th001", Name = "Home Four", IsHomeTeam = true, BattingOrder = 4, Position = 5 },
+                new AdjustmentRecord { AdjustmentTypeCode = "ladj", RetrosheetId = "0", Value = "4" }
+            };
+            var personIds = new Dictionary<string, int> { ["vis4th001"] = 44, ["home4th001"] = 99 };
+
+            var (_, adjustments, _) = GameContextResolver.Resolve(gameId: 1, Game(records), personIds);
+
+            var adjustment = Assert.Single(adjustments);
+            Assert.Equal(GameAdjustmentType.LineupPosition, adjustment.AdjustmentType);
+            Assert.Equal(44, adjustment.PersonId);
+            Assert.Equal("4", adjustment.Value);
+        }
+
+        [Fact]
+        public void Resolve_LadjAfterSubstitutionIntoSlot_ResolvesToCurrentOccupant()
+        {
+            // A pinch hitter takes over slot 6, then that slot bats out of order (ladj,1,6 --
+            // home team). The adjustment must resolve to the substitute, not the starter.
+            var records = new EventFileRecord[]
+            {
+                new StartRecord { RetrosheetId = "starter006", Name = "Starter Six", IsHomeTeam = true, BattingOrder = 6, Position = 7 },
+                new SubRecord { RetrosheetId = "pinch006", Name = "Pinch Six", IsHomeTeam = true, BattingOrder = 6, Position = 11 },
+                new AdjustmentRecord { AdjustmentTypeCode = "ladj", RetrosheetId = "1", Value = "6" }
+            };
+            var personIds = new Dictionary<string, int> { ["starter006"] = 6, ["pinch006"] = 61 };
+
+            var (_, adjustments, _) = GameContextResolver.Resolve(gameId: 1, Game(records), personIds);
+
+            Assert.Equal(61, Assert.Single(adjustments).PersonId);
+        }
+
+        [Fact]
+        public void Resolve_LadjForSlotNeverFilled_ThrowsRatherThanGuessing()
+        {
+            var records = new EventFileRecord[]
+            {
+                new AdjustmentRecord { AdjustmentTypeCode = "ladj", RetrosheetId = "0", Value = "4" }
+            };
+
+            Assert.Throws<InvalidOperationException>(() =>
+                GameContextResolver.Resolve(gameId: 1, Game(records), new Dictionary<string, int>()));
         }
 
         [Fact]

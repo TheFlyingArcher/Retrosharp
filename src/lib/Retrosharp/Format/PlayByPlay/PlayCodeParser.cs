@@ -21,12 +21,25 @@ namespace Retrosharp.Format.PlayByPlay
             if (string.IsNullOrWhiteSpace(rawEventText))
                 throw new PlayCodeParseException(rawEventText ?? string.Empty, "Play code is empty.");
 
-            var (balls, strikes) = ParseCount(rawEventText, countField);
+            // Retrosheet scorers sprinkle three purely editorial markers through the event
+            // field: '!' (an exceptional/great play), '?' (the scorer is unsure of the call),
+            // and '#' (uncertain, usually with a following "com" record explaining). None carry
+            // any scoring meaning and any of them can attach to any token -- "9!/F9D+", "8!",
+            // "4!6(1)/FO/G6M.2-3", "S7?", "46(1)#/FO". Chadwick's cwevent strips them before
+            // parsing for exactly this reason; doing the same here keeps every downstream
+            // tokenizer (primary code, modifiers, advances) from having to know about them.
+            // Confirmed against 2018 data, where "9!/F9D+", "8!/L89D+", "8!/F78XD+",
+            // "8!/F8RXD+", "5!3/BG", and "4!6(1)/FO/G6M.2-3" each aborted their game's import
+            // with "Unexpected character '!'". RawEventText below deliberately keeps the
+            // original, unstripped string so the stored/displayed play stays verbatim.
+            var eventText = StripEditorialMarkers(rawEventText);
+
+            var (balls, strikes) = ParseCount(eventText, countField);
             var fouls = CountFoulsWithTwoStrikes(pitchSequence);
 
-            var dotIndex = rawEventText.IndexOf('.');
-            var beforeAdvances = dotIndex >= 0 ? rawEventText[..dotIndex] : rawEventText;
-            var advancesRaw = dotIndex >= 0 ? rawEventText[(dotIndex + 1)..] : null;
+            var dotIndex = eventText.IndexOf('.');
+            var beforeAdvances = dotIndex >= 0 ? eventText[..dotIndex] : eventText;
+            var advancesRaw = dotIndex >= 0 ? eventText[(dotIndex + 1)..] : null;
 
             // Paren-aware: a "/" can appear *inside* a parenthesized annotation (for example
             // "PO2(E1/TH)"), and must not be treated as a modifier separator there.
@@ -35,7 +48,7 @@ namespace Retrosharp.Format.PlayByPlay
             var modifiers = slashParts.Skip(1).ToList();
 
             var runners = new Dictionary<BaseState, MutableRunner>();
-            var (eventType, secondaryEventType, isFieldedOutPendingTrajectory) = ParsePrimaryCode(primaryCode, rawEventText, runners);
+            var (eventType, secondaryEventType, isFieldedOutPendingTrajectory) = ParsePrimaryCode(primaryCode, eventText, runners);
 
             BattedBallType? battedBallType = null;
             var isSacHit = false;
@@ -81,7 +94,7 @@ namespace Retrosharp.Format.PlayByPlay
             if (advancesRaw is { Length: > 0 })
             {
                 foreach (var segment in SplitRespectingParens(advancesRaw, ';'))
-                    ApplyAdvanceSegment(segment, rawEventText, runners);
+                    ApplyAdvanceSegment(segment, eventText, runners);
             }
 
             // A bare strikeout carries no explicit fielder digits -- unlike "63" or "8", nothing
@@ -121,6 +134,30 @@ namespace Retrosharp.Format.PlayByPlay
                 RawEventText = rawEventText,
                 Runners = runners.Values.Select(r => r.ToParsedRunnerAdvance()).ToList()
             };
+        }
+
+        private static readonly char[] EditorialMarkers = { '!', '?', '#' };
+
+        /// <summary>
+        /// Removes Retrosheet's non-scoring editorial markers -- '!' (exceptional play),
+        /// '?' (scorer unsure), '#' (uncertain, usually explained by a following comment) --
+        /// from an event string. See the call site in <see cref="Parse"/> for why. Returns the
+        /// input unchanged (no allocation) when none are present, which is the overwhelming
+        /// common case.
+        /// </summary>
+        private static string StripEditorialMarkers(string rawEventText)
+        {
+            if (rawEventText.IndexOfAny(EditorialMarkers) < 0)
+                return rawEventText;
+
+            var sb = new StringBuilder(rawEventText.Length);
+            foreach (var c in rawEventText)
+            {
+                if (c is not ('!' or '?' or '#'))
+                    sb.Append(c);
+            }
+
+            return sb.ToString();
         }
 
         /// <summary>
