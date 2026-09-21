@@ -41,7 +41,8 @@ RUN dotnet build "./Retrosharp.Data.Migration.csproj" -c $BUILD_CONFIGURATION -o
 
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./Retrosharp.Data.Migration.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+ARG VERSION=0.0.0
+RUN dotnet publish "./Retrosharp.Data.Migration.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false /p:Version=$VERSION
 
 FROM base AS final
 WORKDIR /app

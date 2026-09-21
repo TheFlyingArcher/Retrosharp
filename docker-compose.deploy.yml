@@ -1,0 +1,30 @@
+# docker-compose.deploy.yml
+# ---------------------------------------------------------------------------
+# Pi-deployment overlay. Points the three deployable services at pre-built
+# GHCR images instead of building from source (the Pi should never `--build`
+# these -- CI already did that). Layer this on top of the base file and the
+# Pi-sizing overlay:
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.pi.yml \
+#     -f docker-compose.deploy.yml \
+#     pull
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.pi.yml \
+#     -f docker-compose.deploy.yml \
+#     up -d
+#
+# VERSION must be set in the environment (the CD workflow forwards it over
+# SSH). Image owner is theflyingarcher (GHCR requires lowercase image paths).
+# ---------------------------------------------------------------------------
+services:
+  retrosharp-migration:
+    image: ghcr.io/theflyingarcher/retrosharp-migration:${VERSION}
+
+  retrosharp-engine-console:
+    image: ghcr.io/theflyingarcher/retrosharp-engine-console:${VERSION}
+
+  retrosharp-ui-api:
+    image: ghcr.io/theflyingarcher/retrosharp-ui-api:${VERSION}

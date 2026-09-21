@@ -37,7 +37,8 @@ RUN dotnet build "./Retrosharp.Engine.Console.csproj" -c $BUILD_CONFIGURATION -o
 # This stage is used to publish the service project to be copied to the final stage
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./Retrosharp.Engine.Console.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+ARG VERSION=0.0.0
+RUN dotnet publish "./Retrosharp.Engine.Console.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false /p:Version=$VERSION
 
 # This stage is used in production or when running from VS in regular mode (Default when not using the Debug configuration)
 FROM base AS final

@@ -1,0 +1,47 @@
+name: CD
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semantic version to deploy, e.g. 1.4.7 (no leading v). Deploying an older version is how you roll back."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production   # requires manual approval -- Settings > Environments > production
+    steps:
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Deploying version: $VERSION"
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          tags: tag:ci
+
+      - name: Deploy to app server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: usqapp01.tailf1d37d.ts.net   # e.g. appserver or appserver.<tailnet>.ts.net
+          username: deploy-retrosharp
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: VERSION
+          script: exit 0   # ignored -- the forced command in authorized_keys always runs instead
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
