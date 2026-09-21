@@ -12,7 +12,7 @@ const PLAYER: PlayerDetailModel = {
   id: 1,
   retroSheetId: 'ruthb101',
   surname: 'Ruth',
-  useName: 'Babe Ruth',
+  useName: 'Babe',
   fullName: 'George Herman Ruth',
   birthDate: '1895-02-06T00:00:00',
   birthCity: 'Baltimore',
@@ -142,6 +142,23 @@ describe('PlayerDetail', () => {
     fixture.detectChanges();
     expect(component).toBeTruthy();
     expect(component.displayName()).toBe('Babe Ruth');
+  });
+
+  it('shows the full legal name as a subtitle when it differs from the display name', () => {
+    fixture.detectChanges();
+    expect(component.legalName()).toBe('George Herman Ruth');
+    const subtitle = fixture.debugElement.query(By.css('.player-detail-legal-name'));
+    expect(subtitle.nativeElement.textContent.trim()).toBe('George Herman Ruth');
+  });
+
+  it('hides the legal name subtitle when it matches the display name', () => {
+    service.getByIdAsync.mockReturnValue(
+      of({ ...PLAYER, useName: null, surname: 'Ruth', fullName: 'Ruth' }),
+    );
+    fixture.detectChanges();
+    expect(component.displayName()).toBe('Ruth');
+    expect(component.legalName()).toBeNull();
+    expect(fixture.debugElement.query(By.css('.player-detail-legal-name'))).toBeNull();
   });
 
   it('formats height, birthplace, and death place', () => {

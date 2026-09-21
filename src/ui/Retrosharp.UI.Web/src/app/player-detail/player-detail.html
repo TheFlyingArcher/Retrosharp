@@ -1,5 +1,5 @@
 <div class="container player-detail">
-  @if (loading()) {
+  @if (initialLoad() && loading()) {
     <div class="row">
       <div class="col player-detail-spinner">
         <mat-spinner diameter="40"></mat-spinner>
@@ -10,6 +10,7 @@
       <div class="col player-detail-error">{{ error() }}</div>
     </div>
   } @else if (player(); as player) {
+    <app-loading-overlay [active]="loading()">
     <div class="row">
       <div class="col">
         <h1>
@@ -21,6 +22,9 @@
             <span class="player-detail-deceased" title="Deceased">&nbsp;&dagger;</span>
           }
         </h1>
+        @if (legalName(); as legalName) {
+          <p class="player-detail-legal-name">{{ legalName }}</p>
+        }
       </div>
     </div>
 
@@ -52,10 +56,7 @@
           <dt>Player Debut</dt>
           <dd>{{ player.playerDebutDate ? (player.playerDebutDate | date: 'longDate') : 'Unknown' }}</dd>
           <dt>Player Last</dt>
-          <dd
-            [class.player-detail-no-final-game]="hasNoFinalGame()"
-            [title]="hasNoFinalGame() ? 'No final game on record in Retrosheet data (likely still active, but this may lag a recent retirement)' : ''"
-          >
+          <dd>
             {{ hasNoFinalGame() ? 'No final game on record' : (player.playerLastDate | date: 'longDate') }}
           </dd>
         </dl>
@@ -95,5 +96,6 @@
         </div>
       </div>
     }
+    </app-loading-overlay>
   }
 </div>

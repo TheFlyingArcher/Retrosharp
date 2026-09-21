@@ -1,10 +1,10 @@
-<mat-toolbar>
+<mat-toolbar role="heading">
   <span>Retrosharp</span>
 
   <span class="example-spacer"></span>
 
-  <a mat-button href="/">Home</a>
-  <a mat-button href="/players">Players</a>
-  <a mat-button href="/teams">Teams</a>
-  <a mat-button href="/about">About</a>
+  <a mat-button routerLink="/" routerLinkActive="nav-menu-active-link" [routerLinkActiveOptions]="{ exact: true }">Home</a>
+  <a mat-button routerLink="/players" routerLinkActive="nav-menu-active-link">Players</a>
+  <a mat-button routerLink="/teams" routerLinkActive="nav-menu-active-link">Teams</a>
+  <a mat-button routerLink="/about" routerLinkActive="nav-menu-active-link">About</a>
 </mat-toolbar>

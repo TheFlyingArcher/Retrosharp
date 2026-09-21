@@ -4,17 +4,34 @@
 // Learn more about theming and how to use it for your application's
 // custom components at https://material.angular.dev/guide/theming
 @use '@angular/material' as mat;
+// Custom palette generated from the brand primary color (#196DE6) via
+// `ng generate @angular/material:m3-theme --primary-color=#196DE6` -- see
+// spec/frontend-ux-improvements.md, "Theme Colors Not Appearing". Replaces the previous
+// mat.$azure-palette/mat.$blue-palette, which are two of Material's own predefined system
+// palettes and were never derived from this app's actual brand hex values at all.
+@use './theme-colors' as theme;
 
 html {
   height: 100%;
   @include mat.theme(
     (
       color: (
-        primary: mat.$azure-palette,
-        tertiary: mat.$blue-palette,
+        primary: theme.$primary-palette,
+        tertiary: theme.$tertiary-palette,
       ),
       typography: Roboto,
       density: 0,
+    )
+  );
+  @include mat.system-classes();
+  @include mat.table-overrides(( header-container-height: 36px, row-item-container-height: 36px, ));
+  // M3 keeps the toolbar on neutral surface tokens by default, unlike M2's primary-colored app
+  // bars -- deliberately color it with the brand primary so the header actually reads as
+  // branded (see the spec section referenced above, point 2 of the Decision).
+  @include mat.toolbar-overrides(
+    (
+      container-background-color: var(--mat-sys-primary),
+      container-text-color: var(--mat-sys-on-primary),
     )
   );
 }

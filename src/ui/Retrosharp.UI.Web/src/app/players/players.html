@@ -24,7 +24,7 @@
 </div>
 
 <div class="container players-results">
-  @if (loading()) {
+  @if (initialLoad() && loading()) {
     <div class="row">
       <div class="col players-spinner">
         <mat-spinner diameter="40"></mat-spinner>
@@ -34,22 +34,19 @@
     <div class="row">
       <div class="col players-error">{{ error() }}</div>
     </div>
-  } @else if (players().length === 0) {
+  } @else if (!loading() && players().length === 0) {
     <div class="row">
       <div class="col">No players found.</div>
     </div>
   } @else {
+    <app-loading-overlay [active]="loading()">
     <div class="row">
       <div class="col players-table-wrapper">
         <table mat-table [dataSource]="players()" class="players-table">
           <ng-container matColumnDef="name">
             <th mat-header-cell *matHeaderCellDef>Name</th>
             <td mat-cell *matCellDef="let player">
-              <a
-                [routerLink]="['/players', player.id]"
-                [class.players-no-final-game]="hasNoFinalGame(player)"
-                [title]="hasNoFinalGame(player) ? 'No final game on record in Retrosheet data (likely still active, but this may lag a recent retirement)' : ''"
-                >{{ displayName(player) }}</a
+              <a [routerLink]="['/players', player.id]">{{ displayName(player) }}</a
               >@if (isDeceased(player)) {<span class="players-deceased" title="Deceased">&nbsp;&dagger;</span
                 >}
             </td>
@@ -115,17 +112,18 @@
         </table>
       </div>
     </div>
+    </app-loading-overlay>
   }
 
   <div class="row">
     <div class="col">
-      <mat-paginator
+      <app-page-number-paginator
         [length]="totalCount()"
         [pageIndex]="pageIndex()"
         [pageSize]="pageSize()"
         [pageSizeOptions]="pageSizeOptions"
         (page)="onPage($event)"
-      ></mat-paginator>
+      ></app-page-number-paginator>
     </div>
   </div>
 </div>

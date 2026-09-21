@@ -2,9 +2,11 @@ import { DatePipe } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
-import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
+import { PageEvent } from '@angular/material/paginator';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTableModule } from '@angular/material/table';
+import { LoadingOverlay } from '../shared/loading-overlay/loading-overlay';
+import { PageNumberPaginator } from '../shared/page-number-paginator/page-number-paginator';
 import { PlayerSearchResult } from '../../model/player-search-result.model';
 import { PlayerService } from '../../service/player.service';
 import { formatAge, formatHeight, formatPlace } from '../../util/format.util';
@@ -34,9 +36,10 @@ const DISPLAYED_COLUMNS = [
     RouterLink,
     DatePipe,
     MatButtonModule,
-    MatPaginatorModule,
     MatProgressSpinnerModule,
     MatTableModule,
+    LoadingOverlay,
+    PageNumberPaginator,
   ],
 })
 export class Players implements OnInit {
@@ -54,6 +57,12 @@ export class Players implements OnInit {
   readonly totalCount = signal(0);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
+
+  // True only until the first request settles. Distinguishes "nothing to show yet" (plain
+  // spinner) from a subsequent page/letter change, which keeps the previous rows visible under
+  // a LoadingOverlay instead of collapsing the page -- see spec/frontend-ux-improvements.md,
+  // "Players Page: Next/Previous Scrolling the Page".
+  readonly initialLoad = signal(true);
 
   ngOnInit(): void {
     this.load();
@@ -82,13 +91,6 @@ export class Players implements OnInit {
     }
 
     return player.useName ?? player.surname ?? player.fullName ?? player.retroSheetId;
-  }
-
-  // Not a live active/retired flag -- Retrosheet has no current-roster feed, only a per-player
-  // "last game" date that lags reality (e.g. a retirement announced since the last data update).
-  // Null here means only "no final game on record", which is the most this data can honestly claim.
-  hasNoFinalGame(player: PlayerSearchResult): boolean {
-    return player.playerLastDate == null;
   }
 
   // Per spec: a null PlayerLastDate only implies "still active" for someone who
@@ -150,6 +152,7 @@ export class Players implements OnInit {
           this.players.set(result.items);
           this.totalCount.set(result.totalCount);
           this.loading.set(false);
+          this.initialLoad.set(false);
         },
         error: (e) => {
           console.error(e);
@@ -157,6 +160,7 @@ export class Players implements OnInit {
           this.totalCount.set(0);
           this.error.set('Unable to load players. Please try again later.');
           this.loading.set(false);
+          this.initialLoad.set(false);
         },
       });
   }

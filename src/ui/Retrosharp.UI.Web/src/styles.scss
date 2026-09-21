@@ -1,1 +1,11 @@
 @use "../node_modules/bootstrap/scss/bootstrap" as *;
+
+// Bootstrap's own $primary (its default link color) is unrelated to the Angular Material brand
+// palette configured in material-theme.scss -- without this, every plain <a> in the app (e.g. a
+// player name link in a table) shows Bootstrap's blue rather than the actual brand color. See
+// spec/frontend-ux-improvements.md, "Theme Colors Not Appearing", decision 2. Scoped away from
+// mat-button-based links, which already theme themselves via Material's own CSS custom
+// properties.
+a:not(.mat-mdc-button-base) {
+  color: var(--mat-sys-primary);
+}

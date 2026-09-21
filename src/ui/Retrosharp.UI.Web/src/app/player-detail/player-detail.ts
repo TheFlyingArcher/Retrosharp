@@ -6,6 +6,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { BATTING_COLUMNS } from '../shared/statistics-table/batting-columns';
 import { PITCHING_COLUMNS } from '../shared/statistics-table/pitching-columns';
 import { StatisticsTable } from '../shared/statistics-table/statistics-table';
+import { LoadingOverlay } from '../shared/loading-overlay/loading-overlay';
 import { BattingLine } from '../../model/batting-line.model';
 import { PitchingLine } from '../../model/pitching-line.model';
 import { PlayerDetail as PlayerDetailModel } from '../../model/player-detail.model';
@@ -31,7 +32,7 @@ export function formatPlace(city: string | null, state: string | null, country: 
   standalone: true,
   templateUrl: './player-detail.html',
   styleUrl: './player-detail.css',
-  imports: [DatePipe, MatProgressSpinnerModule, StatisticsTable],
+  imports: [DatePipe, MatProgressSpinnerModule, StatisticsTable, LoadingOverlay],
 })
 export class PlayerDetail implements OnInit {
   private readonly service = inject(PlayerService);
@@ -51,9 +52,32 @@ export class PlayerDetail implements OnInit {
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
 
+  // True only until the first request settles -- see Players.initialLoad() for why this
+  // distinguishes "nothing to show yet" from a reload that should keep the current page visible
+  // under a LoadingOverlay instead of collapsing it.
+  readonly initialLoad = signal(true);
+
+  // Spec: "UseName Surname" -- matches Players.displayName() exactly (see players.ts).
   readonly displayName = computed(() => {
     const player = this.player();
-    return player ? (player.useName ?? player.fullName ?? player.retroSheetId) : '';
+    if (!player) {
+      return '';
+    }
+    if (player.useName && player.surname) {
+      return `${player.useName} ${player.surname}`;
+    }
+    return player.useName ?? player.surname ?? player.fullName ?? player.retroSheetId;
+  });
+
+  // The player's full legal name, shown as a muted subtitle beneath the display name -- but only
+  // when it actually differs (e.g. "Manuel Machado" under "Manny Machado"), so a player whose
+  // legal and use names already match doesn't get a redundant second line.
+  readonly legalName = computed(() => {
+    const player = this.player();
+    if (!player?.fullName || player.fullName === this.displayName()) {
+      return null;
+    }
+    return player.fullName;
   });
 
   readonly height = computed(() => formatHeight(this.player()?.height ?? null));
@@ -104,6 +128,7 @@ export class PlayerDetail implements OnInit {
         this.pitchingRows.set(pitching.rows);
         this.pitchingTotal.set(pitching.combinedTotal);
         this.loading.set(false);
+        this.initialLoad.set(false);
       },
       error: (e: unknown) => {
         console.error(e);
@@ -114,6 +139,7 @@ export class PlayerDetail implements OnInit {
             : 'Unable to load player. Please try again later.',
         );
         this.loading.set(false);
+        this.initialLoad.set(false);
       },
     });
   }

@@ -1,0 +1,28 @@
+// The seven brand blue swatches from raw/front-end-changes.md's "Theme colors in mind" list,
+// lightest to darkest, named like a typical 100-700 tonal scale so a component can reference a
+// swatch by name instead of retyping its hex value. #196DE6 (400) is the one explicitly labeled
+// "Primary color" in that list.
+//
+// These are the human's own hand-picked swatches -- a separate thing from the algorithmically
+// generated M3 tonal palette in theme-colors.scss (see material-theme.scss), and not guaranteed
+// to exactly match it tone-for-tone. Reach for one of these when a component needs one of these
+// *exact* hex values (e.g. nav-menu.scss's active-link accent); reach for the Material system
+// tokens (`var(--mat-sys-*)`) for anything that should just follow the app's M3 theme.
+$blue-100: #d1e2fd;
+$blue-200: #94bcf9;
+$blue-300: #5494f7;
+$blue-400: #196de6; // Primary color
+$blue-500: #0f4da6;
+$blue-600: #052d66;
+$blue-700: #01102d;
+
+// All seven, keyed the same way, for anything that wants to iterate or look one up by name.
+$blue: (
+  100: $blue-100,
+  200: $blue-200,
+  300: $blue-300,
+  400: $blue-400,
+  500: $blue-500,
+  600: $blue-600,
+  700: $blue-700,
+);

@@ -1,0 +1,47 @@
+<div class="page-number-paginator">
+  <div class="page-number-paginator-controls">
+    <button mat-button [disabled]="currentPage() === 1" (click)="goToPage(1)">First</button>
+    <button mat-button [disabled]="currentPage() === 1" (click)="goToPage(currentPage() - 1)">Previous</button>
+
+    @for (page of pageWindow(); track $index) {
+      @if (page === ellipsis) {
+        <span class="page-number-paginator-ellipsis">{{ ellipsis }}</span>
+      } @else {
+        <button
+          mat-button
+          [color]="page === currentPage() ? 'primary' : undefined"
+          [attr.aria-current]="page === currentPage() ? 'page' : null"
+          (click)="goToPage(page)"
+        >
+          {{ page }}
+        </button>
+      }
+    }
+
+    <button mat-button [disabled]="currentPage() === totalPages()" (click)="goToPage(currentPage() + 1)">Next</button>
+    <button mat-button [disabled]="currentPage() === totalPages()" (click)="goToPage(totalPages())">Last</button>
+  </div>
+
+  <div class="page-number-paginator-extras">
+    <mat-form-field appearance="outline" class="page-number-paginator-jump" subscriptSizing="dynamic">
+      <mat-label>Go to page</mat-label>
+      <input
+        matInput
+        type="number"
+        min="1"
+        [max]="totalPages()"
+        [value]="currentPage()"
+        (change)="onJumpInput($any($event.target).value)"
+      />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="page-number-paginator-size" subscriptSizing="dynamic">
+      <mat-label>Per page</mat-label>
+      <mat-select [value]="pageSize()" (selectionChange)="onPageSizeChange($event.value)">
+        @for (size of pageSizeOptions(); track size) {
+          <mat-option [value]="size">{{ size }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
+</div>

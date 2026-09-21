@@ -1,0 +1,35 @@
+:host {
+  display: block;
+}
+
+.page-number-paginator {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 0.75rem;
+  row-gap: 0.5rem;
+}
+
+.page-number-paginator-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.page-number-paginator-ellipsis {
+  padding: 0 0.5rem;
+  color: var(--mat-sys-outline, #6b6b6b);
+}
+
+.page-number-paginator-extras {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.page-number-paginator-jump,
+.page-number-paginator-size {
+  width: 6.5rem;
+}
