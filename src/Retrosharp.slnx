@@ -1,16 +1,16 @@
 <Solution>
   <Folder Name="/engine/">
-    <Project Path="D:/Code/TheFlyingArcher/Retrosharp/src/engine/Retrosharp.Engine.Console.Tests/Retrosharp.Engine.Console.Tests.csproj" />
-    <Project Path="D:/Code/TheFlyingArcher/Retrosharp/src/engine/Retrosharp.Engine.Console/Retrosharp.Engine.Console.csproj" />
+    <Project Path="engine/Retrosharp.Engine.Console.Tests/Retrosharp.Engine.Console.Tests.csproj" />
+    <Project Path="engine/Retrosharp.Engine.Console/Retrosharp.Engine.Console.csproj" />
   </Folder>
   <Folder Name="/lib/">
-    <Project Path="D:/Code/TheFlyingArcher/Retrosharp/src/lib/Retrosharp.Data.Migration/Retrosharp.Data.Migration.csproj" Id="71b0dc3f-373e-4e55-ab60-a055da8d25ba" />
-    <Project Path="D:/Code/TheFlyingArcher/Retrosharp/src/lib/Retrosharp.Data/Retrosharp.Data.csproj" Id="a0afd9b5-a6c8-46d1-92a3-28d4b2c7916d" />
-    <Project Path="D:/Code/TheFlyingArcher/Retrosharp/src/lib/Retrosharp.Format.Tests/Retrosharp.Format.Tests.csproj" />
-    <Project Path="D:/Code/TheFlyingArcher/Retrosharp/src/lib/Retrosharp.Service.Interface/Retrosharp.Service.Interface.csproj" />
-    <Project Path="D:/Code/TheFlyingArcher/Retrosharp/src/lib/Retrosharp.Service.Tests/Retrosharp.Service.Tests.csproj" />
-    <Project Path="D:/Code/TheFlyingArcher/Retrosharp/src/lib/Retrosharp.Service/Retrosharp.Service.csproj" Id="e9b44e54-2367-40f7-98e0-7ecc82b2952f" />
-    <Project Path="D:/Code/TheFlyingArcher/Retrosharp/src/lib/Retrosharp/Retrosharp.csproj" Id="46752eab-ac2e-4fa9-b185-a250a6ee0ef7" />
+    <Project Path="lib/Retrosharp.Data.Migration/Retrosharp.Data.Migration.csproj" Id="71b0dc3f-373e-4e55-ab60-a055da8d25ba" />
+    <Project Path="lib/Retrosharp.Data/Retrosharp.Data.csproj" Id="a0afd9b5-a6c8-46d1-92a3-28d4b2c7916d" />
+    <Project Path="lib/Retrosharp.Format.Tests/Retrosharp.Format.Tests.csproj" />
+    <Project Path="lib/Retrosharp.Service.Interface/Retrosharp.Service.Interface.csproj" />
+    <Project Path="lib/Retrosharp.Service.Tests/Retrosharp.Service.Tests.csproj" />
+    <Project Path="lib/Retrosharp.Service/Retrosharp.Service.csproj" Id="e9b44e54-2367-40f7-98e0-7ecc82b2952f" />
+    <Project Path="lib/Retrosharp/Retrosharp.csproj" Id="46752eab-ac2e-4fa9-b185-a250a6ee0ef7" />
   </Folder>
   <Folder Name="/Solution Items/" />
   <Folder Name="/Solution Items/raw/">
@@ -31,8 +31,8 @@
     <File Path="../spec/seed-data.md" />
   </Folder>
   <Folder Name="/ui/">
-    <Project Path="D:/Code/TheFlyingArcher/Retrosharp/src/ui/Retrosharp.UI.Api/Retrosharp.UI.Api.csproj" Id="41176f60-6d01-4560-b756-23782baaf6da" />
-    <Project Path="D:/Code/TheFlyingArcher/Retrosharp/src/ui/Retrosharp.UI.Web/Retrosharp.UI.Web.esproj">
+    <Project Path="ui/Retrosharp.UI.Api/Retrosharp.UI.Api.csproj" Id="41176f60-6d01-4560-b756-23782baaf6da" />
+    <Project Path="ui/Retrosharp.UI.Web/Retrosharp.UI.Web.esproj">
       <Build />
       <Deploy />
     </Project>

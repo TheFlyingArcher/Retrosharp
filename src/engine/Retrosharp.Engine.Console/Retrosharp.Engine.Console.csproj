@@ -38,6 +38,10 @@
 
   <ItemGroup>
     <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Plain Sdk (see FrameworkReference comment above) doesn't get ASP.NET Core's automatic
+         appsettings.*.json copy-to-output glob, so per-developer appsettings.Development.json /
+         appsettings.Local.json overrides need to be wired in explicitly. -->
+    <Content Include="appsettings.*.json" Exclude="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
