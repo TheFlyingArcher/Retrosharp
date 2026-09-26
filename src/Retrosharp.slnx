@@ -12,18 +12,23 @@
     <Project Path="lib/Retrosharp.Service/Retrosharp.Service.csproj" Id="e9b44e54-2367-40f7-98e0-7ecc82b2952f" />
     <Project Path="lib/Retrosharp/Retrosharp.csproj" Id="46752eab-ac2e-4fa9-b185-a250a6ee0ef7" />
   </Folder>
-  <Folder Name="/Solution Items/">
-    <File Path="../spec/phase-1-build-plan.md" />
-    <File Path="../spec/project.md" />
-    <File Path="../spec/parser.md" />
-    <File Path="../spec/person.md" />
+  <Folder Name="/Solution Items/" />
+  <Folder Name="/Solution Items/raw/">
+    <File Path="../raw/front-end-changes.md" />
+  </Folder>
+  <Folder Name="/Solution Items/spec/">
     <File Path="../docker-compose.yml" />
+    <File Path="../spec/bulk-import.md" />
     <File Path="../spec/defects.md" />
     <File Path="../spec/frontend-prototype.md" />
+    <File Path="../spec/frontend-ux-improvements.md" />
     <File Path="../spec/game-event.md" />
     <File Path="../spec/game-log.md" />
+    <File Path="../spec/parser.md" />
+    <File Path="../spec/person.md" />
+    <File Path="../spec/phase-1-build-plan.md" />
+    <File Path="../spec/project.md" />
     <File Path="../spec/seed-data.md" />
-    <File Path="../spec/bulk-import.md" />
   </Folder>
   <Folder Name="/ui/">
     <Project Path="ui/Retrosharp.UI.Api/Retrosharp.UI.Api.csproj" Id="41176f60-6d01-4560-b756-23782baaf6da" />

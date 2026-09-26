@@ -1,0 +1,17 @@
+:host {
+  position: relative;
+  display: block;
+}
+
+.loading-overlay-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Theme-aware dimming: a fixed white scrim would look inverted/wrong over a dark theme's
+     content. Blending the surface token itself with transparency keeps the scrim readable as
+     "the page, dimmed" in whichever theme happens to be active. */
+  background: color-mix(in srgb, var(--mat-sys-surface) 70%, transparent);
+}

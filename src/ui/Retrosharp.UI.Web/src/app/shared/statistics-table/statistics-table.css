@@ -9,15 +9,43 @@
 .statistics-table th.mat-mdc-header-cell,
 .statistics-table td.mat-mdc-cell,
 .statistics-table td.mat-mdc-footer-cell {
-  padding: 0 0.75rem;
-  text-align: right;
+  padding: 0 0.25rem;
+  text-align: center;
   white-space: nowrap;
 }
 
-.statistics-table th.mat-mdc-header-cell:first-of-type,
-.statistics-table td.mat-mdc-cell:first-of-type,
-.statistics-table td.mat-mdc-footer-cell:first-of-type {
-  text-align: left;
+/* mat-sort-header wraps its header text + arrow in its own <div> (display: flex, and -- like any
+   block box -- already full width by default), which completely ignores the `<th>`'s own
+   `text-align`; that property only repositions inline content. Without this, header text always
+   sits flush left regardless of `text-align` above, while the data cells below it (plain inline
+   text, which does respect `text-align`) end up centered -- exactly the header/value misalignment
+   reported. `position: relative` anchors the absolutely-positioned arrow below.
+
+   `::ng-deep` is required here, not just a nested-selector nicety: `.mat-sort-header-container`
+   is rendered by MatSortHeader, a child component with `ViewEncapsulation.None` -- it carries no
+   Angular content-scoping attribute at all. Angular's emulated encapsulation still appends
+   *this* component's scoping attribute to the compiled selector regardless, so a plain
+   `.statistics-table .mat-sort-header-container { ... }` rule silently never matches anything
+   (confirmed directly: computed `justify-content` stayed `normal` with that rule in place). */
+.statistics-table ::ng-deep .mat-sort-header-container {
+  justify-content: center;
+  position: relative;
+}
+
+/* Material always renders this arrow (see the component's own `_renderArrow()`: true whenever the
+   header isn't individually disabled, regardless of sort state). Left as a normal flex sibling of
+   the header text, centering the *pair* isn't the same as centering the text -- the arrow's own
+   width shifts the visible label off from where the (arrow-less) data cell below it is centered.
+   Taking it out of flex flow and pinning it to the cell's corner instead -- much closer to how
+   compact stat tables (e.g. Fangraphs) treat a sort indicator as a small badge rather than part
+   of the label -- means only the text participates in the centering above, and it lines up with
+   the data exactly. Needs `::ng-deep` for the same reason as `.mat-sort-header-container` above. */
+.statistics-table ::ng-deep .mat-sort-header-arrow {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
 }
 
 .statistics-table-total-row {

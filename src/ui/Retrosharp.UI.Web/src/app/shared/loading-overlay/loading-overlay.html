@@ -1,0 +1,8 @@
+<div class="loading-overlay-content" [attr.aria-busy]="active()">
+  <ng-content></ng-content>
+</div>
+@if (active()) {
+  <div class="loading-overlay-scrim">
+    <mat-spinner diameter="48"></mat-spinner>
+  </div>
+}

@@ -1,3 +1,22 @@
 .example-spacer {
   flex: 1 1 auto;
 }
+
+// Theme-reactive active-route highlight -- `secondary-container`/`on-secondary-container` are
+// M3's own semantic tokens for "a light tint of the theme's hue, with matching readable text,"
+// exactly this use case. Unlike a hardcoded brand hex, these are CSS custom properties that
+// Angular Material regenerates from theme-colors.scss's palettes -- so this stays correct if the
+// theme is ever re-seeded from a different primary color, and would automatically switch to the
+// dark-mode pairing (secondary tone 30 background / tone 90 text) the moment the app defines a
+// dark theme variant, with no change needed here.
+.nav-menu-active-link {
+  font-weight: 600;
+  background-color: var(--mat-sys-secondary-container);
+  // Overrides the mat-button label's own color token -- custom properties cascade through
+  // Angular's emulated view encapsulation, so this reaches the button's internal label span even
+  // though it isn't a direct child in the template. `!important` is required here: Angular
+  // Material's own MatToolbar styles set this same property globally (unencapsulated) on
+  // `.mat-toolbar .mat-mdc-button-base.mat-mdc-button-base.mat-unthemed`, which has higher CSS
+  // specificity than this single-class selector can reach on its own.
+  --mat-button-text-label-text-color: var(--mat-sys-on-secondary-container) !important;
+}

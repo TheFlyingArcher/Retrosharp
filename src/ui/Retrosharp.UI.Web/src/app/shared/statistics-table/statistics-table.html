@@ -2,13 +2,21 @@
   <div class="statistics-table-empty">{{ emptyMessage() }}</div>
 } @else {
   <div class="statistics-table-wrapper">
-    <table mat-table [dataSource]="sortedRows()" matSort (matSortChange)="onSortChange($event)" class="statistics-table">
+    <table
+      mat-table
+      [dataSource]="sortedRows()"
+      matSort
+      [matSortActive]="defaultSort()?.active ?? ''"
+      [matSortDirection]="defaultSort()?.direction ?? ''"
+      (matSortChange)="onSortChange($event)"
+      class="statistics-table"
+    >
       @for (column of columns(); track column.key; let i = $index) {
         <ng-container [matColumnDef]="column.key">
           <th mat-header-cell *matHeaderCellDef mat-sort-header [title]="column.tooltip ?? ''">
             {{ column.header }}
           </th>
-          <td mat-cell *matCellDef="let row">{{ column.value(row) }}</td>
+          <td mat-cell *matCellDef="let row" [title]="column.cellTooltip?.(row) ?? ''">{{ column.value(row) }}</td>
           @if (combinedTotal(); as total) {
             <td mat-footer-cell *matFooterCellDef>
               {{ i === 0 ? combinedTotalLabel() : column.value(total) }}

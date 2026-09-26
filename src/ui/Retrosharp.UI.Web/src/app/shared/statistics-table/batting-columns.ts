@@ -17,7 +17,11 @@ function average(value: number): string {
  */
 export const BATTING_COLUMNS: StatColumn<BattingLine>[] = [
   { key: 'year', header: 'Year', value: (r) => r.seasonYear ?? '', sortValue: (r) => r.seasonYear ?? -1 },
-  { key: 'team', header: 'Team(s)', value: (r) => r.franchiseName ?? '' },
+  // Retrosheet's own 3-letter team code (e.g. "SDN"), not the full franchise name -- a career
+  // with several team stints (e.g. Manny Machado: Orioles/Dodgers/Padres) otherwise makes this
+  // column wide enough on its own to force horizontal scrolling on every row, not just that
+  // player's. Same convention Baseball Reference/Fangraphs use; full name is a hover tooltip.
+  { key: 'team', header: 'Team(s)', value: (r) => r.franchiseCode ?? r.franchiseName ?? '', cellTooltip: (r) => r.franchiseName },
   { key: 'g', header: 'G', tooltip: 'Games Played', value: (r) => r.gamesPlayed },
   { key: 'gs', header: 'GS', tooltip: 'Games Started', value: (r) => r.gamesStarted },
   { key: 'ab', header: 'AB', tooltip: 'At Bats', value: (r) => r.atBats },

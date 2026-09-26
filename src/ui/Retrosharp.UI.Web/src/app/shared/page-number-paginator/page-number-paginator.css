@@ -1,0 +1,44 @@
+:host {
+  display: block;
+}
+
+.page-number-paginator {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 0.75rem;
+  row-gap: 0.5rem;
+}
+
+.page-number-paginator-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.page-number-paginator-ellipsis {
+  padding: 0 0.5rem;
+  color: var(--mat-sys-outline, #6b6b6b);
+}
+
+.page-number-paginator-extras {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.page-number-paginator-jump {
+  width: 6.5rem;
+}
+
+/* "Per page"'s label needs more room than "Go to page"'s despite being shorter text -- a
+   mat-select reserves internal space for its dropdown arrow that a plain matInput doesn't, which
+   narrows the space left for the notched-outline label. Measured directly against the rendered
+   field (see spec/frontend-ux-improvements.md, "Players Page: 'Per Page' Label Truncated"): the
+   label needs exactly 120px of field width before it stops clipping character-by-character
+   ("Per pa"); this adds a margin above that for cross-browser font-metric variance. */
+.page-number-paginator-size {
+  width: 9rem;
+}

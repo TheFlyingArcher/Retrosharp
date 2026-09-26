@@ -69,6 +69,59 @@ describe('StatisticsTable', () => {
     expect(component.sortedRows()[1].year).toBe(2022);
   });
 
+  it('applies defaultSort to row order and to the active sort-header arrow before any click', () => {
+    fixture.componentRef.setInput('columns', COLUMNS);
+    fixture.componentRef.setInput('rows', [
+      { year: 2022, hits: 150 },
+      { year: 2021, hits: 100 },
+    ]);
+    fixture.componentRef.setInput('combinedTotal', null);
+    fixture.componentRef.setInput('defaultSort', { active: 'year', direction: 'asc' });
+    fixture.detectChanges();
+
+    expect(component.sortedRows()[0].year).toBe(2021);
+    expect(component.sortedRows()[1].year).toBe(2022);
+
+    const yearHeader = fixture.debugElement.query(By.css('th.mat-mdc-header-cell'));
+    expect(yearHeader.nativeElement.getAttribute('aria-sort')).toBe('ascending');
+  });
+
+  it('lets an explicit sort change override defaultSort', () => {
+    fixture.componentRef.setInput('columns', COLUMNS);
+    fixture.componentRef.setInput('rows', [
+      { year: 2022, hits: 150 },
+      { year: 2021, hits: 100 },
+    ]);
+    fixture.componentRef.setInput('combinedTotal', null);
+    fixture.componentRef.setInput('defaultSort', { active: 'year', direction: 'asc' });
+    fixture.detectChanges();
+
+    component.onSortChange({ active: 'year', direction: 'desc' });
+    fixture.detectChanges();
+
+    expect(component.sortedRows()[0].year).toBe(2022);
+    expect(component.sortedRows()[1].year).toBe(2021);
+  });
+
+  it('renders a cell tooltip when the column defines one, and no title otherwise', () => {
+    // Reuses the shared `fixture`/`Row` from beforeEach (rather than creating a second component
+    // instance) -- this suite's zoneless change detection otherwise also flushes any other
+    // still-uninitialized fixture created in the same test, and the `beforeEach`-created one
+    // never gets its required inputs set except via `setInputs()`.
+    const columns: StatColumn<Row>[] = [
+      { key: 'year', header: 'Year', value: (r) => r.year, cellTooltip: (r) => `Year ${r.year}` },
+      { key: 'hits', header: 'H', value: (r) => r.hits },
+    ];
+    fixture.componentRef.setInput('columns', columns);
+    fixture.componentRef.setInput('rows', [{ year: 2021, hits: 100 }]);
+    fixture.componentRef.setInput('combinedTotal', null);
+    fixture.detectChanges();
+
+    const cells = fixture.debugElement.queryAll(By.css('td.mat-mdc-cell'));
+    expect(cells[0].nativeElement.getAttribute('title')).toBe('Year 2021');
+    expect(cells[1].nativeElement.getAttribute('title')).toBe('');
+  });
+
   it('pins the combined total as a footer row regardless of sort', () => {
     setInputs(
       [

@@ -1,0 +1,13 @@
+@use '@angular/material' as mat;
+
+.window .window-title {
+  color: var(--mat-sys-on-primary);
+  background-color: var(--mat-sys-primary);
+  border-top-left-radius: var(--mat-sys-corner-small);
+  border-top-right-radius: var(--mat-sys-corner-small);
+  padding: 0.25rem 0.25rem 0rem 0.25rem;
+}
+
+.window .window-content {
+  padding: 0.5rem;
+}

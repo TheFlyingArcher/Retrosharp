@@ -11,6 +11,10 @@ import { StatColumn } from './stat-column.model';
  *
  * An optional `combinedTotal` row is pinned as a footer row rather than participating in sorting,
  * since it should always stay visible regardless of how the caller has sorted the other rows.
+ *
+ * `defaultSort` sets the initial sort (both the row order and the active-column arrow) before the
+ * user has clicked any header; once they do, their choice takes over. Optional and baseball-
+ * agnostic, same as everything else here -- a caller with no natural default sort just omits it.
  */
 @Component({
   selector: 'app-statistics-table',
@@ -25,13 +29,14 @@ export class StatisticsTable<T> {
   readonly combinedTotal = input<T | null>(null);
   readonly combinedTotalLabel = input('Total');
   readonly emptyMessage = input('No statistics available.');
+  readonly defaultSort = input<Sort | null>(null);
 
   readonly displayedColumns = computed(() => this.columns().map((c) => c.key));
 
   private readonly sortState = signal<Sort | null>(null);
 
   readonly sortedRows = computed(() => {
-    const sort = this.sortState();
+    const sort = this.sortState() ?? this.defaultSort();
     const rows = this.rows();
     if (!sort || !sort.active || sort.direction === '') {
       return rows;

@@ -16,7 +16,9 @@ function fixed(value: number, digits: number): string {
  */
 export const PITCHING_COLUMNS: StatColumn<PitchingLine>[] = [
   { key: 'year', header: 'Year', value: (r) => r.seasonYear ?? '', sortValue: (r) => r.seasonYear ?? -1 },
-  { key: 'team', header: 'Team(s)', value: (r) => r.franchiseName ?? '' },
+  // See batting-columns.ts's identical "team" column for why this uses the 3-letter Retrosheet
+  // code rather than the full franchise name.
+  { key: 'team', header: 'Team(s)', value: (r) => r.franchiseCode ?? r.franchiseName ?? '', cellTooltip: (r) => r.franchiseName },
   { key: 'g', header: 'G', tooltip: 'Games Pitched', value: (r) => r.gamesPitched },
   { key: 'gs', header: 'GS', tooltip: 'Games Started', value: (r) => r.gamesStarted },
   { key: 'ip', header: 'IP', tooltip: 'Innings Pitched', value: (r) => r.inningsPitchedDisplay, sortValue: (r) => Number(r.inningsPitchedDisplay) },
