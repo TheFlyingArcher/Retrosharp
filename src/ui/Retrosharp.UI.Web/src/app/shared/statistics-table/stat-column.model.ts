@@ -16,4 +16,7 @@ export interface StatColumn<T> {
 
   /** Value used for sorting, if different from the display `value` (e.g. sort by raw date). */
   sortValue?: (row: T) => string | number;
+
+  /** Optional per-cell hover tooltip, e.g. a full franchise name behind an abbreviated code. */
+  cellTooltip?: (row: T) => string | null | undefined;
 }

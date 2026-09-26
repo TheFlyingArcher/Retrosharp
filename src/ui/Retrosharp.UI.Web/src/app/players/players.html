@@ -24,6 +24,18 @@
 </div>
 
 <div class="container players-results">
+  <div class="row">
+    <div class="col">
+      <app-page-number-paginator
+        [length]="totalCount()"
+        [pageIndex]="pageIndex()"
+        [pageSize]="pageSize()"
+        [pageSizeOptions]="pageSizeOptions"
+        (page)="onPage($event)"
+      ></app-page-number-paginator>
+    </div>
+  </div>
+
   @if (initialLoad() && loading()) {
     <div class="row">
       <div class="col players-spinner">

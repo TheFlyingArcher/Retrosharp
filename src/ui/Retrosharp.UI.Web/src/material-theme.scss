@@ -4,50 +4,91 @@
 // Learn more about theming and how to use it for your application's
 // custom components at https://material.angular.dev/guide/theming
 @use '@angular/material' as mat;
-// Custom palette generated from the brand primary color (#196DE6) via
-// `ng generate @angular/material:m3-theme --primary-color=#196DE6` -- see
+// Custom palettes, one per mode, each generated from its own seed color via
+// `ng generate @angular/material:m3-theme --primary-color=<hex>` -- see
 // spec/frontend-ux-improvements.md, "Theme Colors Not Appearing". Replaces the previous
 // mat.$azure-palette/mat.$blue-palette, which are two of Material's own predefined system
 // palettes and were never derived from this app's actual brand hex values at all.
-@use './theme-colors' as theme;
+//
+// Light: #196DE6. Dark: #082248 -- a separate seed rather than reusing the light hue, so dark
+// mode is its own deliberate palette instead of M3's automatic light-hue/dark-tone derivation.
+@use './theme-colors-light' as light-theme;
+@use './theme-colors-dark' as dark-theme;
 
-html {
-  height: 100%;
+// Applies the full theme (color + typography/density + our own component overrides) for one
+// mode. Factored out so the light/dark/system-preference blocks below don't each repeat the same
+// mat.theme()/mat.table-overrides()/mat.toolbar-overrides() calls with only the palette differing.
+// $toolbar-bg/$toolbar-text let each mode pick its own toolbar token pair rather than sharing one
+// -- see the call sites below for why light and dark deliberately differ here.
+@mixin _apply-theme($theme-type, $primary-palette, $tertiary-palette, $toolbar-bg, $toolbar-text) {
+  color-scheme: $theme-type;
   @include mat.theme(
     (
       color: (
-        primary: theme.$primary-palette,
-        tertiary: theme.$tertiary-palette,
+        theme-type: $theme-type,
+        primary: $primary-palette,
+        tertiary: $tertiary-palette,
       ),
       typography: Roboto,
       density: 0,
     )
   );
-  @include mat.system-classes();
   @include mat.table-overrides(( header-container-height: 36px, row-item-container-height: 36px, ));
   // M3 keeps the toolbar on neutral surface tokens by default, unlike M2's primary-colored app
-  // bars -- deliberately color it with the brand primary so the header actually reads as
-  // branded (see the spec section referenced above, point 2 of the Decision).
+  // bars -- deliberately color it instead so the header actually reads as branded (see
+  // spec/frontend-ux-improvements.md, "Theme Colors Not Appearing", decision 2).
   @include mat.toolbar-overrides(
     (
-      container-background-color: var(--mat-sys-primary),
-      container-text-color: var(--mat-sys-on-primary),
+      container-background-color: $toolbar-bg,
+      container-text-color: $toolbar-text,
     )
   );
 }
 
-body {
-  // Default the application to a light color theme. This can be changed to
-  // `dark` to enable the dark color theme, or to `light dark` to defer to the
-  // user's system settings.
-  color-scheme: light;
-  // Set a default background, font and text colors for the application using
-  // Angular Material's system-level CSS variables. Learn more about these
-  // variables at https://material.angular.dev/guide/system-variables
-  background: no-repeat center/cover var(--mat-sys-surface);
-  color: var(--mat-sys-on-surface);
-  font: var(--mat-sys-body-medium);
-  // Reset the user agent margin.
-  margin: 0;
+html {
   height: 100%;
+
+  // Light is the default/fallback: applies unconditionally, so it's what renders before any
+  // system-preference or manual-override rule below has a chance to apply. Uses the full-strength
+  // `primary`/`on-primary` pair -- confirmed against the actual brand color already.
+  @include _apply-theme(
+    light,
+    light-theme.$primary-palette,
+    light-theme.$tertiary-palette,
+    var(--mat-sys-primary),
+    var(--mat-sys-on-primary)
+  );
+  @include mat.system-classes();
 }
+
+// System-aware: follows the OS/browser's prefers-color-scheme automatically. Excluded via
+// `:not(.theme-light)` when the user has explicitly picked light mode (see ThemeService) --
+// without that guard, "OS is dark + user picked light" would have no rule that reliably wins,
+// since a plain class selector and this media-scoped selector can tie on specificity.
+@media (prefers-color-scheme: dark) {
+  html:not(.theme-light) {
+    @include _apply-theme(
+      dark,
+      dark-theme.$primary-palette,
+      dark-theme.$tertiary-palette,
+      var(--mat-sys-primary-container),
+      var(--mat-sys-on-primary-container)
+    );
+  }
+}
+
+// Manual override: forces dark regardless of OS preference (see ThemeService). `.theme-dark`
+// adds specificity over the plain `html` selector above, so this wins on its own -- no `:not()`
+// needed here the way the media-query rule above needs one against it.
+html.theme-dark {
+  @include _apply-theme(
+    dark,
+    dark-theme.$primary-palette,
+    dark-theme.$tertiary-palette,
+    var(--mat-sys-primary-container),
+    var(--mat-sys-on-primary-container)
+  );
+}
+
+// Note: the `body` background/text-color rule lives in styles.scss, not here -- see the comment
+// there for why (it has to load after Bootstrap's own conflicting `body` rule to win the cascade).

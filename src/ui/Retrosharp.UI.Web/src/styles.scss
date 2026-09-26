@@ -1,5 +1,21 @@
 @use "../node_modules/bootstrap/scss/bootstrap" as *;
 
+// Bootstrap's own reboot styles set a plain, unconditional `body { background-color: var(--bs-body-bg); color: var(--bs-body-color); }`
+// using its own CSS variables (defaulting to a hardcoded white/dark-gray pair, and never updated
+// for dark mode at all). material-theme.scss also targets plain `body {}` with the Material
+// system tokens -- same selector specificity, so whichever rule compiles LATER wins the cascade
+// tie. This rule has to live here, after the Bootstrap @use above, specifically so it comes after
+// Bootstrap's in the compiled stylesheet and actually wins; the same rule placed in
+// material-theme.scss (which loads before this file per angular.json's `styles` array) silently
+// lost to Bootstrap's, pinning the page to white regardless of the active theme.
+body {
+  background: no-repeat center/cover var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+  margin: 0;
+  height: 100%;
+}
+
 // Bootstrap's own $primary (its default link color) is unrelated to the Angular Material brand
 // palette configured in material-theme.scss -- without this, every plain <a> in the app (e.g. a
 // player name link in a table) shows Bootstrap's blue rather than the actual brand color. See

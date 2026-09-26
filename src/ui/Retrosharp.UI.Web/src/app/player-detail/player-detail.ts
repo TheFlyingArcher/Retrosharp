@@ -3,6 +3,7 @@ import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { forkJoin } from 'rxjs';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { Sort } from '@angular/material/sort';
 import { BATTING_COLUMNS } from '../shared/statistics-table/batting-columns';
 import { PITCHING_COLUMNS } from '../shared/statistics-table/pitching-columns';
 import { StatisticsTable } from '../shared/statistics-table/statistics-table';
@@ -42,6 +43,7 @@ export class PlayerDetail implements OnInit {
 
   readonly BATTING_COLUMNS = BATTING_COLUMNS;
   readonly PITCHING_COLUMNS = PITCHING_COLUMNS;
+  readonly DEFAULT_SORT: Sort = { active: 'year', direction: 'asc' };
 
   readonly player = signal<PlayerDetailModel | null>(null);
   readonly battingRows = signal<BattingLine[]>([]);
