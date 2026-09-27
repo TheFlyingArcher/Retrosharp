@@ -1,5 +1,7 @@
 # Retrosharp MVP Implementation Plan
 
+> **Superseded.** This was an early MVP plan that stopped at Step 5. Phase 1 was instead built from [spec/phase-1-build-plan.md](../spec/phase-1-build-plan.md), which is the authoritative record of what was built and in what order. This document is kept for history only. Parts of it no longer match the project, including SQL Server as the database (Retrosharp now runs on PostgreSQL 16), an admin controller for starting imports (imports now go through `PersonController`, `GameLogController`, and `GameEventController`), and the link to `progress.md` (which no longer exists). For the current architecture, see [architecture.md](./architecture.md).
+
 ## Overview
 This document outlines the complete implementation plan for the Retrosharp MVP (Minimum Viable Product) as defined by the initial acceptance criteria in the project specification.
 
