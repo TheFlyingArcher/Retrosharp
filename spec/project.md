@@ -21,11 +21,11 @@ The application provides a user-friendly interface for browsing and analyzing th
 
 ## Architecture
 
-Retrosharp is an n-tiered web application with standard data, service (business logic), and presentation layers with logical separations. Retrosharp is built with .NET 10 and C# 13.0, and it uses a SQL Server database for data storage. The application is designed to be modular and extensible, allowing for future enhancements and additional features. The Retrosharp ETL process is governed by a service bus using the NServiceBus library backed by RabbitMQ, so that processing Retrosheet datafiles is asynchronous, scalable, and provides detailed logging of the ETL process. The Retrosharp front end is an Angular 17 application that communicates with the backend via RESTful APIs. The application is designed to be responsive and accessible, ensuring a seamless user experience across different devices and screen sizes.
+Retrosharp is an n-tiered web application with standard data, service (business logic), and presentation layers with logical separations. Retrosharp is built with C# on .NET 10, and it uses a PostgreSQL 16 database for data storage. (The project originally targeted SQL Server and moved to PostgreSQL so it could self-host on ARM64 hardware such as a Raspberry Pi; see [phase-1-build-plan.md](./phase-1-build-plan.md) Step 8.) The application is designed to be modular and extensible, allowing for future enhancements and additional features. The Retrosharp ETL process is governed by a service bus using the NServiceBus library backed by RabbitMQ, so that processing Retrosheet datafiles is asynchronous, scalable, and provides detailed logging of the ETL process. The Retrosharp front end is an Angular 22 application that communicates with the backend via RESTful APIs. The application is designed to be responsive and accessible, ensuring a seamless user experience across different devices and screen sizes.
 
 ### Data Layer
 
-The data layer is responsible for managing the database and providing data access to the service layer. The data layer uses Entity Framework Core as the Object Relational Mapping (ORM) framework to interact with the SQL Server database.The data layer defines the database schema, relationships, and constraints using a code-first approach, ensuring that the database is created and maintained based on the application's data model. The data layer uses the repository pattern so that the service layer can interact with the database through a set of well-defined interfaces, promoting separation of concerns and testability. This also allows abstraction of the underlying database technology, making it easier to switch to a different database provider in the future if needed.
+The data layer is responsible for managing the database and providing data access to the service layer. The data layer uses Entity Framework Core as the Object Relational Mapping (ORM) framework to interact with the PostgreSQL database (via the Npgsql provider). The data layer defines the database schema, relationships, and constraints using a code-first approach, ensuring that the database is created and maintained based on the application's data model. The data layer uses the repository pattern so that the service layer can interact with the database through a set of well-defined interfaces, promoting separation of concerns and testability. This also allows abstraction of the underlying database technology, making it easier to switch to a different database provider in the future if needed.
 
 ### Data Import Pipeline
 
@@ -40,6 +40,8 @@ Retrosheet data is imported through a series of ETL parsers, each responsible fo
 
 Retrosheet distributes a full season's play-by-play as a per-season zip archive of team-season event files. The **Bulk Game Event Import** process extracts such an archive and orchestrates the existing Game Event Parser once per file, in configurable batches, with per-file status tracking and resumable reruns. It is orchestration over the Game Event Parser, not a new parser. See [bulk-import.md](./bulk-import.md).
 
+Each import saga downloads its own source archive from Retrosheet (the biofile, a season's game log zip, or a season's event zip), extracts it to a temporary working directory, and deletes it afterward, so an import is started by naming a season rather than supplying a file. See [retrosheet-auto-download.md](./retrosheet-auto-download.md).
+
 ## Deployable Components
 
 ### Retrosharp.Engine.Console
@@ -53,7 +55,7 @@ The API also handles authentication and authorization, ensuring that only author
 
 ### Retrosharp.UI.Web
 
-This is an Angular 17 application that serves as the front end for Retrosharp. The front end provides a user-friendly interface for browsing and analyzing baseball data and statistics.
+This is an Angular 22 application (with Angular Material and Bootstrap 5) that serves as the front end for Retrosharp. The front end provides a user-friendly interface for browsing and analyzing baseball data and statistics.
 
 ## Project Phases
 
@@ -61,7 +63,7 @@ This is an Angular 17 application that serves as the front end for Retrosharp. T
 
 This phase is to get a minimum viable product (MVP) of Retrosharp up and running. The MVP will include the following features:
 
-1. Database setup: The application should have a SQL Server database set up with the necessary tables and relationships to store Retrosheet data.
+1. Database setup: The application should have a PostgreSQL database set up with the necessary tables and relationships to store Retrosheet data.
 	1. Use a code-first approach with Entity Framework Core to define the database schema and relationships.
 	1. Use third normal form (3NF) to ensure data integrity and minimize redundancy wherever possible.
 1. Retrosheet data import: The application should be able to import Retrosheet data files, including game logs, player statistics, and team information.
