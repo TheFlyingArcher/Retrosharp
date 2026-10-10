@@ -1,0 +1,6 @@
+flow: fire
+version: 0.1.74
+installed_at: '2026-10-10T16:02:55.480Z'
+tools:
+  - claude
+  - copilot
