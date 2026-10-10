@@ -1,0 +1,17 @@
+project:
+  name: "Retrosharp"
+  description: "Web app for exploring historical baseball data from Retrosheet, with an NServiceBus import engine, ASP.NET Core API and Angular front end"
+  created: "2026-10-10T00:00:00Z"
+  fire_version: "0.1.8"
+
+workspace:
+  type: brownfield
+  structure: monolith
+  autonomy_bias: balanced
+  scanned_at: "2026-10-10T00:00:00Z"
+
+intents: []
+
+runs:
+  active: []
+  completed: []
