@@ -2,7 +2,7 @@
   <h2>Former names</h2>
   <p class="former-names-note">
     Every earlier name of today's franchises. A franchise keeps its history across name and city
-    changes, so each row shows the franchise it became.
+    changes, so each row shows the name it directly became.
   </p>
 
   <div class="row">
@@ -48,7 +48,7 @@
 
             <ng-container matColumnDef="became">
               <th mat-header-cell *matHeaderCellDef>Became</th>
-              <td mat-cell *matCellDef="let row">{{ row.currentName }}</td>
+              <td mat-cell *matCellDef="let row">{{ row.nextName }}</td>
             </ng-container>
 
             <ng-container matColumnDef="games">

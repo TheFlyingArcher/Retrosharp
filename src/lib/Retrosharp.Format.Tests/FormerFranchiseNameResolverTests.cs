@@ -36,7 +36,7 @@ namespace Retrosharp.Format.Tests
             new() { FranchiseId = franchiseId, SeasonYear = season, Wins = wins, Losses = losses, Ties = ties };
 
         [Fact]
-        public void Resolve_RenamedLineage_ListsOldNameWithCurrentNameAndRecord()
+        public void Resolve_RenamedLineage_ListsOldNameWithNextNameAndRecord()
         {
             var eras = new[]
             {
@@ -56,13 +56,33 @@ namespace Retrosharp.Format.Tests
             Assert.Equal("Montreal Expos", expos.Name);
             Assert.Equal("MON", expos.FranchiseCode);
             Assert.Equal(1, expos.FranchiseId);
-            Assert.Equal("Washington Nationals", expos.CurrentName);
-            Assert.Equal(2, expos.CurrentFranchiseId);
+            Assert.Equal("Washington Nationals", expos.NextName);
+            Assert.Equal(2, expos.NextFranchiseId);
             Assert.Equal(1969, expos.FirstSeasonYear);
             Assert.Equal(2004, expos.LastSeasonYear);
             Assert.Equal(135, expos.Wins); // current era's 81 wins are not included
             Assert.Equal(189, expos.Losses);
             Assert.Equal(324, expos.GamesPlayed);
+        }
+
+        [Fact]
+        public void Resolve_MultiNameLineage_EachNameBecomesItsImmediateSuccessor()
+        {
+            var eras = new[]
+            {
+                Era(1, "ANA", 1965, 1996, "California", "Angels"),
+                Era(2, "ANA", 1997, 2004, "Anaheim", "Angels"),
+                Era(3, "ANA", 2005, 2015, "Los Angeles", "Angels of Anaheim"),
+                Era(4, "ANA", 2016, null, "Los Angeles", "Angels")
+            };
+
+            var names = FormerFranchiseNameResolver.Resolve(eras, []);
+
+            Assert.Equal(3, names.Count);
+            Assert.Equal("Anaheim Angels", names.Single(n => n.Name == "California Angels").NextName);
+            Assert.Equal(2, names.Single(n => n.Name == "California Angels").NextFranchiseId);
+            Assert.Equal("Los Angeles Angels of Anaheim", names.Single(n => n.Name == "Anaheim Angels").NextName);
+            Assert.Equal("Los Angeles Angels", names.Single(n => n.Name == "Los Angeles Angels of Anaheim").NextName);
         }
 
         [Fact]
@@ -114,7 +134,7 @@ namespace Retrosharp.Format.Tests
             var names = FormerFranchiseNameResolver.Resolve(eras, []);
 
             Assert.Equal("Tampa Bay Devil Rays", Assert.Single(names).Name);
-            Assert.Equal("Tampa Bay Rays", names[0].CurrentName);
+            Assert.Equal("Tampa Bay Rays", names[0].NextName);
         }
 
         [Fact]
@@ -145,6 +165,9 @@ namespace Retrosharp.Format.Tests
             Assert.Equal(3, braves.FranchiseId); // most recent era of this name
             Assert.Equal(145, braves.Wins);
             Assert.Equal(161, braves.Losses);
+            Assert.Equal("Milwaukee Braves", braves.NextName); // follows the last Boston Braves era
+            Assert.Equal(4, braves.NextFranchiseId);
+            Assert.Equal("Boston Braves", Assert.Single(names, n => n.Name == "Boston Bees").NextName);
         }
 
         [Fact]
@@ -188,8 +211,8 @@ namespace Retrosharp.Format.Tests
             var names = FormerFranchiseNameResolver.Resolve(eras, []);
 
             Assert.Equal(2, names.Count);
-            Assert.Equal("Minnesota Twins", names.Single(n => n.FranchiseId == 1).CurrentName);
-            Assert.Equal("Texas Rangers", names.Single(n => n.FranchiseId == 3).CurrentName);
+            Assert.Equal("Minnesota Twins", names.Single(n => n.FranchiseId == 1).NextName);
+            Assert.Equal("Texas Rangers", names.Single(n => n.FranchiseId == 3).NextName);
         }
 
         [Fact]

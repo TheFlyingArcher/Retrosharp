@@ -33,14 +33,15 @@ namespace Retrosharp.Contract.Standing
         public short LastSeasonYear { get; set; }
 
         /// <summary>
-        /// The lineage's current (most recent) era's Franchise.Id.
+        /// The Franchise.Id of the era that directly followed this name's most recent era.
         /// </summary>
-        public int CurrentFranchiseId { get; set; }
+        public int NextFranchiseId { get; set; }
 
         /// <summary>
-        /// "FranchiseLocation Nickname" of the lineage's current era.
+        /// "FranchiseLocation Nickname" this name directly became, e.g. "Anaheim Angels" for
+        /// "California Angels" -- not necessarily the lineage's current name.
         /// </summary>
-        public string CurrentName { get; set; } = string.Empty;
+        public string NextName { get; set; } = string.Empty;
 
         public short GamesPlayed { get; set; }
 

@@ -16,9 +16,9 @@ namespace Retrosharp.UI.Api.Models
 
         public short LastSeasonYear { get; set; }
 
-        public int CurrentFranchiseId { get; set; }
+        public int NextFranchiseId { get; set; }
 
-        public string CurrentName { get; set; } = string.Empty;
+        public string NextName { get; set; } = string.Empty;
 
         public short GamesPlayed { get; set; }
 

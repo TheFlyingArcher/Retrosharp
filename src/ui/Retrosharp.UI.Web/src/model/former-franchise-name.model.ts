@@ -10,9 +10,9 @@ export interface FormerFranchiseName {
   name: string;
   firstSeasonYear: number;
   lastSeasonYear: number;
-  /** The lineage's current franchise id, for the "Became" link. */
-  currentFranchiseId: number;
-  currentName: string;
+  /** Franchise id of the era that directly followed this name, for the "Became" link. */
+  nextFranchiseId: number;
+  nextName: string;
   gamesPlayed: number;
   wins: number;
   losses: number;
