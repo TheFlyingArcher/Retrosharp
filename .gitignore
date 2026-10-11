@@ -89,3 +89,6 @@ docs/csv/*.ROS
 # Ignore it here in case someone points that at a path inside the repo.
 _bulk-import/
 retrosharp-import/
+
+# Angular cache and build artifacts
+.angular/cache/**
