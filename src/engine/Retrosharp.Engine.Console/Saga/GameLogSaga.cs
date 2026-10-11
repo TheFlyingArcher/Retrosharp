@@ -15,17 +15,20 @@ namespace Retrosharp.Engine.Console.Saga
     {
         private readonly ILogger<GameLogSaga> _logger;
         private readonly IGameLogImportService _gameLogImportService;
+        private readonly IStandingsService _standingsService;
         private readonly IRetrosheetArchiveClient _archiveClient;
         private readonly RetrosheetSourceConfiguration _source;
 
         public GameLogSaga(
             ILogger<GameLogSaga> logger,
             IGameLogImportService gameLogImportService,
+            IStandingsService standingsService,
             IRetrosheetArchiveClient archiveClient,
             RetrosheetSourceConfiguration source)
         {
             _logger = logger;
             _gameLogImportService = gameLogImportService;
+            _standingsService = standingsService;
             _archiveClient = archiveClient;
             _source = source;
         }
@@ -65,12 +68,20 @@ namespace Retrosharp.Engine.Console.Saga
                 // Retrying").
                 var result = await _gameLogImportService.ImportAsync(gameLogPath, message.SeasonYear);
 
+                // Final step: the Game rows are committed, so refresh the season's
+                // precomputed standings. Failure here is reported on GameLogComplete but
+                // deliberately never thrown -- see RecomputeStandingsAsync.
+                var standings = await RecomputeStandingsAsync(message.SeasonYear);
+
                 await context.SendLocal(new GameLogComplete
                 {
                     RequestId = message.RequestId,
                     SeasonYear = message.SeasonYear,
                     GamesAdded = result.GamesAdded,
-                    GamesSkipped = result.GamesSkipped
+                    GamesSkipped = result.GamesSkipped,
+                    StandingsRecomputed = standings.Recomputed,
+                    StandingsFranchiseCount = standings.FranchiseCount,
+                    StandingsError = standings.Error
                 });
             }
             finally
@@ -82,11 +93,40 @@ namespace Retrosharp.Engine.Console.Saga
             }
         }
 
+        /// <summary>
+        /// Recomputes the season's <c>FranchiseSeasonStanding</c> rows. The import itself has
+        /// already committed by now, so a standings error must not fail the message: letting it
+        /// propagate would retry (and re-download and re-parse) an import that succeeded, then
+        /// land it on the error queue, hiding a good import behind a derived-data problem.
+        /// Instead the error is logged and carried on <see cref="GameLogComplete"/>; standings
+        /// are idempotent and can be rebuilt with <c>POST /api/standings/compute?season=</c>.
+        /// Cancellation (host shutdown) is not swallowed, so the message is simply redelivered.
+        /// </summary>
+        private async Task<(bool Recomputed, int FranchiseCount, string? Error)> RecomputeStandingsAsync(int seasonYear)
+        {
+            try
+            {
+                var franchiseCount = await _standingsService.RecomputeSeasonAsync(checked((short)seasonYear));
+                _logger.LogInformation(
+                    "Recomputed standings for season {SeasonYear}: {FranchiseCount} franchise(s).",
+                    seasonYear, franchiseCount);
+                return (true, franchiseCount, null);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex,
+                    "Game Log for season {SeasonYear} imported, but recomputing its standings failed. Re-run POST /api/standings/compute?season={SeasonYear} to retry.",
+                    seasonYear, seasonYear);
+                return (false, 0, $"{ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         public Task Handle(GameLogComplete message, IMessageHandlerContext context)
         {
             _logger.LogInformation(
-                "Game Log import complete for season {SeasonYear}: {GamesAdded} added, {GamesSkipped} skipped.",
-                Data.SeasonYear, message.GamesAdded, message.GamesSkipped);
+                "Game Log import complete for season {SeasonYear}: {GamesAdded} added, {GamesSkipped} skipped; standings {StandingsOutcome}.",
+                Data.SeasonYear, message.GamesAdded, message.GamesSkipped,
+                message.StandingsRecomputed ? $"recomputed for {message.StandingsFranchiseCount} franchise(s)" : $"NOT recomputed ({message.StandingsError})");
 
             MarkAsComplete();
             return Task.CompletedTask;
