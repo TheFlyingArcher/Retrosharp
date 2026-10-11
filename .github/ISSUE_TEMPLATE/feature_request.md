@@ -1,3 +1,10 @@
+---
+name: Feature request
+about: Suggest a new feature or improvement
+title: "[Feature] "
+labels: enhancement
+---
+
 ## 🚀 Feature Description
 A clear and concise description of what the feature is and what problem it solves.
 

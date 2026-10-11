@@ -1,3 +1,10 @@
+---
+name: Bug report
+about: Report something that is broken or behaving unexpectedly
+title: "[Bug] "
+labels: bug
+---
+
 ## 🐛 Bug Description
 A clear and concise description of what the bug is. 
 
