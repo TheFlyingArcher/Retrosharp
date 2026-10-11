@@ -24,8 +24,11 @@ namespace Retrosharp.Engine.Console.Tests
             catch { /* best effort */ }
         }
 
-        private GameLogSaga CreateSaga(FakeGameLogImportService importService, FakeRetrosheetArchiveClient archiveClient) =>
-            new(NullLogger<GameLogSaga>.Instance, importService, archiveClient,
+        private GameLogSaga CreateSaga(
+            FakeGameLogImportService importService,
+            FakeRetrosheetArchiveClient archiveClient,
+            FakeStandingsService? standingsService = null) =>
+            new(NullLogger<GameLogSaga>.Instance, importService, standingsService ?? new FakeStandingsService(), archiveClient,
                 new RetrosheetSourceConfiguration { WorkingRoot = _workRoot })
             {
                 Data = new GameLogSagaData()
@@ -73,6 +76,90 @@ namespace Retrosharp.Engine.Console.Tests
             Assert.False(saga.Completed);
 
             Assert.False(Directory.Exists(Path.Combine(_workRoot, "gamelog", requestId.ToString("N"))));
+        }
+
+        [Fact]
+        public async Task Handle_Start_AfterImport_RecomputesStandingsForThatSeasonOnce()
+        {
+            var standingsService = new FakeStandingsService { FranchiseCountToReturn = 30 };
+            var saga = CreateSaga(new FakeGameLogImportService(), DownloadsRealArchive(2025), standingsService);
+            var context = new TestableMessageHandlerContext();
+
+            await saga.Handle(new GameLogStart { RequestId = Guid.NewGuid(), SeasonYear = 2025 }, context);
+
+            Assert.Equal(new short[] { 2025 }, standingsService.RecomputedSeasons);
+            var complete = Assert.IsType<GameLogComplete>(Assert.Single(context.SentMessages).Message);
+            Assert.True(complete.StandingsRecomputed);
+            Assert.Equal(30, complete.StandingsFranchiseCount);
+            Assert.Null(complete.StandingsError);
+        }
+
+        [Fact]
+        public async Task Handle_Start_NothingNewAdded_StillRecomputesStandings()
+        {
+            // A re-import that adds nothing must still refresh standings, so a season imported
+            // before auto-recompute existed gets fixed by simply re-running the import.
+            var importService = new FakeGameLogImportService
+            {
+                ResultToReturn = new GameLogImportResult { GamesAdded = 0, GamesSkipped = 2430 }
+            };
+            var standingsService = new FakeStandingsService();
+            var saga = CreateSaga(importService, DownloadsRealArchive(2025), standingsService);
+
+            await saga.Handle(new GameLogStart { RequestId = Guid.NewGuid(), SeasonYear = 2025 }, new TestableMessageHandlerContext());
+
+            Assert.Equal(new short[] { 2025 }, standingsService.RecomputedSeasons);
+        }
+
+        [Fact]
+        public async Task Handle_Start_StandingsRecomputeFails_ImportStillCompletesAndReportsError()
+        {
+            var requestId = Guid.NewGuid();
+            var importService = new FakeGameLogImportService
+            {
+                ResultToReturn = new GameLogImportResult { GamesAdded = 12, GamesSkipped = 3 }
+            };
+            var standingsService = new FakeStandingsService
+            {
+                ExceptionToThrow = new InvalidOperationException("standings table locked")
+            };
+            var saga = CreateSaga(importService, DownloadsRealArchive(2025), standingsService);
+            var context = new TestableMessageHandlerContext();
+
+            await saga.Handle(new GameLogStart { RequestId = requestId, SeasonYear = 2025 }, context);
+
+            var complete = Assert.IsType<GameLogComplete>(Assert.Single(context.SentMessages).Message);
+            Assert.Equal(12, complete.GamesAdded);
+            Assert.False(complete.StandingsRecomputed);
+            Assert.Equal(0, complete.StandingsFranchiseCount);
+            Assert.Contains("standings table locked", complete.StandingsError);
+            Assert.False(Directory.Exists(Path.Combine(_workRoot, "gamelog", requestId.ToString("N"))));
+        }
+
+        [Fact]
+        public async Task Handle_Start_StandingsRecomputeCancelled_Propagates()
+        {
+            var standingsService = new FakeStandingsService { ExceptionToThrow = new OperationCanceledException() };
+            var saga = CreateSaga(new FakeGameLogImportService(), DownloadsRealArchive(2025), standingsService);
+            var context = new TestableMessageHandlerContext();
+
+            await Assert.ThrowsAsync<OperationCanceledException>(() =>
+                saga.Handle(new GameLogStart { RequestId = Guid.NewGuid(), SeasonYear = 2025 }, context));
+
+            Assert.Empty(context.SentMessages);
+        }
+
+        [Fact]
+        public async Task Handle_Start_ImportThrows_DoesNotRecomputeStandings()
+        {
+            var standingsService = new FakeStandingsService();
+            var importService = new FakeGameLogImportService { ExceptionToThrow = new InvalidOperationException("bad row") };
+            var saga = CreateSaga(importService, DownloadsRealArchive(2025), standingsService);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                saga.Handle(new GameLogStart { RequestId = Guid.NewGuid(), SeasonYear = 2025 }, new TestableMessageHandlerContext()));
+
+            Assert.Empty(standingsService.RecomputedSeasons);
         }
 
         [Fact]
