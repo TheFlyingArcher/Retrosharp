@@ -44,3 +44,12 @@ export function formatAge(birthDate: string | null, asOf: Date): number | null {
 
   return age;
 }
+
+/**
+ * Games over .500 (wins minus losses) with an explicit sign: "+12" for a winning record, "-5" for
+ * a losing one, "0" for exactly .500.
+ */
+export function formatGamesOverFiveHundred(wins: number, losses: number): string {
+  const diff = wins - losses;
+  return diff > 0 ? `+${diff}` : `${diff}`;
+}

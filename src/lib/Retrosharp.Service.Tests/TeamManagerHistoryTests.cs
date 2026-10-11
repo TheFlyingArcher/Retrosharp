@@ -142,6 +142,7 @@ namespace Retrosharp.Service.Tests
             public Task<Game> GetByNaturalKeyAsync(DateTime gameDate, byte gameNumber, int homeFranchiseId, int visitorFranchiseId) => throw new NotImplementedException();
             public Task<(IEnumerable<Game> Items, int TotalCount)> SearchAsync(DateTime? date, short? season, int? franchiseId, int limit, int offset) => throw new NotImplementedException();
             public Task<IEnumerable<Game>> GetBySeasonAsync(short seasonYear) => throw new NotImplementedException();
+            public Task<IEnumerable<short>> GetSeasonYearsAsync() => throw new NotImplementedException();
         }
 
         private class FakePersonRepository : IPersonRepository

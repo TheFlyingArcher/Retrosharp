@@ -19,6 +19,13 @@ namespace Retrosharp.Service.Interface
         Task<int> RecomputeSeasonAsync(short seasonYear);
 
         /// <summary>
+        /// Recomputes standings (via <see cref="RecomputeSeasonAsync"/>) for every season that
+        /// has at least one imported <c>Game</c>, in ascending order.
+        /// </summary>
+        /// <returns>Each recomputed season with the number of franchises a standing was computed for.</returns>
+        Task<IReadOnlyList<(short SeasonYear, int FranchiseCount)>> RecomputeAllSeasonsAsync();
+
+        /// <summary>
         /// Gets one franchise's precomputed standing for one season, or null if it hasn't been
         /// computed (or the franchise didn't play that season).
         /// </summary>

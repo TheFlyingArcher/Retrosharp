@@ -21,6 +21,13 @@ namespace Retrosharp.Service.Interface
         /// </summary>
         Task<(IEnumerable<FranchiseCareerSummary> Items, int TotalCount)> GetAllTimeSummariesAsync(int limit, int offset);
 
+        /// <summary>
+        /// Gets every former name of every franchise lineage (each with its span and record under
+        /// that name and the current franchise it became), ordered by last season descending
+        /// then name, paginated. See spec/former-franchise-names.md.
+        /// </summary>
+        Task<(IEnumerable<FormerFranchiseName> Items, int TotalCount)> GetFormerNamesAsync(int limit, int offset);
+
         Task<Franchise> GetByIdAsync(int id);
 
         /// <summary>
