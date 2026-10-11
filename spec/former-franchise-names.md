@@ -92,3 +92,7 @@ Resolver unit tests: Expos listed with `CurrentName` "Washington Nationals"; Ath
 
 1. Order: last season descending (proposed) vs alphabetical (matches the current-franchise table) vs grouped by current franchise.
 2. Whether the table should offer a way to filter or group by current franchise, since 48 rows spread across 21 lineages.
+
+## Update (issue #16): "Became" is the immediate successor
+
+The original design stamped the lineage's current name on every row, which misrepresented multi-step lineages (California Angels -> Anaheim Angels -> ... -> Los Angeles Angels). `CurrentName`/`CurrentFranchiseId` were replaced by `NextName`/`NextFranchiseId`: the name of the era directly after a name's last era. For a recurring name (Boston Braves) the successor follows its last era.

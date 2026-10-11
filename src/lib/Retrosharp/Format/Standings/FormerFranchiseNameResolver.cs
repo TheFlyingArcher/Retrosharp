@@ -9,7 +9,8 @@ namespace Retrosharp.Format.Standings
     /// <summary>
     /// Derives every former name of every franchise lineage from the full set of franchise eras
     /// and precomputed season standings. A name is a distinct (FranchiseLocation, Nickname) pair
-    /// within one <see cref="Franchise.FranchiseIdentifier"/>; eras differing only by division,
+    /// within one <see cref="Franchise.FranchiseIdentifier"/>, linked to the name that directly
+    /// followed its last era; eras differing only by division,
     /// league or code share a name, and a name recurring after a gap is one name. Pure logic, no
     /// I/O -- sibling to <see cref="FranchiseCareerSummaryResolver"/>. See
     /// spec/former-franchise-names.md.
@@ -40,6 +41,7 @@ namespace Retrosharp.Format.Standings
                 {
                     var nameEras = group.ToList();
                     var last = nameEras[^1];
+                    var next = eras.Skip(eras.IndexOf(last) + 1).First(era => NameOf(era) != group.Key);
 
                     var nameStandings = nameEras
                         .SelectMany(era => standingsByFranchiseId.GetValueOrDefault(era.Id, []))
@@ -56,8 +58,8 @@ namespace Retrosharp.Format.Standings
                         Name = group.Key,
                         FirstSeasonYear = (short)nameEras[0].FranchiseStart.Year,
                         LastSeasonYear = (short)nameEras.Max(era => era.FranchiseEnd ?? era.FranchiseStart).Year,
-                        CurrentFranchiseId = current.Id,
-                        CurrentName = currentName,
+                        NextFranchiseId = next.Id,
+                        NextName = NameOf(next),
                         GamesPlayed = (short)(wins + losses + ties),
                         Wins = wins,
                         Losses = losses,

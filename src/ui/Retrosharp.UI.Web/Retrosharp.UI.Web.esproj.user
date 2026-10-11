@@ -7,7 +7,7 @@
   "type": "edge",
   "request": "launch",
   "url": "http://localhost:64632",
-  "webRoot": "D:\\Code\\TheFlyingArcher\\Retrosharp\\src\\ui\\Retrosharp.UI.Web"
+  "webRoot": "D:\\Code\\TheFlyingArcher\\Retrosharp\\.claude\\worktrees\\fix-16-former-franchise-lineage\\src\\ui\\Retrosharp.UI.Web"
 }</LaunchJsonTarget>
   </PropertyGroup>
 </Project>
