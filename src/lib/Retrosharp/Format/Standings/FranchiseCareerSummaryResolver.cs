@@ -46,10 +46,10 @@ namespace Retrosharp.Format.Standings
                 {
                     FranchiseId = current.Id,
                     FranchiseCode = current.FranchiseCode,
-                    CurrentName = $"{current.PlayingCity} {current.Nickname}",
+                    CurrentName = $"{current.FranchiseLocation} {current.Nickname}",
                     FormerNames = eras
                         .Take(eras.Count - 1)
-                        .Select(era => $"{era.PlayingCity} {era.Nickname}")
+                        .Select(era => $"{era.FranchiseLocation} {era.Nickname}")
                         .Distinct()
                         .ToList(),
                     FirstSeasonYear = (short)eras[0].FranchiseStart.Year,

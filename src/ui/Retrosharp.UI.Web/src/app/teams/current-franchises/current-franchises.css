@@ -1,0 +1,21 @@
+.current-franchises-note {
+  color: var(--mat-sys-outline, #6b6b6b);
+}
+
+.current-franchises-table-wrapper {
+  overflow-x: auto;
+}
+
+.current-franchises-table {
+  width: 100%;
+}
+
+.current-franchises-spinner {
+  display: flex;
+  justify-content: center;
+  padding: 2rem 0;
+}
+
+.current-franchises-error {
+  color: var(--mat-sys-error, #b3261e);
+}

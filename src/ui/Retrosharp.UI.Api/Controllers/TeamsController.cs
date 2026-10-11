@@ -55,6 +55,36 @@ namespace Retrosharp.UI.Api.Controllers
         }
 
         /// <summary>
+        /// Lists every former name of every franchise lineage, most recently used first. Backs
+        /// the Teams page's "Former names" table. See spec/former-franchise-names.md.
+        /// </summary>
+        [HttpGet("former-names")]
+        public async Task<ActionResult<PagedResult<FormerFranchiseNameLine>>> GetFormerNames(
+            [FromQuery] int limit = DefaultLimit,
+            [FromQuery] int offset = 0)
+        {
+            if (limit <= 0 || limit > MaxLimit)
+            {
+                return BadRequest($"limit must be between 1 and {MaxLimit}.");
+            }
+
+            if (offset < 0)
+            {
+                return BadRequest("offset must be non-negative.");
+            }
+
+            var (names, totalCount) = await _teamService.GetFormerNamesAsync(limit, offset);
+
+            return new PagedResult<FormerFranchiseNameLine>
+            {
+                Items = names.Adapt<IEnumerable<FormerFranchiseNameLine>>(),
+                TotalCount = totalCount,
+                Limit = limit,
+                Offset = offset
+            };
+        }
+
+        /// <summary>
         /// Searches teams by name/nickname/city and/or franchise code. Unlike player search,
         /// neither <paramref name="q"/> nor <paramref name="code"/> is required.
         /// </summary>

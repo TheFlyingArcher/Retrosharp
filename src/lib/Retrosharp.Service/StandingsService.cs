@@ -43,6 +43,19 @@ namespace Retrosharp.Service
             return standings.Count;
         }
 
+        public async Task<IReadOnlyList<(short SeasonYear, int FranchiseCount)>> RecomputeAllSeasonsAsync()
+        {
+            var seasonYears = (await _gameRepository.GetSeasonYearsAsync()).ToList();
+
+            var results = new List<(short SeasonYear, int FranchiseCount)>();
+            foreach (var seasonYear in seasonYears)
+            {
+                results.Add((seasonYear, await RecomputeSeasonAsync(seasonYear)));
+            }
+
+            return results;
+        }
+
         public Task<FranchiseSeasonStanding> GetByFranchiseSeasonAsync(int franchiseId, short seasonYear) =>
             _standingRepository.GetByFranchiseSeasonAsync(franchiseId, seasonYear);
 

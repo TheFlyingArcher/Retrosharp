@@ -34,5 +34,21 @@ namespace Retrosharp.UI.Api.Controllers
 
             return new StandingsComputeResult { SeasonYear = season, FranchiseCount = franchiseCount };
         }
+
+        /// <summary>
+        /// Recomputes standings for every season that has imported Game rows. Same idempotent,
+        /// replace-wholesale behavior as <see cref="Compute"/>, applied to each season in turn.
+        /// </summary>
+        [HttpPost("compute-all")]
+        public async Task<ActionResult<IEnumerable<StandingsComputeResult>>> ComputeAll()
+        {
+            var results = await _standingsService.RecomputeAllSeasonsAsync();
+
+            return Ok(results.Select(r => new StandingsComputeResult
+            {
+                SeasonYear = r.SeasonYear,
+                FranchiseCount = r.FranchiseCount
+            }));
+        }
     }
 }

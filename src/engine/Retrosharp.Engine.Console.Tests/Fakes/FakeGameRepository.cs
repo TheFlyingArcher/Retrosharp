@@ -16,6 +16,8 @@ namespace Retrosharp.Engine.Console.Tests.Fakes
         public Task<IEnumerable<Game>> GetBySeasonAsync(short seasonYear) =>
             Task.FromResult<IEnumerable<Game>>(GamesBySeason);
 
+        public Task<IEnumerable<short>> GetSeasonYearsAsync() => throw new NotImplementedException();
+
         public Task<Game> CreateAsync(Game entity) => throw new NotImplementedException();
         public Task<IEnumerable<Game>> GetAllAsync() => throw new NotImplementedException();
         public Task<Game> GetByIdAsync(int id) => throw new NotImplementedException();

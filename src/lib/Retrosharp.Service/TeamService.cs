@@ -53,6 +53,21 @@ namespace Retrosharp.Service
             return (page, summaries.Count);
         }
 
+        public async Task<(IEnumerable<FormerFranchiseName> Items, int TotalCount)> GetFormerNamesAsync(int limit, int offset)
+        {
+            var franchiseEras = (await _franchiseRepository.GetAllAsync()).ToList();
+            var standings = (await _standingRepository.GetAllAsync()).ToList();
+
+            var formerNames = FormerFranchiseNameResolver.Resolve(franchiseEras, standings)
+                .OrderByDescending(n => n.LastSeasonYear)
+                .ThenBy(n => n.Name)
+                .ToList();
+
+            var page = formerNames.Skip(offset).Take(limit).ToList();
+
+            return (page, formerNames.Count);
+        }
+
         public Task<Franchise> GetByIdAsync(int id) => _franchiseRepository.GetByIdAsync(id);
 
         public async Task<IEnumerable<Person>> GetRosterAsync(int franchiseId, short? season)

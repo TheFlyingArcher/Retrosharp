@@ -1,0 +1,25 @@
+.former-names {
+  margin-top: 1.5rem;
+}
+
+.former-names-note {
+  color: var(--mat-sys-outline, #6b6b6b);
+}
+
+.former-names-table-wrapper {
+  overflow-x: auto;
+}
+
+.former-names-table {
+  width: 100%;
+}
+
+.former-names-spinner {
+  display: flex;
+  justify-content: center;
+  padding: 2rem 0;
+}
+
+.former-names-error {
+  color: var(--mat-sys-error, #b3261e);
+}

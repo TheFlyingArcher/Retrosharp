@@ -18,12 +18,12 @@ namespace Retrosharp.Contract.Standing
         public string FranchiseCode { get; set; } = string.Empty;
 
         /// <summary>
-        /// "PlayingCity Nickname" as of the most recent era.
+        /// "FranchiseLocation Nickname" as of the most recent era.
         /// </summary>
         public string CurrentName { get; set; } = string.Empty;
 
         /// <summary>
-        /// "PlayingCity Nickname" for every earlier era, oldest first. Empty if this lineage has
+        /// "FranchiseLocation Nickname" for every earlier era, oldest first. Empty if this lineage has
         /// only ever had one era.
         /// </summary>
         public IReadOnlyList<string> FormerNames { get; set; } = Array.Empty<string>();

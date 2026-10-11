@@ -73,5 +73,11 @@ namespace Retrosharp.Data
         /// spec/frontend-prototype.md's "Resolved: Standings Derivation" note.
         /// </summary>
         Task<IEnumerable<Game>> GetBySeasonAsync(short seasonYear);
+
+        /// <summary>
+        /// Retrieves every distinct season year that has at least one imported game, ascending.
+        /// Used to recompute standings for every imported season in one call.
+        /// </summary>
+        Task<IEnumerable<short>> GetSeasonYearsAsync();
     }
 }

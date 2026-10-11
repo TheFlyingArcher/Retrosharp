@@ -19,7 +19,7 @@ namespace Retrosharp.Format.Tests
                 FranchiseIdentifier = identifier,
                 FranchiseStart = start,
                 FranchiseCode = code,
-                PlayingCity = city,
+                FranchiseLocation = city,
                 Nickname = nickname
             };
 
@@ -64,6 +64,25 @@ namespace Retrosharp.Format.Tests
 
             Assert.Empty(summary.FormerNames);
             Assert.Equal("San Diego Padres", summary.CurrentName);
+        }
+
+        [Fact]
+        public void Resolve_NamesUseFranchiseLocationNotPlayingCity()
+        {
+            // The Rockies play in Denver and the Rangers in Arlington, but their names are
+            // "Colorado Rockies" and "Texas Rangers".
+            var rockies = Era(1, "COL", new DateTime(1993, 1, 1), "Colorado", "Rockies");
+            rockies.PlayingCity = "Denver";
+            var rangers = Era(2, "TEX", new DateTime(1961, 1, 1), "Washington", "Senators");
+            rangers.PlayingCity = "Washington";
+            var rangersCurrent = Era(3, "TEX", new DateTime(1972, 1, 1), "Texas", "Rangers");
+            rangersCurrent.PlayingCity = "Arlington";
+
+            var summaries = FranchiseCareerSummaryResolver.Resolve(new[] { rockies, rangers, rangersCurrent }, []);
+
+            Assert.Contains(summaries, s => s.CurrentName == "Colorado Rockies");
+            var texas = summaries.Single(s => s.CurrentName == "Texas Rangers");
+            Assert.Equal(new[] { "Washington Senators" }, texas.FormerNames);
         }
 
         [Fact]
